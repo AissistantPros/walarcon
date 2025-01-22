@@ -15,6 +15,13 @@ ELEVEN_LABS_VOICE_ID = config("ELEVEN_LABS_VOICE_ID")  # ID de la voz selecciona
 
 app = FastAPI()
 
+
+@app.get("/")
+def read_root():
+    return {"message": "El servicio está funcionando correctamente"}
+
+
+
 # 1. Función para obtener el saludo dinámico según la hora en Cancún
 def get_greeting():
     """
