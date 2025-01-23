@@ -134,6 +134,12 @@ def generate_openai_response(prompt):
         print("Error generando respuesta con OpenAI:", e)
         return "Lo siento, hubo un error procesando tu solicitud."
 
+
+
+
+
+
+
 # **SECCIÓN 5: Generar audio con Eleven Labs**
 def generate_audio_with_eleven_labs(text):
     """
@@ -170,15 +176,30 @@ def generate_audio_with_eleven_labs(text):
             }
         }
         response = requests.post(url, json=payload, headers=headers)
+
+        # Log para depurar la respuesta
+        print("Respuesta de Eleven Labs:", response.status_code, response.text)
+
         if response.status_code == 200:
             audio_url = response.json().get("audio_url")
             return audio_url
         else:
-            print(f"Error al generar audio: {response.status_code}, {response.text}")
             return None
     except Exception as e:
         print("Error generando audio con Eleven Labs:", e)
         return None
+
+
+
+
+
+
+
+
+
+
+
+
 
 # **SECCIÓN 6: Endpoint para consultar información desde Google Sheets**
 @app.get("/consultar-informacion")
