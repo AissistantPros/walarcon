@@ -31,36 +31,57 @@ def read_root():
     """
     return {"message": "El servicio está funcionando correctamente"}
 
+
+
+
+
+
 # **SECCIÓN 3: Manejar llamadas desde Twilio**
 @app.post("/twilio-call")
 async def handle_call(request: Request):
     """
-    Maneja las solicitudes de Twilio para procesar las transcripciones de audio.
+    Maneja las solicitudes de Twilio para procesar llamadas.
 
     Flujo:
-        1. Recibe el texto transcrito por Twilio.
-        2. Valida si el texto cumple con los criterios mínimos.
-        3. Genera un saludo dinámico según la hora.
-        4. Convierte el texto en audio usando Eleven Labs.
-        5. Responde con el audio generado.
+        1. Si no hay input del usuario (inicio de la llamada), responde con un saludo predeterminado.
+        2. Genera el saludo en audio usando ElevenLabs.
+        3. Responde con el audio generado.
 
     Respuesta:
-        Si el texto no es válido, informa al usuario.
+        Siempre inicia con un saludo predefinido en audio generado por ElevenLabs.
     """
     try:
+        # Parsear datos enviados por Twilio
         data = await request.form()
-        user_input = data.get("SpeechResult")  # Texto recibido desde Twilio
+        print("Datos recibidos desde Twilio:", data)  # Log para depuración
 
+        # Verificar si es el inicio de la llamada (sin SpeechResult)
+        user_input = data.get("SpeechResult")
         if not user_input:
+            # Mensaje predeterminado para inicio de la llamada
+            response_text = "Buenas noches, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudar?"
+
+            # Generar audio con ElevenLabs
+            audio_url = generate_audio_with_eleven_labs(response_text)
+
+            if not audio_url:
+                # Si falla la generación de audio, responder con texto
+                return Response(
+                    content="<Response><Say>Hubo un problema al generar el audio. Por favor, intenta más tarde.</Say></Response>",
+                    media_type="text/xml"
+                )
+
+            # Responder con el audio generado
             return Response(
-                content="<Response><Say>No se pudo procesar la solicitud.</Say></Response>",
+                content=f"<Response><Play>{audio_url}</Play></Response>",
                 media_type="text/xml"
             )
 
-        greeting = "Hola, buenos días" if get_cancun_time().hour < 12 else "Hola, buenas tardes"
-        response_text = f"{greeting}. Consultorio del Doctor Wilfrido Alarcón. {user_input}. ¿En qué puedo ayudarte?"
+        # En caso de recibir un SpeechResult (ciclo posterior)
+        greeting = "Buenas noches" if get_cancun_time().hour >= 18 else "Buen día"
+        response_text = f"{greeting}, Consultorio del Doctor Wilfrido Alarcón. {user_input}. ¿En qué puedo ayudarte?"
 
-        # Convierte el texto en audio
+        # Generar respuesta dinámica en audio
         audio_url = generate_audio_with_eleven_labs(response_text)
 
         if not audio_url:
@@ -73,12 +94,20 @@ async def handle_call(request: Request):
             content=f"<Response><Play>{audio_url}</Play></Response>",
             media_type="text/xml"
         )
+
     except Exception as e:
         print("Error manejando la llamada desde Twilio:", e)
         return Response(
             content="<Response><Say>Hubo un error procesando tu solicitud.</Say></Response>",
             media_type="text/xml"
         )
+
+
+
+
+
+
+
 
 
 # **SECCIÓN 4: Modulo de OpenAI**
