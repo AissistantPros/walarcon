@@ -72,6 +72,7 @@ async def handle_call(request: Request):
                 )
 
             # Responder con el audio generado
+            print("Enviando URL de audio a Twilio:", audio_url)
             return Response(
                 content=f"<Response><Play>{audio_url}</Play></Response>",
                 media_type="text/xml"
@@ -179,6 +180,11 @@ def generate_audio_with_eleven_labs(text):
 
         # Log para depurar la respuesta
         print("Respuesta de Eleven Labs:", response.status_code, response.text)
+        if response.status_code == 200:
+    audio_url = response.json().get("audio_url")
+    print("URL del audio generado:", audio_url)  # Log para verificar la URL
+    return audio_url
+
 
         if response.status_code == 200:
             audio_url = response.json().get("audio_url")
