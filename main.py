@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse, JSONResponse, XMLResponse
+from fastapi.responses import JSONResponse, Response
 from decouple import config
 from utils import get_cancun_time
 from datetime import datetime
@@ -52,8 +52,8 @@ async def handle_call(request: Request):
         user_input = data.get("SpeechResult")  # Texto recibido desde Twilio
 
         if not user_input:
-            return PlainTextResponse(
-                "<Response><Say>No se pudo procesar la solicitud.</Say></Response>",
+            return Response(
+                content="<Response><Say>No se pudo procesar la solicitud.</Say></Response>",
                 media_type="text/xml"
             )
 
@@ -64,21 +64,22 @@ async def handle_call(request: Request):
         audio_url = generate_audio_with_eleven_labs(response_text)
 
         if not audio_url:
-            return PlainTextResponse(
-                "<Response><Say>Hubo un problema al generar la respuesta. Por favor, intenta más tarde.</Say></Response>",
+            return Response(
+                content="<Response><Say>Hubo un problema al generar la respuesta. Por favor, intenta más tarde.</Say></Response>",
                 media_type="text/xml"
             )
 
-        return PlainTextResponse(
-            f"<Response><Play>{audio_url}</Play></Response>",
+        return Response(
+            content=f"<Response><Play>{audio_url}</Play></Response>",
             media_type="text/xml"
         )
     except Exception as e:
         print("Error manejando la llamada desde Twilio:", e)
-        return PlainTextResponse(
-            "<Response><Say>Hubo un error procesando tu solicitud.</Say></Response>",
+        return Response(
+            content="<Response><Say>Hubo un error procesando tu solicitud.</Say></Response>",
             media_type="text/xml"
         )
+
 
 # **SECCIÓN 4: Modulo de OpenAI**
 def generate_openai_response(prompt):
