@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, XMLResponse
 from decouple import config
 from utils import get_cancun_time
 from datetime import datetime
@@ -31,7 +31,126 @@ def read_root():
     """
     return {"message": "El servicio está funcionando correctamente"}
 
-# **SECCIÓN 3: Endpoint para consultar información desde Google Sheets**
+# **SECCIÓN 3: Manejar llamadas desde Twilio**
+@app.post("/twilio-call")
+async def handle_call(request: Request):
+    """
+    Maneja las solicitudes de Twilio para procesar las transcripciones de audio.
+
+    Flujo:
+        1. Recibe el texto transcrito por Twilio.
+        2. Valida si el texto cumple con los criterios mínimos.
+        3. Genera un saludo dinámico según la hora.
+        4. Convierte el texto en audio usando Eleven Labs.
+        5. Responde con el audio generado.
+
+    Respuesta:
+        Si el texto no es válido, informa al usuario.
+    """
+    try:
+        data = await request.form()
+        user_input = data.get("SpeechResult")  # Texto recibido desde Twilio
+
+        if not user_input:
+            return PlainTextResponse(
+                "<Response><Say>No se pudo procesar la solicitud.</Say></Response>",
+                media_type="text/xml"
+            )
+
+        greeting = "Hola, buenos días" if get_cancun_time().hour < 12 else "Hola, buenas tardes"
+        response_text = f"{greeting}. Consultorio del Doctor Wilfrido Alarcón. {user_input}. ¿En qué puedo ayudarte?"
+
+        # Convierte el texto en audio
+        audio_url = generate_audio_with_eleven_labs(response_text)
+
+        if not audio_url:
+            return PlainTextResponse(
+                "<Response><Say>Hubo un problema al generar la respuesta. Por favor, intenta más tarde.</Say></Response>",
+                media_type="text/xml"
+            )
+
+        return PlainTextResponse(
+            f"<Response><Play>{audio_url}</Play></Response>",
+            media_type="text/xml"
+        )
+    except Exception as e:
+        print("Error manejando la llamada desde Twilio:", e)
+        return PlainTextResponse(
+            "<Response><Say>Hubo un error procesando tu solicitud.</Say></Response>",
+            media_type="text/xml"
+        )
+
+# **SECCIÓN 4: Modulo de OpenAI**
+def generate_openai_response(prompt):
+    """
+    Genera una respuesta usando OpenAI a partir de un prompt.
+
+    Parámetros:
+        prompt (str): Prompt o mensaje de entrada para OpenAI.
+
+    Retorna:
+        str: Respuesta generada por OpenAI.
+    """
+    try:
+        openai.api_key = CHATGPT_SECRET_KEY
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=prompt,
+            max_tokens=150,
+            temperature=0.7,
+        )
+        return response["choices"][0]["text"].strip()
+    except Exception as e:
+        print("Error generando respuesta con OpenAI:", e)
+        return "Lo siento, hubo un error procesando tu solicitud."
+
+# **SECCIÓN 5: Generar audio con Eleven Labs**
+def generate_audio_with_eleven_labs(text):
+    """
+    Convierte un texto en un archivo de audio usando Eleven Labs.
+
+    Parámetros:
+        text (str): Texto que se convertirá en audio.
+
+    Configuración:
+        - stability: Controla qué tan estable suena la voz (0.0 a 1.0).
+        - similarity_boost: Mejora la emoción y consistencia (0.0 a 1.0).
+        - speed: Velocidad del habla (0.5 a 2.0).
+        - pitch: Tono de la voz (-2.0 a 2.0).
+
+    NOTA:
+        - Puedes ajustar estos parámetros para personalizar la voz según las necesidades.
+
+    Retorna:
+        str: URL del archivo de audio generado, o None si hay un error.
+    """
+    try:
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}"
+        headers = {
+            "xi-api-key": ELEVEN_LABS_API_KEY,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "text": text,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "speed": 1.0,
+                "pitch": 0.0
+            }
+        }
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            audio_url = response.json().get("audio_url")
+            return audio_url
+        else:
+            print(f"Error al generar audio: {response.status_code}, {response.text}")
+            return None
+    except Exception as e:
+        print("Error generando audio con Eleven Labs:", e)
+        return None
+
+# **SECCIÓN 6: Endpoint para consultar información desde Google Sheets**
 @app.get("/consultar-informacion")
 def consultar_informacion():
     """
@@ -43,7 +162,22 @@ def consultar_informacion():
     except Exception as e:
         return JSONResponse({"error": "Error al consultar la información", "details": str(e)}, status_code=500)
 
-# **SECCIÓN 4: Endpoint para crear citas**
+# **SECCIÓN 7: Endpoint para buscar el próximo slot disponible**
+@app.get("/buscar-slot")
+def buscar_slot():
+    """
+    Endpoint para buscar el próximo horario disponible en Google Calendar.
+    """
+    try:
+        slot = find_next_available_slot()
+        if slot:
+            return JSONResponse({"message": "Slot disponible encontrado", "slot": slot})
+        else:
+            return JSONResponse({"message": "No se encontraron horarios disponibles"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"error": "Error al buscar el slot disponible"}, status_code=500)
+
+# **SECCIÓN 8: Endpoint para crear citas**
 @app.post("/crear-cita")
 async def crear_cita(request: Request):
     """
@@ -84,8 +218,7 @@ async def crear_cita(request: Request):
         print("Error al crear la cita:", e)  # LOG: Mostrar el error exacto
         return JSONResponse({"error": "Error al crear la cita", "details": str(e)}, status_code=500)
 
-
-# **SECCIÓN 5: Endpoint para editar citas**
+# **SECCIÓN 9: Endpoint para editar citas**
 @app.put("/editar-cita")
 async def editar_cita(request: Request):
     """
@@ -110,7 +243,7 @@ async def editar_cita(request: Request):
     except Exception as e:
         return JSONResponse({"error": "Error al editar la cita"}, status_code=500)
 
-# **SECCIÓN 6: Endpoint para eliminar citas**
+# **SECCIÓN 10: Endpoint para eliminar citas**
 @app.delete("/eliminar-cita")
 async def eliminar_cita(request: Request):
     """
@@ -128,18 +261,3 @@ async def eliminar_cita(request: Request):
         return JSONResponse({"error": str(e)}, status_code=400)
     except Exception as e:
         return JSONResponse({"error": "Error al eliminar la cita"}, status_code=500)
-
-# **SECCIÓN 7: Endpoint para buscar el próximo slot disponible**
-@app.get("/buscar-slot")
-def buscar_slot():
-    """
-    Endpoint para buscar el próximo horario disponible en Google Calendar.
-    """
-    try:
-        slot = find_next_available_slot()
-        if slot:
-            return JSONResponse({"message": "Slot disponible encontrado", "slot": slot})
-        else:
-            return JSONResponse({"message": "No se encontraron horarios disponibles"}, status_code=404)
-    except Exception as e:
-        return JSONResponse({"error": "Error al buscar el slot disponible"}, status_code=500)
