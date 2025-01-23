@@ -143,7 +143,37 @@ def generate_openai_response(prompt):
 
 # **SECCIÓN 5: Generar audio con Eleven Labs**
 def generate_audio_with_eleven_labs(text):
-    """
+    try:
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}"
+        headers = {
+            "xi-api-key": ELEVEN_LABS_API_KEY,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "text": text,
+            "voice_settings": {
+                "stability": 1,0,
+                "similarity_boost": 0.75,
+                "speed": 1.0,
+                "pitch": 0.0
+            }
+        }
+        response = requests.post(url, json=payload, headers=headers)
+
+        # Log para depurar la respuesta
+        print("Respuesta de Eleven Labs:", response.status_code, response.text)
+
+        if response.status_code == 200:
+            audio_url = response.json().get("audio_url")
+            print("URL del audio generado:", audio_url)  # Log para verificar la URL
+            return audio_url
+        else:
+            return None
+    except Exception as e:
+        print("Error generando audio con Eleven Labs:", e)
+        return None
+ 
+"""
     Convierte un texto en un archivo de audio usando Eleven Labs.
 
     Parámetros:
@@ -161,40 +191,6 @@ def generate_audio_with_eleven_labs(text):
     Retorna:
         str: URL del archivo de audio generado, o None si hay un error.
     """
-    try:
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}"
-        headers = {
-            "xi-api-key": ELEVEN_LABS_API_KEY,
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "text": text,
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75,
-                "speed": 1.0,
-                "pitch": 0.0
-            }
-        }
-        response = requests.post(url, json=payload, headers=headers)
-
-        # Log para depurar la respuesta
-        print("Respuesta de Eleven Labs:", response.status_code, response.text)
-        if response.status_code == 200:
-    audio_url = response.json().get("audio_url")
-    print("URL del audio generado:", audio_url)  # Log para verificar la URL
-    return audio_url
-
-
-        if response.status_code == 200:
-            audio_url = response.json().get("audio_url")
-            return audio_url
-        else:
-            return None
-    except Exception as e:
-        print("Error generando audio con Eleven Labs:", e)
-        return None
-
 
 
 
