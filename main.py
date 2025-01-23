@@ -50,20 +50,40 @@ async def crear_cita(request: Request):
     Endpoint para crear una nueva cita en Google Calendar.
     """
     try:
+        # Obtener datos enviados en la solicitud
         data = await request.json()
+        print("Datos recibidos:", data)  # LOG: Mostrar los datos recibidos en los logs
+
         name = data.get("name")
         phone = data.get("phone")
         reason = data.get("reason", "No especificado")
-        start_time = datetime.fromisoformat(data.get("start_time"))
-        end_time = datetime.fromisoformat(data.get("end_time"))
+        start_time = data.get("start_time")
+        end_time = data.get("end_time")
+
+        # Validar campos obligatorios
+        if not name or not phone:
+            raise ValueError("Los campos 'name' y 'phone' son obligatorios.")
+        if len(phone) != 10 or not phone.isdigit():
+            raise ValueError("El campo 'phone' debe ser un número de 10 dígitos.")
+        if not start_time or not end_time:
+            raise ValueError("Los campos 'start_time' y 'end_time' son obligatorios y deben estar en formato ISO.")
+
+        # Convertir fechas a formato datetime
+        start_time = datetime.fromisoformat(start_time)
+        end_time = datetime.fromisoformat(end_time)
+
+        print("Creando evento con:", name, phone, reason, start_time, end_time)  # LOG: Mostrar datos procesados
 
         # Crear cita en Google Calendar
         event = create_calendar_event(name, phone, reason, start_time, end_time)
         return JSONResponse({"message": "Cita creada con éxito", "event": event})
     except ValueError as e:
+        print("Error de validación:", e)  # LOG: Mostrar errores de validación
         return JSONResponse({"error": str(e)}, status_code=400)
     except Exception as e:
-        return JSONResponse({"error": "Error al crear la cita"}, status_code=500)
+        print("Error al crear la cita:", e)  # LOG: Mostrar el error exacto
+        return JSONResponse({"error": "Error al crear la cita", "details": str(e)}, status_code=500)
+
 
 # **SECCIÓN 5: Endpoint para editar citas**
 @app.put("/editar-cita")
