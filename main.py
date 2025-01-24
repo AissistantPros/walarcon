@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from decouple import config
 from utils import get_cancun_time
 from datetime import datetime
@@ -11,6 +11,9 @@ from buscarslot import find_next_available_slot
 from consultarinfo import read_sheet_data
 import requests
 import openai
+from elevenlabs import ElevenLabs, VoiceSettings
+import os
+import io
 
 # **SECCIÓN 1: Configuración del sistema**
 CHATGPT_SECRET_KEY = config("CHATGPT_SECRET_KEY")
@@ -53,7 +56,7 @@ async def handle_call(request: Request):
     try:
         # Parsear datos enviados por Twilio
         data = await request.form()
-        print("Datos recibidos desde Twilio:", data)  # Log para depuración
+        print("Datos recibidos desde Twilio:", data)
 
         # Verificar si es el inicio de la llamada (sin SpeechResult)
         user_input = data.get("SpeechResult")
@@ -61,21 +64,20 @@ async def handle_call(request: Request):
             # Mensaje predeterminado para inicio de la llamada
             response_text = "Buenas noches, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudar?"
 
-            # Generar audio con ElevenLabs
-            audio_url = generate_audio_with_eleven_labs(response_text)
+            # Generar audio con ElevenLabs en memoria
+            audio_buffer = generate_audio_with_eleven_labs(response_text)
 
-            if not audio_url:
-                # Si falla la generación de audio, responder con texto
+            if not audio_buffer:
                 return Response(
                     content="<Response><Say>Hubo un problema al generar el audio. Por favor, intenta más tarde.</Say></Response>",
                     media_type="text/xml"
                 )
 
-            # Responder con el audio generado
-            print("Enviando URL de audio a Twilio:", audio_url)
-            return Response(
-                content=f"<Response><Play>{audio_url}</Play></Response>",
-                media_type="text/xml"
+            # Responder con el audio generado como un flujo
+            return StreamingResponse(
+                content=audio_buffer,
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": "inline; filename=audio.mp3"}
             )
 
         # En caso de recibir un SpeechResult (ciclo posterior)
@@ -83,17 +85,18 @@ async def handle_call(request: Request):
         response_text = f"{greeting}, Consultorio del Doctor Wilfrido Alarcón. {user_input}. ¿En qué puedo ayudarte?"
 
         # Generar respuesta dinámica en audio
-        audio_url = generate_audio_with_eleven_labs(response_text)
+        audio_buffer = generate_audio_with_eleven_labs(response_text)
 
-        if not audio_url:
+        if not audio_buffer:
             return Response(
                 content="<Response><Say>Hubo un problema al generar la respuesta. Por favor, intenta más tarde.</Say></Response>",
                 media_type="text/xml"
             )
 
-        return Response(
-            content=f"<Response><Play>{audio_url}</Play></Response>",
-            media_type="text/xml"
+        return StreamingResponse(
+            content=audio_buffer,
+            media_type="audio/mpeg",
+            headers={"Content-Disposition": "inline; filename=audio.mp3"}
         )
 
     except Exception as e:
@@ -102,9 +105,6 @@ async def handle_call(request: Request):
             content="<Response><Say>Hubo un error procesando tu solicitud.</Say></Response>",
             media_type="text/xml"
         )
-
-
-
 
 
 
@@ -125,9 +125,9 @@ def generate_openai_response(prompt):
     try:
         openai.api_key = CHATGPT_SECRET_KEY
         response = openai.Completion.create(
-            model="text-davinci-003",
+            model="gpt-4o",
             prompt=prompt,
-            max_tokens=150,
+            max_tokens=400,
             temperature=0.7,
         )
         return response["choices"][0]["text"].strip()
@@ -142,55 +142,50 @@ def generate_openai_response(prompt):
 
 
 # **SECCIÓN 5: Generar audio con Eleven Labs**
-def generate_audio_with_eleven_labs(text):
-    try:
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}"
-        headers = {
-            "xi-api-key": ELEVEN_LABS_API_KEY,
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "text": text,
-            "voice_settings": {
-                "stability": 1,0,
-                "similarity_boost": 0.75,
-                "speed": 1.0,
-                "pitch": 0.0
-            }
-        }
-        response = requests.post(url, json=payload, headers=headers)
+# Configura tu API Key de ElevenLabs
+api_key = ELEVEN_LABS_API_KEY
+client = ElevenLabs(api_key=api_key)
 
-        # Log para depurar la respuesta
-        print("Respuesta de Eleven Labs:", response.status_code, response.text)
+# Función para generar audio con ElevenLabs
+def generate_audio_with_eleven_labs(text, voice_id="CaJslL1xziwefCeTNzHv"):
+    """
+    Args:
+        text (str): Texto a convertir en audio.
+        voice_id (str): ID de la voz de ElevenLabs.
 
-        if response.status_code == 200:
-            audio_url = response.json().get("audio_url")
-            print("URL del audio generado:", audio_url)  # Log para verificar la URL
-            return audio_url
-        else:
-            return None
-    except Exception as e:
-        print("Error generando audio con Eleven Labs:", e)
-        return None
- 
-"""
-    Convierte un texto en un archivo de audio usando Eleven Labs.
+    Returns:
+        io.BytesIO: Archivo de audio en memoria o None si ocurre un error.
 
-    Parámetros:
-        text (str): Texto que se convertirá en audio.
+        Convierte un texto en un archivo de audio usando Eleven Labs.
 
     Configuración:
         - stability: Controla qué tan estable suena la voz (0.0 a 1.0).
         - similarity_boost: Mejora la emoción y consistencia (0.0 a 1.0).
-        - speed: Velocidad del habla (0.5 a 2.0).
-        - pitch: Tono de la voz (-2.0 a 2.0).
-
-    NOTA:
-        - Puedes ajustar estos parámetros para personalizar la voz según las necesidades.
-
     Retorna:
         str: URL del archivo de audio generado, o None si hay un error.
     """
+    try:
+        # Configura los parámetros de la voz
+        audio_data = client.text_to_speech.convert(
+            text=text,
+            voice_id=voice_id,
+            model_id="eleven_multilingual_v2",
+            voice_settings=VoiceSettings(stability=0.45, similarity_boost=0.75)
+        )
+
+        # Guarda el audio en un buffer en memoria
+        audio_buffer = io.BytesIO()
+        for chunk in audio_data:
+            audio_buffer.write(chunk)
+        audio_buffer.seek(0)  # Regresa al inicio del archivo
+
+        print("Audio generado en memoria.")
+        return audio_buffer
+
+    except Exception as e:
+        print(f"Error al generar audio con ElevenLabs: {e}")
+        return None
+ 
 
 
 
@@ -215,6 +210,8 @@ def consultar_informacion():
     except Exception as e:
         return JSONResponse({"error": "Error al consultar la información", "details": str(e)}, status_code=500)
 
+
+
 # **SECCIÓN 7: Endpoint para buscar el próximo slot disponible**
 @app.get("/buscar-slot")
 def buscar_slot():
@@ -229,6 +226,7 @@ def buscar_slot():
             return JSONResponse({"message": "No se encontraron horarios disponibles"}, status_code=404)
     except Exception as e:
         return JSONResponse({"error": "Error al buscar el slot disponible"}, status_code=500)
+
 
 # **SECCIÓN 8: Endpoint para crear citas**
 @app.post("/crear-cita")
