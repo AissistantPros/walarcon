@@ -47,62 +47,71 @@ async def handle_call(request: Request):
 
     Flujo:
         1. Si no hay input del usuario (inicio de la llamada), responde con un saludo predeterminado.
-        2. Genera el saludo en audio usando ElevenLabs.
-        3. Responde con el audio generado.
-
-    Respuesta:
-        Siempre inicia con un saludo predefinido en audio generado por ElevenLabs.
+        2. Permite la conversación ida y vuelta con respuestas dinámicas.
+        3. Detecta palabras clave para terminar la llamada de manera natural.
     """
     try:
         # Parsear datos enviados por Twilio
         data = await request.form()
         print("Datos recibidos desde Twilio:", data)
 
-        # Verificar si es el inicio de la llamada (sin SpeechResult)
-        user_input = data.get("SpeechResult")
-        if not user_input:
-            # Mensaje predeterminado para inicio de la llamada
+        # Variables clave de Twilio
+        user_input = data.get("SpeechResult", "").lower()
+        call_status = data.get("CallStatus", "active").lower()
+
+        # Saludo inicial si no hay entrada del usuario
+        if not user_input and call_status == "active":
             response_text = "Buenas noches, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudar?"
 
-            # Generar audio con ElevenLabs en memoria
+            # Generar audio con ElevenLabs
             audio_buffer = generate_audio_with_eleven_labs(response_text)
-
             if not audio_buffer:
                 return Response(
-                    content="<Response><Say>Hubo un problema al generar el audio. Por favor, intenta más tarde.</Say></Response>",
+                    content="<Response><Say>No puedo procesar tu solicitud en este momento.</Say></Response>",
                     media_type="text/xml"
                 )
 
-            # Responder con el audio generado como un flujo
-            return StreamingResponse(
-                content=audio_buffer,
-                media_type="audio/mpeg",
-                headers={"Content-Disposition": "inline; filename=audio.mp3"}
-            )
-
-        # En caso de recibir un SpeechResult (ciclo posterior)
-        greeting = "Buenas noches" if get_cancun_time().hour >= 18 else "Buen día"
-        response_text = f"{greeting}, Consultorio del Doctor Wilfrido Alarcón. {user_input}. ¿En qué puedo ayudarte?"
-
-        # Generar respuesta dinámica en audio
-        audio_buffer = generate_audio_with_eleven_labs(response_text)
-
-        if not audio_buffer:
             return Response(
-                content="<Response><Say>Hubo un problema al generar la respuesta. Por favor, intenta más tarde.</Say></Response>",
+                content=f"<Response><Play>https://{TWILIO_PHONE}/audio.mp3</Play></Response>",
                 media_type="text/xml"
             )
 
-        return StreamingResponse(
-            content=audio_buffer,
-            media_type="audio/mpeg",
-            headers={"Content-Disposition": "inline; filename=audio.mp3"}
+        # Detectar palabras clave para finalizar la llamada
+        if any(keyword in user_input for keyword in ["adiós", "hasta luego", "gracias, eso es todo"]):
+            farewell_text = "Gracias por llamar al consultorio del Doctor Wilfrido Alarcón. Que tenga una excelente noche."
+            audio_buffer = generate_audio_with_eleven_labs(farewell_text)
+            if not audio_buffer:
+                return Response(
+                    content="<Response><Say>Gracias por llamar. Hasta luego.</Say><Pause length='5'/></Response>",
+                    media_type="text/xml"
+                )
+            return Response(
+                content=f"<Response><Play>https://{TWILIO_PHONE}/audio.mp3</Play><Pause length='5'/></Response>",
+                media_type="text/xml"
+            )
+
+        # Respuesta dinámica durante la conversación
+        current_time = get_cancun_time()
+        greeting = "Buenas noches" if current_time.hour >= 18 else "Buen día"
+        response_text = f"{greeting}. Mencionaste: {user_input}. ¿Cómo más puedo ayudarte?"
+
+        # Generar respuesta dinámica en audio
+        audio_buffer = generate_audio_with_eleven_labs(response_text)
+        if not audio_buffer:
+            return Response(
+                content="<Response><Say>No puedo procesar tu solicitud en este momento.</Say></Response>",
+                media_type="text/xml"
+            )
+
+        return Response(
+            content=f"<Response><Play>https://{TWILIO_PHONE}/audio.mp3</Play></Response>",
+            media_type="text/xml"
         )
 
     except Exception as e:
         print("Error manejando la llamada desde Twilio:", e)
         return Response(
-            content="<Response><Say>Hubo un error procesando tu solicitud.</Say></Response>",
+            content="<Response><Say>Ocurrió un error. Por favor, intenta de nuevo más tarde.</Say></Response>",
             media_type="text/xml"
         )
 
@@ -144,25 +153,19 @@ def generate_openai_response(prompt):
 # **SECCIÓN 5: Generar audio con Eleven Labs**
 # Configura tu API Key de ElevenLabs
 api_key = ELEVEN_LABS_API_KEY
-client = ElevenLabs(api_key=api_key)
+client = ElevenLabs(api_key=api_key)  # Inicialización del cliente global
 
 # Función para generar audio con ElevenLabs
-def generate_audio_with_eleven_labs(text, voice_id="CaJslL1xziwefCeTNzHv"):
+def generate_audio_with_eleven_labs(text, voice_id=ELEVEN_LABS_VOICE_ID):
     """
+    Genera un archivo de audio en memoria usando ElevenLabs.
+
     Args:
-        text (str): Texto a convertir en audio.
+        text (str): Texto que se convertirá en audio.
         voice_id (str): ID de la voz de ElevenLabs.
 
     Returns:
         io.BytesIO: Archivo de audio en memoria o None si ocurre un error.
-
-        Convierte un texto en un archivo de audio usando Eleven Labs.
-
-    Configuración:
-        - stability: Controla qué tan estable suena la voz (0.0 a 1.0).
-        - similarity_boost: Mejora la emoción y consistencia (0.0 a 1.0).
-    Retorna:
-        str: URL del archivo de audio generado, o None si hay un error.
     """
     try:
         # Configura los parámetros de la voz
@@ -170,7 +173,7 @@ def generate_audio_with_eleven_labs(text, voice_id="CaJslL1xziwefCeTNzHv"):
             text=text,
             voice_id=voice_id,
             model_id="eleven_multilingual_v2",
-            voice_settings=VoiceSettings(stability=0.45, similarity_boost=0.75)
+            voice_settings=VoiceSettings(stability=0.7, similarity_boost=0.85)
         )
 
         # Guarda el audio en un buffer en memoria
