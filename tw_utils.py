@@ -3,6 +3,7 @@ from aiagent import generate_openai_response
 from labs_utils import generate_audio_with_eleven_labs
 from prompt import generate_openai_prompt
 
+
 def handle_twilio_call(greeting_message, gather_action):
     """
     Maneja la llamada inicial de Twilio y reproduce un saludo generado por Eleven Labs.
@@ -25,7 +26,7 @@ def handle_twilio_call(greeting_message, gather_action):
         response.say(greeting_message)
 
     # Configurar Gather para la entrada del usuario
-    gather = Gather(input="speech", action=gather_action, method="POST", timeout=10)
+    gather = Gather(action=gather_action, method="POST", timeout=10)
     response.append(gather)
 
     return response
@@ -65,7 +66,7 @@ def process_user_input(user_input, gather_action, farewell_action):
         response.say("Lo siento, no puedo procesar tu solicitud en este momento.")
 
     # Configurar Gather para continuar la conversación
-    gather = Gather(input="speech", action=gather_action, method="POST", timeout=10)
+    gather = Gather(action=gather_action, method="POST", timeout=10)
     response.append(gather)
 
     return response
