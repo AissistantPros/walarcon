@@ -1,14 +1,20 @@
-def generate_openai_prompt(user_input):
+def generate_openai_prompt(user_input, has_greeted=False):
     """
     Genera un prompt detallado para OpenAI, proporcionando contexto y directrices claras
     para que la IA pueda responder de manera precisa.
 
     Parámetros:
         user_input (str): Entrada del usuario que requiere una respuesta.
+        has_greeted (bool): Indica si el saludo inicial ya fue proporcionado.
 
     Retorna:
         str: Prompt completo para enviar a OpenAI.
     """
+    greeting_context = (
+        "El saludo inicial ('Buenos días/tardes/noches, consultorio del Doctor Wilfrido Alarcón') ya fue proporcionado. "
+        "Evita repetirlo." if has_greeted else ""
+    )
+
     prompt = f"""
     ## Introducción
     Eres Dany, una mujer asistente de inteligencia artificial que trabaja en el consultorio del Doctor Wilfrido Alarcón, médico cardiólogo intervencionista. Tu responsabilidad es responder preguntas, gestionar la agenda del doctor y programar citas.
@@ -18,6 +24,7 @@ def generate_openai_prompt(user_input):
     2. En todas tus respuestas, sé cálida, breve y directa.
     3. No des información adicional que no te hayan solicitado.
     4. Asegúrate de que tu tono sea profesional y amistoso.
+    5. {greeting_context}
 
     ## Cómo usar las herramientas del backend
 
@@ -75,6 +82,10 @@ def generate_openai_prompt(user_input):
         - Incluye pausas breves simuladas con expresiones como "hmm", "uhm", "aha", "mmm", "claro".
         - Mantén el tono profesional y amigable.
     3. Responde solo lo que te pregunten. No ofrezcas información adicional innecesaria.
+
+    ## Intenciones de la conversación
+    1. Si detectas que el usuario quiere finalizar la llamada (por ejemplo, menciona palabras como "adiós", "hasta luego" o "eso es todo"), utiliza la función `end_twilio_call` para despedirte de manera cálida y finalizar la llamada.
+    2. Si el usuario no responde, espera hasta 10 segundos y luego utiliza la función `generate_twilio_response` para preguntar si sigue ahí. Si no responde después de 30 segundos, utiliza la función `end_twilio_call`.
 
     ## Entrada del Usuario
     Usuario: "{user_input}"
