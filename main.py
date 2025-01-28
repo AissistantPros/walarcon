@@ -17,11 +17,11 @@ def read_root():
 # **ENDPOINTS DE TWILIO**
 @app.post("/twilio-call")
 async def twilio_call(request: Request):
-    return await handle_twilio_call(request, gather_action="/process-user-input")
+    return handle_twilio_call(request, gather_action="/process-user-input")
 
 @app.post("/process-user-input")
 async def twilio_process_input(request: Request):
-    return await process_user_input(request)
+    return process_user_input(request)
 
 # **ENDPOINT PARA CONSULTAR INFORMACIÓN**
 @app.get("/consultar-informacion")
