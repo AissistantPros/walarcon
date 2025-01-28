@@ -7,7 +7,7 @@ def handle_twilio_call(request_data):
     now = get_cancun_time()
     
     greeting = (
-        "Buen día" if 3 <= now.hour <= 11
+        "Buenos días" if 3 <= now.hour <= 11
         else "Buenas tardes" if 12 <= now.hour <= 19
         else "Buenas noches"
     )
