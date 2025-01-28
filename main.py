@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request
 from decouple import config
 from aiagent import generate_openai_response
 from labs_utils import generate_audio_with_eleven_labs
-from twilio import handle_twilio_call, process_user_input
+from tw_utils import handle_twilio_call, process_user_input
 from buscarslot import find_next_available_slot
 from consultarinfo import read_sheet_data
 from crearcita import create_calendar_event
