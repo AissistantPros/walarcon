@@ -1,6 +1,6 @@
 from twilio.twiml.voice_response import VoiceResponse, Gather
 from aiagent import generate_openai_response
-from labs_utils import generate_audio_with_eleven_labs
+from audio_utils import generate_audio_with_eleven_labs
 from prompt import generate_openai_prompt
 
 
