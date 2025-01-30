@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Response
-from tw_utils import handle_twilio_call, process_user_input
+from tw_utils import handle_twilio_call, process_user_input, end_twilio_call
 from consultarinfo import read_sheet_data
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
@@ -7,32 +7,48 @@ from editarcita import edit_calendar_event
 from eliminarcita import delete_calendar_event
 from datetime import datetime
 import os
+import logging
+import time
 
 app = FastAPI()
 
-# Configuración para el audio (agregado)
-AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"
+# Configuración de logs
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
+# Middleware para medir tiempos de endpoints
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+    logger.info(f"Endpoint: {request.url.path} | Tiempo: {duration:.2f}s")
+    return response
+
+# Endpoint para servir audio
+AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"
+@app.get("/audio-response")
+async def get_audio():
+    try:
+        with open(AUDIO_TEMP_PATH, "rb") as f:
+            return Response(content=f.read(), media_type="audio/mpeg")
+    except Exception as e:
+        logger.error(f"Error sirviendo audio: {str(e)}")
+        return Response(content="Audio no disponible", status_code=404)
+
+# Resto de endpoints (sin cambios en la lógica principal)
 @app.get("/")
 def read_root():
     return {"message": "El servicio está funcionando correctamente"}
 
-# Nuevo endpoint para servir el audio (agregado)
-@app.get("/audio-response")
-async def get_audio():
-    if os.path.exists(AUDIO_TEMP_PATH):
-        with open(AUDIO_TEMP_PATH, "rb") as f:
-            return Response(content=f.read(), media_type="audio/mpeg")
-    return Response(content="Audio no disponible", status_code=404)
-
-# Endpoints de Twilio (corregidos)
 @app.post("/twilio-call")
 async def twilio_call(request: Request):
     try:
-        twilio_response = handle_twilio_call(gather_action="/process-user-input")
+        twilio_response = handle_twilio_call("/process-user-input")
         return Response(content=twilio_response, media_type="text/xml")
     except Exception as e:
-        return Response(content=f"Error en Twilio: {str(e)}", status_code=500)
+        logger.error(f"Error en Twilio Call: {str(e)}")
+        return Response(content=str(e), status_code=500)
 
 @app.post("/process-user-input")
 async def twilio_process_input(request: Request):
@@ -42,7 +58,22 @@ async def twilio_process_input(request: Request):
         twilio_response = process_user_input(user_input)
         return Response(content=twilio_response, media_type="text/xml")
     except Exception as e:
-        return Response(content=f"Error procesando entrada: {str(e)}", status_code=500)
+        logger.error(f"Error en Process Input: {str(e)}")
+        return Response(content=str(e), status_code=500)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # Mantenemos todos tus otros endpoints sin cambios
 @app.get("/consultar-informacion")

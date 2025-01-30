@@ -1,38 +1,37 @@
 from elevenlabs import ElevenLabs, VoiceSettings
 import io
 from decouple import config
-import logging  # Mejora añadida
+import logging
+import time
 
-# Configurar logging (mejora opcional)
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-ELEVEN_LABS_API_KEY = config("ELEVEN_LABS_API_KEY")
-ELEVEN_LABS_VOICE_ID = config("ELEVEN_LABS_VOICE_ID")
+client = ElevenLabs(api_key=config("ELEVEN_LABS_API_KEY"))
 
-client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
-
-def generate_audio_with_eleven_labs(text):
+def generate_audio_with_eleven_labs(text: str):
     try:
-        # Validar texto vacío (mejora añadida)
-        if not text.strip():
-            raise ValueError("El texto para generar audio está vacío")
-
-        audio_stream = client.text_to_speech.convert(
+        start_time = time.time()
+        
+        audio = client.text_to_speech.convert(
             text=text,
-            voice_id=ELEVEN_LABS_VOICE_ID,
-            model_id="eleven_multilingual_v2",
-            voice_settings=VoiceSettings(stability=0.7, similarity_boost=0.85)
+            voice_id=config("ELEVEN_LABS_VOICE_ID"),
+            model_id="eleven_turbo_v2",  # Modelo ultra-rápido
+            voice_settings=VoiceSettings(
+                stability=0.5,
+                similarity_boost=0.8,
+                speed=1.2  # +20% de velocidad
+            )
         )
-
+        
         buffer = io.BytesIO()
-        for chunk in audio_stream:
-            if chunk:  # Validación adicional (mejora)
-                buffer.write(chunk)
+        for chunk in audio:
+            buffer.write(chunk)
         buffer.seek(0)
         
-        logging.info(f"Audio generado correctamente para texto: {text[:50]}...")  # Mejora
+        logger.info(f"🔊 Audio generado en {time.time() - start_time:.2f}s")
         return buffer
-
+        
     except Exception as e:
-        logging.error(f"Error en ElevenLabs: {str(e)}")  # Mejora
+        logger.error(f"❌ Error en ElevenLabs: {str(e)}")
         return None

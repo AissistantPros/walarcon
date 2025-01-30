@@ -2,87 +2,87 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 from aiagent import generate_openai_response
 from audio_utils import generate_audio_with_eleven_labs
 from prompt import generate_openai_prompt
+import logging
+import time
 import os
+import asyncio  # Nueva importación
 
-# Configuración fija del mensaje de saludo (agregado)
-GREETING_MESSAGE = "Bienvenido al consultorio del Doctor Alarcón. ¿En qué puedo ayudarle hoy?"
-AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"  # Debe coincidir con main.py
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"
+conversation_history = []
+call_start_time = None
 
 def handle_twilio_call(gather_action: str):
-    """
-    Versión corregida: Eliminamos el parámetro greeting_message y usamos uno fijo
-    """
+    global call_start_time
+    call_start_time = time.time()
     response = VoiceResponse()
     
     try:
-        # Generar audio y guardarlo en archivo temporal (agregado)
-        audio_buffer = generate_audio_with_eleven_labs(GREETING_MESSAGE)
+        greeting_message = "Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+        audio_buffer = generate_audio_with_eleven_labs(greeting_message)
+        
         if audio_buffer:
             with open(AUDIO_TEMP_PATH, "wb") as f:
                 f.write(audio_buffer.getvalue())
             response.play("/audio-response")
         else:
-            response.say(GREETING_MESSAGE)
+            response.say(greeting_message)
+        
+        gather = Gather(
+            input="speech",
+            action=gather_action,
+            method="POST",
+            timeout=5,
+            language="es-MX"
+        )
+        response.append(gather)
+        
     except Exception as e:
-        response.say("Bienvenido. Estamos teniendo problemas técnicos. Por favor intente más tarde.")
-
-    # Configurar Gather con timeout reducido para mejor UX (modificado)
-    gather = Gather(
-        input="speech",  # Forzar detección de voz
-        action=gather_action,
-        method="POST",
-        timeout=5,
-        language="es-MX"
-    )
-    response.append(gather)
+        logger.error(f"Error en saludo: {str(e)}")
+        response.say("Bienvenido. Estamos teniendo problemas técnicos.")
     
     return str(response)
 
-def process_user_input(user_input: str):
-    """
-    Versión simplificada: Recibe solo el texto del usuario
-    """
+async def process_user_input(user_input: str):  # Ahora es async
+    global conversation_history, call_start_time
     response = VoiceResponse()
     
     try:
-        # Detección de despedida mejorada (modificado)
-        if any(keyword in user_input.lower() for keyword in ["adiós", "hasta luego", "gracias"]):
-            return end_twilio_call("Gracias por llamar. Que tenga un excelente día.")
+        response.say("Un momento, por favor...", voice="alice", language="es-MX")
         
-        # Generar respuesta con IA (modificado)
-        prompt = generate_openai_prompt(user_input)
-        ai_response = generate_openai_response(prompt)
+        # Paso 1: Generar respuesta IA (síncrono)
+        conversation_history.append({"role": "user", "content": user_input})
+        ai_response = generate_openai_response(conversation_history)
+        conversation_history.append({"role": "assistant", "content": ai_response})
         
-        # Manejo de audio con guardado en archivo (agregado)
-        audio_buffer = generate_audio_with_eleven_labs(ai_response)
+        # Paso 2: Generar audio en paralelo (asíncrono)
+        audio_buffer = await asyncio.to_thread(  # Cambio clave
+            generate_audio_with_eleven_labs, 
+            ai_response
+        )
+        
         if audio_buffer:
             with open(AUDIO_TEMP_PATH, "wb") as f:
                 f.write(audio_buffer.getvalue())
             response.play("/audio-response")
         else:
             response.say(ai_response)
-            
+        
+        gather = Gather(
+            input="speech",
+            action="/process-user-input",
+            method="POST",
+            timeout=10,
+            language="es-MX"
+        )
+        response.append(gather)
+        
+        logger.info(f"Tiempo total: {time.time() - call_start_time:.2f}s")
+        
     except Exception as e:
-        response.say("Lo siento, estoy teniendo dificultades. Por favor intente nuevamente.")
+        logger.error(f"Error crítico: {str(e)}")
+        response.say("Lo siento, ha ocurrido un error.")
     
-    # Nuevo Gather para continuar conversación (agregado)
-    gather = Gather(
-        input="speech",
-        action="/process-user-input",
-        method="POST",
-        timeout=5,
-        language="es-MX"
-    )
-    response.append(gather)
-    
-    return str(response)
-
-def end_twilio_call(farewell_message: str):
-    """
-    Versión optimizada
-    """
-    response = VoiceResponse()
-    response.say(farewell_message, voice="alice", language="es-MX")
-    response.pause(length=2)  # Pausa más natural
-    response.hangup()
     return str(response)
