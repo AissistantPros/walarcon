@@ -2,88 +2,87 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 from aiagent import generate_openai_response
 from audio_utils import generate_audio_with_eleven_labs
 from prompt import generate_openai_prompt
+import os
 
+# Configuración fija del mensaje de saludo (agregado)
+GREETING_MESSAGE = "Bienvenido al consultorio del Doctor Alarcón. ¿En qué puedo ayudarle hoy?"
+AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"  # Debe coincidir con main.py
 
-def handle_twilio_call(greeting_message, gather_action):
+def handle_twilio_call(gather_action: str):
     """
-    Maneja la llamada inicial de Twilio y reproduce un saludo generado por Eleven Labs.
-
-    Args:
-        greeting_message (str): Mensaje de saludo inicial.
-        gather_action (str): URL para procesar la respuesta del usuario.
-
-    Returns:
-        VoiceResponse: Respuesta de Twilio para el saludo inicial y Gather.
+    Versión corregida: Eliminamos el parámetro greeting_message y usamos uno fijo
     """
     response = VoiceResponse()
-    audio_buffer = generate_audio_with_eleven_labs(greeting_message)
+    
+    try:
+        # Generar audio y guardarlo en archivo temporal (agregado)
+        audio_buffer = generate_audio_with_eleven_labs(GREETING_MESSAGE)
+        if audio_buffer:
+            with open(AUDIO_TEMP_PATH, "wb") as f:
+                f.write(audio_buffer.getvalue())
+            response.play("/audio-response")
+        else:
+            response.say(GREETING_MESSAGE)
+    except Exception as e:
+        response.say("Bienvenido. Estamos teniendo problemas técnicos. Por favor intente más tarde.")
 
-    if audio_buffer:
-        # Producir el saludo inicial generado por Eleven Labs
-        response.play("/audio-response")  # Ruta donde se aloja el audio
-    else:
-        # Fallback en caso de fallo en Eleven Labs
-        response.say(greeting_message)
-
-    # Configurar Gather para la entrada del usuario
-    gather = Gather(action=gather_action, method="POST", timeout=10)
+    # Configurar Gather con timeout reducido para mejor UX (modificado)
+    gather = Gather(
+        input="speech",  # Forzar detección de voz
+        action=gather_action,
+        method="POST",
+        timeout=5,
+        language="es-MX"
+    )
     response.append(gather)
+    
+    return str(response)
 
-    return response
-
-
-def process_user_input(user_input, gather_action, farewell_action):
+def process_user_input(user_input: str):
     """
-    Procesa la entrada del usuario, pasa la respuesta a la IA, y genera un audio dinámico.
-
-    Args:
-        user_input (str): Texto proporcionado por el usuario.
-        gather_action (str): URL para Gather en caso de continuación de la conversación.
-        farewell_action (str): URL para terminar la llamada.
-
-    Returns:
-        VoiceResponse: Respuesta de Twilio con la respuesta generada o acción de despedida.
+    Versión simplificada: Recibe solo el texto del usuario
     """
     response = VoiceResponse()
-
-    # Detectar intención de terminar la llamada
-    if any(keyword in user_input for keyword in ["adiós", "hasta luego", "gracias, eso es todo"]):
-        farewell_message = "Gracias por llamar al consultorio del Doctor Alarcón. Que tenga un excelente día."
-        return end_twilio_call(farewell_message)
-
-    # Generar respuesta usando el prompt actualizado y OpenAI
-    prompt = generate_openai_prompt(user_input)
-    openai_response = generate_openai_response(prompt)
-
-    # Convertir la respuesta de OpenAI en audio
-    audio_buffer = generate_audio_with_eleven_labs(openai_response)
-
-    if audio_buffer:
-        # Producir la respuesta generada
-        response.play("/audio-response")
-    else:
-        # Fallback en caso de fallo en Eleven Labs
-        response.say("Lo siento, no puedo procesar tu solicitud en este momento.")
-
-    # Configurar Gather para continuar la conversación
-    gather = Gather(action=gather_action, method="POST", timeout=10)
+    
+    try:
+        # Detección de despedida mejorada (modificado)
+        if any(keyword in user_input.lower() for keyword in ["adiós", "hasta luego", "gracias"]):
+            return end_twilio_call("Gracias por llamar. Que tenga un excelente día.")
+        
+        # Generar respuesta con IA (modificado)
+        prompt = generate_openai_prompt(user_input)
+        ai_response = generate_openai_response(prompt)
+        
+        # Manejo de audio con guardado en archivo (agregado)
+        audio_buffer = generate_audio_with_eleven_labs(ai_response)
+        if audio_buffer:
+            with open(AUDIO_TEMP_PATH, "wb") as f:
+                f.write(audio_buffer.getvalue())
+            response.play("/audio-response")
+        else:
+            response.say(ai_response)
+            
+    except Exception as e:
+        response.say("Lo siento, estoy teniendo dificultades. Por favor intente nuevamente.")
+    
+    # Nuevo Gather para continuar conversación (agregado)
+    gather = Gather(
+        input="speech",
+        action="/process-user-input",
+        method="POST",
+        timeout=5,
+        language="es-MX"
+    )
     response.append(gather)
+    
+    return str(response)
 
-    return response
-
-
-def end_twilio_call(farewell_message):
+def end_twilio_call(farewell_message: str):
     """
-    Genera una respuesta para terminar la llamada con un mensaje de despedida.
-
-    Args:
-        farewell_message (str): Mensaje de despedida que se leerá antes de colgar.
-
-    Returns:
-        VoiceResponse: Objeto VoiceResponse configurado.
+    Versión optimizada
     """
     response = VoiceResponse()
-    response.say(farewell_message)
-    response.pause(length=7)  # Pausa de 7 segundos antes de colgar
+    response.say(farewell_message, voice="alice", language="es-MX")
+    response.pause(length=2)  # Pausa más natural
     response.hangup()
-    return response
+    return str(response)

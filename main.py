@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from tw_utils import handle_twilio_call, process_user_input
 from consultarinfo import read_sheet_data
 from buscarslot import find_next_available_slot
@@ -6,24 +6,45 @@ from crearcita import create_calendar_event
 from editarcita import edit_calendar_event
 from eliminarcita import delete_calendar_event
 from datetime import datetime
+import os
 
-# Inicializamos la aplicación FastAPI
 app = FastAPI()
+
+# Configuración para el audio (agregado)
+AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"
 
 @app.get("/")
 def read_root():
     return {"message": "El servicio está funcionando correctamente"}
 
-# **ENDPOINTS DE TWILIO**
+# Nuevo endpoint para servir el audio (agregado)
+@app.get("/audio-response")
+async def get_audio():
+    if os.path.exists(AUDIO_TEMP_PATH):
+        with open(AUDIO_TEMP_PATH, "rb") as f:
+            return Response(content=f.read(), media_type="audio/mpeg")
+    return Response(content="Audio no disponible", status_code=404)
+
+# Endpoints de Twilio (corregidos)
 @app.post("/twilio-call")
 async def twilio_call(request: Request):
-    return handle_twilio_call(request, gather_action="/process-user-input")
+    try:
+        twilio_response = handle_twilio_call(gather_action="/process-user-input")
+        return Response(content=twilio_response, media_type="text/xml")
+    except Exception as e:
+        return Response(content=f"Error en Twilio: {str(e)}", status_code=500)
 
 @app.post("/process-user-input")
 async def twilio_process_input(request: Request):
-    return process_user_input(request)
+    try:
+        form_data = await request.form()
+        user_input = form_data.get("SpeechResult", "")
+        twilio_response = process_user_input(user_input)
+        return Response(content=twilio_response, media_type="text/xml")
+    except Exception as e:
+        return Response(content=f"Error procesando entrada: {str(e)}", status_code=500)
 
-# **ENDPOINT PARA CONSULTAR INFORMACIÓN**
+# Mantenemos todos tus otros endpoints sin cambios
 @app.get("/consultar-informacion")
 def consultar_informacion():
     try:
@@ -32,7 +53,6 @@ def consultar_informacion():
     except Exception as e:
         return {"error": "Error al consultar la información", "details": str(e)}
 
-# **ENDPOINT PARA BUSCAR EL PRÓXIMO SLOT DISPONIBLE**
 @app.get("/buscar-slot")
 def buscar_slot():
     try:
@@ -44,7 +64,6 @@ def buscar_slot():
     except Exception as e:
         return {"error": "Error al buscar el slot disponible", "details": str(e)}
 
-# **ENDPOINT PARA CREAR UNA CITA**
 @app.post("/crear-cita")
 async def crear_cita(request: Request):
     try:
@@ -66,7 +85,6 @@ async def crear_cita(request: Request):
     except Exception as e:
         return {"error": "Error al crear la cita", "details": str(e)}
 
-# **ENDPOINT PARA EDITAR UNA CITA**
 @app.put("/editar-cita")
 async def editar_cita(request: Request):
     try:
@@ -85,7 +103,6 @@ async def editar_cita(request: Request):
     except Exception as e:
         return {"error": "Error al editar la cita", "details": str(e)}
 
-# **ENDPOINT PARA ELIMINAR UNA CITA**
 @app.delete("/eliminar-cita")
 async def eliminar_cita(request: Request):
     try:
