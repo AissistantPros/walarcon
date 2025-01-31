@@ -50,7 +50,7 @@ async def process_user_input(user_input: str):
     
     try:
         conversation_history.append({"role": "user", "content": user_input})
-        
+
         # Generar frase de relleno mientras la IA responde
         filler_phrases = [
             "Déjeme revisar eso...",
@@ -59,24 +59,27 @@ async def process_user_input(user_input: str):
             "Permítame checarlo..."
         ]
         filler_message = random.choice(filler_phrases)
-        filler_audio = await asyncio.to_thread(generate_audio_with_eleven_labs, filler_message)
-        
+
+        # Ejecutar IA y generación de audio en paralelo para reducir latencia
+        ai_task = asyncio.to_thread(generate_openai_response, conversation_history)
+        filler_audio_task = asyncio.to_thread(generate_audio_with_eleven_labs, filler_message)
+
+        ai_response, filler_audio = await asyncio.gather(ai_task, filler_audio_task)
+
+        conversation_history.append({"role": "assistant", "content": ai_response})
+
         if filler_audio:
             with open(AUDIO_TEMP_PATH, "wb") as f:
                 f.write(filler_audio.getvalue())
             response.play("/audio-response")
-        
-        # Obtener respuesta de la IA
-        ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
-        conversation_history.append({"role": "assistant", "content": ai_response})
-        
+
         # Verificar si la IA indica que debe finalizar la llamada
         if "[END_CALL]" in ai_response:
             logger.info("🛑 IA solicitó finalizar llamada")
             clean_response = ai_response.replace("[END_CALL]", "").strip()
             return end_twilio_call(clean_response)
         
-        # Generar audio con Eleven Labs
+        # Generar audio de la respuesta de la IA en paralelo
         audio_buffer = await asyncio.to_thread(generate_audio_with_eleven_labs, ai_response)
         
         if audio_buffer:
@@ -94,17 +97,16 @@ async def process_user_input(user_input: str):
             language="es-MX"
         )
         response.append(gather)
-        
+
         if call_start_time is not None:
             logger.info(f"Tiempo total: {time.time() - call_start_time:.2f}s")
         else:
             logger.warning("⚠️ call_start_time no está definido, no se puede calcular el tiempo total")
 
-        
     except Exception as e:
         logger.error(f"Error crítico: {str(e)}")
         response.say("Lo siento, ha ocurrido un error.")
-    
+
     return str(response)
 
 def end_twilio_call(farewell_message: str):

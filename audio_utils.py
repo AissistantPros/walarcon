@@ -16,7 +16,7 @@ def generate_audio_with_eleven_labs(text: str):
         audio = client.text_to_speech.convert(
             text=text,
             voice_id=config("ELEVEN_LABS_VOICE_ID"),
-            model_id="eleven_turbo_v2",  # Modelo ultra-rápido
+            model_id="eleven_multilingual_v2",
             voice_settings=VoiceSettings(
                 stability=0.5,
                 similarity_boost=0.8,
