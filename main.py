@@ -1,6 +1,6 @@
 from twilio.twiml.voice_response import VoiceResponse
 from fastapi import FastAPI, Request, Response
-from tw_utils import handle_twilio_call, process_user_input  # Eliminar end_twilio_call
+from tw_utils import handle_twilio_call, process_user_input
 from consultarinfo import read_sheet_data
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
@@ -37,18 +37,14 @@ async def get_audio():
         logger.error(f"Error sirviendo audio: {str(e)}")
         return Response(content="Audio no disponible", status_code=404)
 
-# Endpoints principales
 @app.get("/")
 def read_root():
     return {"message": "El servicio está funcionando correctamente"}
 
-# Modificar endpoints de Twilio
 @app.post("/twilio-call")
 async def twilio_call(request: Request):
     try:
-        response = VoiceResponse()
-        response.redirect("/process-user-input")
-        return Response(content=str(response), media_type="text/xml")
+        return Response(content=handle_twilio_call("/process-user-input"), media_type="text/xml")
     except Exception as e:
         logger.error(f"Error en Twilio Call: {str(e)}")
         return Response(content=str(e), status_code=500)
@@ -58,17 +54,12 @@ async def twilio_process_input(request: Request):
     try:
         form_data = await request.form()
         user_input = form_data.get("SpeechResult", "")
-        
-        # Procesar entrada y generar respuesta
         twilio_response = await process_user_input(user_input)
-        
         return Response(content=twilio_response, media_type="text/xml")
-        
     except Exception as e:
         logger.error(f"Error en Process Input: {str(e)}")
         return Response(content=str(e), status_code=500)
 
-# [Mantener el resto de endpoints sin cambios...]
 
 
 
@@ -76,15 +67,7 @@ async def twilio_process_input(request: Request):
 
 
 
-
-
-
-
-
-
-
-
-# Mantenemos todos tus otros endpoints sin cambios
+# Endpoints adicionales (mantenidos sin cambios)
 @app.get("/consultar-informacion")
 def consultar_informacion():
     try:
@@ -97,59 +80,48 @@ def consultar_informacion():
 def buscar_slot():
     try:
         slot = find_next_available_slot()
-        if slot:
-            return {"message": "Slot disponible encontrado", "slot": slot}
-        else:
-            return {"message": "No se encontraron horarios disponibles"}
+        return {"message": "Slot disponible encontrado", "slot": slot} if slot else {"message": "No se encontraron horarios disponibles"}
     except Exception as e:
-        return {"error": "Error al buscar el slot disponible", "details": str(e)}
+        return {"error": "Error al buscar slot", "details": str(e)}
 
 @app.post("/crear-cita")
 async def crear_cita(request: Request):
     try:
         data = await request.json()
-        name = data.get("name")
-        phone = data.get("phone")
-        reason = data.get("reason", "No especificado")
-        start_time = data.get("start_time")
-        end_time = data.get("end_time")
-
-        if not name or not phone or not start_time or not end_time:
-            raise ValueError("Los campos 'name', 'phone', 'start_time' y 'end_time' son obligatorios.")
-
-        start_time = datetime.fromisoformat(start_time)
-        end_time = datetime.fromisoformat(end_time)
-
-        event = create_calendar_event(name, phone, reason, start_time, end_time)
-        return {"message": "Cita creada con éxito", "event": event}
+        required_fields = ["name", "phone", "start_time", "end_time"]
+        if not all(data.get(field) for field in required_fields):
+            raise ValueError("Faltan campos obligatorios")
+        
+        event = create_calendar_event(
+            data["name"],
+            data["phone"],
+            data.get("reason", "No especificado"),
+            datetime.fromisoformat(data["start_time"]),
+            datetime.fromisoformat(data["end_time"])
+        )
+        return {"message": "Cita creada", "event": event}
     except Exception as e:
-        return {"error": "Error al crear la cita", "details": str(e)}
+        return {"error": str(e)}, 400
 
 @app.put("/editar-cita")
 async def editar_cita(request: Request):
     try:
         data = await request.json()
-        phone = data.get("phone")
-        original_start_time = datetime.fromisoformat(data.get("original_start_time"))
-        new_start_time = data.get("new_start_time")
-        new_end_time = data.get("new_end_time")
-
-        if new_start_time and new_end_time:
-            new_start_time = datetime.fromisoformat(new_start_time)
-            new_end_time = datetime.fromisoformat(new_end_time)
-
-        result = edit_calendar_event(phone, original_start_time, new_start_time, new_end_time)
-        return {"message": "Cita editada con éxito", "result": result}
+        result = edit_calendar_event(
+            data["phone"],
+            datetime.fromisoformat(data["original_start_time"]),
+            datetime.fromisoformat(data["new_start_time"]) if data.get("new_start_time") else None,
+            datetime.fromisoformat(data["new_end_time"]) if data.get("new_end_time") else None
+        )
+        return {"message": "Cita editada", "result": result}
     except Exception as e:
-        return {"error": "Error al editar la cita", "details": str(e)}
+        return {"error": str(e)}, 400
 
 @app.delete("/eliminar-cita")
 async def eliminar_cita(request: Request):
     try:
         data = await request.json()
-        phone = data.get("phone")
-        patient_name = data.get("patient_name", None)
-        result = delete_calendar_event(phone, patient_name)
-        return {"message": "Cita eliminada con éxito", "result": result}
+        result = delete_calendar_event(data["phone"], data.get("patient_name"))
+        return {"message": "Cita eliminada", "result": result}
     except Exception as e:
-        return {"error": "Error al eliminar la cita", "details": str(e)}
+        return {"error": str(e)}, 400
