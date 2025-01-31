@@ -1,5 +1,6 @@
+from twilio.twiml.voice_response import VoiceResponse
 from fastapi import FastAPI, Request, Response
-from tw_utils import handle_twilio_call, process_user_input, end_twilio_call
+from tw_utils import handle_twilio_call, process_user_input  # Eliminar end_twilio_call
 from consultarinfo import read_sheet_data
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
@@ -36,16 +37,18 @@ async def get_audio():
         logger.error(f"Error sirviendo audio: {str(e)}")
         return Response(content="Audio no disponible", status_code=404)
 
-# Resto de endpoints (sin cambios en la lógica principal)
+# Endpoints principales
 @app.get("/")
 def read_root():
     return {"message": "El servicio está funcionando correctamente"}
 
+# Modificar endpoints de Twilio
 @app.post("/twilio-call")
 async def twilio_call(request: Request):
     try:
-        twilio_response = handle_twilio_call("/process-user-input")
-        return Response(content=twilio_response, media_type="text/xml")
+        response = VoiceResponse()
+        response.redirect("/process-user-input")
+        return Response(content=str(response), media_type="text/xml")
     except Exception as e:
         logger.error(f"Error en Twilio Call: {str(e)}")
         return Response(content=str(e), status_code=500)
@@ -55,11 +58,17 @@ async def twilio_process_input(request: Request):
     try:
         form_data = await request.form()
         user_input = form_data.get("SpeechResult", "")
-        twilio_response = process_user_input(user_input)
+        
+        # Procesar entrada y generar respuesta
+        twilio_response = await process_user_input(user_input)
+        
         return Response(content=twilio_response, media_type="text/xml")
+        
     except Exception as e:
         logger.error(f"Error en Process Input: {str(e)}")
         return Response(content=str(e), status_code=500)
+
+# [Mantener el resto de endpoints sin cambios...]
 
 
 

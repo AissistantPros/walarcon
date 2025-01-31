@@ -1,11 +1,10 @@
 from twilio.twiml.voice_response import VoiceResponse, Gather
 from aiagent import generate_openai_response
 from audio_utils import generate_audio_with_eleven_labs
-from prompt import generate_openai_prompt
 import logging
 import time
-import os
-import asyncio  # Nueva importación
+import asyncio
+import random
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,23 +44,40 @@ def handle_twilio_call(gather_action: str):
     
     return str(response)
 
-async def process_user_input(user_input: str):  # Ahora es async
+async def process_user_input(user_input: str):
     global conversation_history, call_start_time
     response = VoiceResponse()
     
     try:
-        response.say("Un momento, por favor...", voice="alice", language="es-MX")
-        
-        # Paso 1: Generar respuesta IA (síncrono)
         conversation_history.append({"role": "user", "content": user_input})
-        ai_response = generate_openai_response(conversation_history)
+        
+        # Generar frase de relleno mientras la IA responde
+        filler_phrases = [
+            "Déjeme revisar eso...",
+            "Un momento, por favor...",
+            "Mmm, revisando la información...",
+            "Permítame checarlo..."
+        ]
+        filler_message = random.choice(filler_phrases)
+        filler_audio = await asyncio.to_thread(generate_audio_with_eleven_labs, filler_message)
+        
+        if filler_audio:
+            with open(AUDIO_TEMP_PATH, "wb") as f:
+                f.write(filler_audio.getvalue())
+            response.play("/audio-response")
+        
+        # Obtener respuesta de la IA
+        ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
         conversation_history.append({"role": "assistant", "content": ai_response})
         
-        # Paso 2: Generar audio en paralelo (asíncrono)
-        audio_buffer = await asyncio.to_thread(  # Cambio clave
-            generate_audio_with_eleven_labs, 
-            ai_response
-        )
+        # Verificar si la IA indica que debe finalizar la llamada
+        if "[END_CALL]" in ai_response:
+            logger.info("🛑 IA solicitó finalizar llamada")
+            clean_response = ai_response.replace("[END_CALL]", "").strip()
+            return end_twilio_call(clean_response)
+        
+        # Generar audio con Eleven Labs
+        audio_buffer = await asyncio.to_thread(generate_audio_with_eleven_labs, ai_response)
         
         if audio_buffer:
             with open(AUDIO_TEMP_PATH, "wb") as f:
@@ -84,5 +100,28 @@ async def process_user_input(user_input: str):  # Ahora es async
     except Exception as e:
         logger.error(f"Error crítico: {str(e)}")
         response.say("Lo siento, ha ocurrido un error.")
+    
+    return str(response)
+
+def end_twilio_call(farewell_message: str):
+    response = VoiceResponse()
+    
+    try:
+        audio_buffer = generate_audio_with_eleven_labs(farewell_message)
+        
+        if audio_buffer:
+            with open(AUDIO_TEMP_PATH, "wb") as f:
+                f.write(audio_buffer.getvalue())
+            response.play("/audio-response")
+        else:
+            logger.error("⚠️ No se pudo generar el audio de despedida")
+        
+        response.pause(length=5)
+        response.hangup()
+        logger.info("📞 Llamada finalizada (audio personalizado)")
+        
+    except Exception as e:
+        logger.error(f"❌ Error en despedida: {str(e)}")
+        response.hangup()
     
     return str(response)
