@@ -34,7 +34,7 @@ def generate_openai_response(conversation_history: list):
 
         # Generar respuesta de OpenAI
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-3.5-turbo",
             messages=generate_openai_prompt(conversation_history),
             tools=[
                 {
