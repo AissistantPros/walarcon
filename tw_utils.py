@@ -13,9 +13,16 @@ AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"
 conversation_history = []
 call_start_time = None
 
+
+
+
+
+
 def handle_twilio_call(gather_action: str):
-    global call_start_time
+    global call_start_time, conversation_history
     call_start_time = time.time()
+    conversation_history = []  # Se reinicia la conversación en cada nueva llamada
+
     response = VoiceResponse()
     
     try:
@@ -83,11 +90,11 @@ async def process_user_input(user_input: str):
         audio_buffer = await asyncio.to_thread(generate_audio_with_eleven_labs, ai_response)
         
         if audio_buffer:
-            with open(AUDIO_TEMP_PATH, "wb") as f:
-                f.write(audio_buffer.getvalue())
-            response.play("/audio-response")
-        else:
-            response.say(ai_response)
+           with open(AUDIO_TEMP_PATH, "wb") as f:
+               f.write(audio_buffer.getvalue())
+           if not response.play("/audio-response"):  # Evita repetir si ya se generó
+               response.play("/audio-response")
+
         
         gather = Gather(
             input="speech",
@@ -108,6 +115,12 @@ async def process_user_input(user_input: str):
         response.say("Lo siento, ha ocurrido un error.")
 
     return str(response)
+
+
+
+
+
+
 
 def end_twilio_call(farewell_message: str):
     response = VoiceResponse()
