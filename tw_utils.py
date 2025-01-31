@@ -76,26 +76,24 @@ async def process_user_input(user_input: str):
             with open(AUDIO_TEMP_PATH, "wb") as f:
                 f.write(audio_buffer.getvalue())
             response.play("/audio-response")
+        else:
+            response.say("Lo siento, no pude generar la respuesta. ¿Podría repetir su pregunta?")
 
-        # Manejar fin de llamada
-        if "[END_CALL]" in ai_response:
-            logger.info("🛑 IA solicitó finalizar llamada")
-            return end_twilio_call(ai_response.replace("[END_CALL]", "").strip())
-
-        # Continuar conversación
-        response.append(Gather(
+        # Continuar la conversación
+        gather = Gather(
             input="speech",
             action="/process-user-input",
             method="POST",
             timeout=10,
             language="es-MX"
-        ))
+        )
+        response.append(gather)
         
         logger.info(f"Tiempo total: {time.time() - call_start_time:.2f}s")
         
     except Exception as e:
         logger.error(f"Error crítico: {str(e)}")
-        response.say("Lo siento, ha ocurrido un error. ¿Podría repetirlo?")
+        response.say("Lo siento, ha ocurrido un error. ¿Podría repetir su solicitud?")
         
     return str(response)
 

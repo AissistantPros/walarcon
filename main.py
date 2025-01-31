@@ -60,13 +60,6 @@ async def twilio_process_input(request: Request):
         logger.error(f"Error en Process Input: {str(e)}")
         return Response(content=str(e), status_code=500)
 
-
-
-
-
-
-
-
 # Endpoints adicionales (mantenidos sin cambios)
 @app.get("/consultar-informacion")
 def consultar_informacion():

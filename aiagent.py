@@ -18,11 +18,24 @@ def generate_openai_response(conversation_history: list):
     try:
         start_time = time.time()
         
-        messages = generate_openai_prompt(conversation_history)
-        
+        # Verificar si la respuesta requiere consultar Google Sheets
+        if "consultar información" in conversation_history[-1]["content"].lower():
+            logger.info("📊 Consultando Google Sheets...")
+            sheet_data = read_sheet_data()
+            
+            if not sheet_data:
+                raise ValueError("No se pudo obtener información de Google Sheets")
+                
+            # Agregar datos al contexto
+            conversation_history.append({
+                "role": "system",
+                "content": f"Datos de Google Sheets: {str(sheet_data)}"
+            })
+
+        # Generar respuesta de OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
-            messages=messages,
+            messages=generate_openai_prompt(conversation_history),
             tools=[
                 {
                     "type": "function",
@@ -58,8 +71,8 @@ def generate_openai_response(conversation_history: list):
             ],
             tool_choice="auto",
         )
-        
-        # Manejo robusto de respuesta
+
+        # Manejo robusto de la respuesta
         if not response.choices:
             raise ValueError("No se recibieron opciones en la respuesta")
             
@@ -70,13 +83,9 @@ def generate_openai_response(conversation_history: list):
             
         ai_response = ai_response.strip()
         
-        if "[END_CALL]" in ai_response:
-            logger.info("🛑 IA solicitó finalizar llamada")
-            
         logger.info(f"🤖 OpenAI respondió en {time.time() - start_time:.2f}s")
         return ai_response
         
     except Exception as e:
         logger.error(f"❌ Error en OpenAI: {str(e)}")
-        logger.debug(f"Conversación al error: {conversation_history}")
-        return "Lo siento, hubo un error. ¿Podría repetir su solicitud?"
+        return "Lo siento, hubo un error al consultar la información. ¿Podría repetir su pregunta?"
