@@ -95,7 +95,11 @@ async def process_user_input(user_input: str):
         )
         response.append(gather)
         
-        logger.info(f"Tiempo total: {time.time() - call_start_time:.2f}s")
+        if call_start_time is not None:
+            logger.info(f"Tiempo total: {time.time() - call_start_time:.2f}s")
+        else:
+            logger.warning("⚠️ call_start_time no está definido, no se puede calcular el tiempo total")
+
         
     except Exception as e:
         logger.error(f"Error crítico: {str(e)}")
