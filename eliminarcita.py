@@ -1,34 +1,69 @@
+# -*- coding: utf-8 -*-
+"""
+Módulo para la eliminación de citas en Google Calendar.
+Permite buscar y eliminar eventos en la agenda del consultorio del Dr. Wilfrido Alarcón.
+"""
+
+# ==================================================
+# 🔹 Parte 1: Importaciones y Configuración
+# ==================================================
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from decouple import config
+import logging
 
-# **SECCIÓN 1: Configuración de Google Calendar**
+# Configuración de logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Variables de configuración de Google Calendar
 GOOGLE_CALENDAR_ID = config("GOOGLE_CALENDAR_ID")
 GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")
 GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 
+
+
+
+
+
+
+# ==================================================
+# 🔹 Parte 2: Inicialización de Google Calendar
+# ==================================================
 def initialize_google_calendar():
     """
-    Inicializa la conexión con la API de Google Calendar usando credenciales de servicio.
+    Configura y conecta la API de Google Calendar usando credenciales de servicio.
 
     Retorna:
-        service: Cliente de Google Calendar listo para realizar operaciones.
+        object: Cliente autenticado de Google Calendar.
     """
-    credentials = Credentials.from_service_account_info(
-        {
-            "type": "service_account",
-            "project_id": GOOGLE_PROJECT_ID,
-            "private_key": GOOGLE_PRIVATE_KEY,
-            "client_email": GOOGLE_CLIENT_EMAIL,
-            "token_uri": "https://oauth2.googleapis.com/token",
-        },
-        scopes=["https://www.googleapis.com/auth/calendar"]
-    )
-    return build("calendar", "v3", credentials=credentials)
+    try:
+        credentials = Credentials.from_service_account_info(
+            {
+                "type": "service_account",
+                "project_id": GOOGLE_PROJECT_ID,
+                "private_key": GOOGLE_PRIVATE_KEY,
+                "client_email": GOOGLE_CLIENT_EMAIL,
+                "token_uri": "https://oauth2.googleapis.com/token",
+            },
+            scopes=["https://www.googleapis.com/auth/calendar"]
+        )
+        return build("calendar", "v3", credentials=credentials)
+    except Exception as e:
+        logger.error(f"Error al conectar con Google Calendar: {str(e)}")
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Nueva línea para manejo de error
 
 
-# **SECCIÓN 2: Eliminar un evento existente**
+
+
+
+
+
+
+# ==================================================
+# 🔹 Parte 3: Eliminación de un evento en Google Calendar
+# ==================================================
 def delete_calendar_event(phone, patient_name=None):
     """
     Busca y elimina un evento en Google Calendar basado en el número de teléfono.
@@ -41,42 +76,80 @@ def delete_calendar_event(phone, patient_name=None):
     Retorna:
         dict: Detalles del resultado de la operación o un mensaje indicando el estado.
     """
-    # Validar el número de teléfono
-    if not phone or len(phone) != 10 or not phone.isdigit():
-        raise ValueError("El campo 'phone' debe ser un número de 10 dígitos.")
+    try:
+        # Validar el número de teléfono
+        if not phone or len(phone) != 10 or not phone.isdigit():
+            raise ValueError("El campo 'phone' debe ser un número de 10 dígitos.")
 
-    # Inicializar Google Calendar API
-    service = initialize_google_calendar()
+        # Inicializar Google Calendar API
+        service = initialize_google_calendar()
 
-    # Buscar eventos que coincidan con el número de teléfono
-    events = service.events().list(
-        calendarId=GOOGLE_CALENDAR_ID,
-        q=phone,  # Buscar por teléfono en las notas del evento
-        singleEvents=True
-    ).execute()
+        # Buscar eventos que coincidan con el número de teléfono
+        events = service.events().list(
+            calendarId=GOOGLE_CALENDAR_ID,
+            q=phone,  # Buscar por teléfono en las notas del evento
+            singleEvents=True
+        ).execute()
 
-    items = events.get("items", [])
+        items = events.get("items", [])
 
-    # Si no se encuentran eventos, informar al usuario
-    if not items:
-        return {"message": "No se encontraron citas con el número proporcionado."}
+        # Si no se encuentran eventos, informar al usuario
+        if not items:
+            logger.warning(f"⚠️ No se encontraron citas para el número: {phone}")
+            return {"message": "No se encontraron citas con el número proporcionado."}
 
-    # Si hay múltiples citas, confirmar con el nombre del paciente
-    if len(items) > 1 and patient_name:
-        # Buscar un evento que coincida con el nombre del paciente
-        for event in items:
-            if event["summary"].lower() == patient_name.lower():
-                # Eliminar el evento encontrado
-                service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event["id"]).execute()
-                return {"message": f"El evento para {patient_name} ha sido eliminado con éxito."}
+        # Si hay múltiples citas y se proporciona el nombre del paciente
+        if len(items) > 1 and patient_name:
+            for event in items:
+                if event["summary"].lower() == patient_name.lower():
+                    # Eliminar el evento encontrado
+                    service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event["id"]).execute()
+                    logger.info(f"✅ Cita eliminada para {patient_name}")
+                    return {"message": f"El evento para {patient_name} ha sido eliminado con éxito."}
 
-        # Si no se encuentra un evento con el nombre especificado
-        return {
-            "message": "Se encontraron múltiples citas con este número, pero ninguna coincide con el nombre proporcionado.",
-            "options": [event["summary"] for event in items]  # Lista los nombres de los pacientes
-        }
+            # Si no se encuentra un evento con el nombre especificado
+            nombres = [event["summary"] for event in items]
+            logger.warning(f"⚠️ Se encontraron varias citas con el número {phone}, pero ninguna coincide con {patient_name}.")
+            return {
+                "message": "Se encontraron múltiples citas con este número, pero ninguna coincide con el nombre proporcionado.",
+                "options": nombres  # Lista los nombres de los pacientes
+            }
 
-    # Si solo hay un evento o no se especificó el nombre, eliminar el primer evento encontrado
-    event = items[0]
-    service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event["id"]).execute()
-    return {"message": f"El evento para {event['summary']} ha sido eliminado con éxito."}
+        # Si solo hay un evento o no se especificó el nombre, eliminar el primer evento encontrado
+        event = items[0]
+        service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event["id"]).execute()
+        logger.info(f"✅ Cita eliminada para {event['summary']}")
+
+        return {"message": f"El evento para {event['summary']} ha sido eliminado con éxito."}
+
+    except ValueError as ve:
+        logger.warning(f"⚠️ Error de validación: {str(ve)}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error al eliminar cita en Google Calendar: {str(e)}")
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Manejo de error
+
+
+
+
+
+
+# ==================================================
+# 🔹 Parte 4: Prueba Local del Módulo
+# ==================================================
+if __name__ == "__main__":
+    """
+    Prueba rápida para verificar la conexión y eliminación de citas en Google Calendar.
+    """
+    try:
+        test_phone = "9981234567"
+        test_name = "Juan Pérez"
+        result = delete_calendar_event(phone=test_phone, patient_name=test_name)
+
+        print("✅ Resultado de la eliminación de la cita:")
+        print(result)
+
+    except ConnectionError as ce:
+        print(f"❌ Error de conexión con Google Calendar: {str(ce)}")
+    except Exception as e:
+        print(f"❌ Error desconocido: {str(e)}")
