@@ -64,7 +64,6 @@ async def handle_twilio_call(gather_action: str):
 # ==================================================
 # 🔹 Procesamiento de entradas del usuario
 # ==================================================
-
 async def process_user_input(request: Request):
     """Procesa la entrada de voz del usuario y genera una respuesta."""
     global conversation_history, call_start_time
@@ -168,3 +167,30 @@ async def generate_twilio_response(response, ai_response):
 
     logger.info(f"Tiempo total de llamada: {time.time() - call_start_time:.2f}s")
     return str(response)
+
+# ==================================================
+# 🔹 Manejo de errores por falta de entrada
+# ==================================================
+def handle_no_input(response):
+    """Maneja el caso en el que el usuario no dice nada."""
+    response.say("No escuché ninguna respuesta. ¿Podría repetir, por favor?")
+    response.append(Gather(
+        input="speech",
+        action="/process-user-input",
+        method="POST",
+        timeout=10,
+        language="es-MX"
+    ))
+    return str(response)
+
+# ==================================================
+# 🔹 Manejo de errores específicos
+# ==================================================
+def map_error_to_message(error_code: str) -> str:
+    """Traduce códigos de error a mensajes amigables."""
+    error_messages = {
+        "GOOGLE_SHEETS_UNAVAILABLE": "No puedo acceder a la base de datos en este momento.",
+        "GOOGLE_CALENDAR_UNAVAILABLE": "El sistema de citas no responde.",
+        "DEFAULT": "Hubo un problema técnico."
+    }
+    return error_messages.get(error_code, error_messages["DEFAULT"])
