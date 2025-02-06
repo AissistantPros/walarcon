@@ -4,7 +4,7 @@ Módulo de integración con Twilio - Dr. Alarcón IVR System
 Función principal: Manejar el flujo de llamadas y procesar entradas de voz.
 """
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Form
 from twilio.twiml.voice_response import VoiceResponse, Gather, Hangup
 from aiagent import generate_openai_response
 from audio_utils import generate_audio_with_eleven_labs
@@ -72,18 +72,30 @@ async def process_user_input(request: Request):
     try:
         # 📌 Verifica que el request sea del tipo correcto
         if not isinstance(request, Request):
-            raise TypeError("⚠️ Error: El parámetro 'request' no es una instancia de Request.")
+            logger.error("❌ Error: 'request' no es una instancia válida de Request.")
+            response.say("Ha ocurrido un error interno en la solicitud.")
+            return str(response)
 
-        # 📌 Intenta obtener los datos correctamente
+        # 📌 Extraer los datos del formulario
         form_data = await request.form()
-        user_input = form_data.get("SpeechResult", "").strip()
+        
+        # 📌 Depuración para verificar qué está llegando
+        logger.info(f"📌 Datos recibidos en request.form(): {form_data}")
+
+        # 📌 Verifica que 'SpeechResult' exista en los datos
+        if "SpeechResult" not in form_data:
+            logger.warning("⚠️ 'SpeechResult' no encontrado en los datos del formulario.")
+            return handle_no_input(response)
+
+        user_input = form_data["SpeechResult"].strip()
 
         if not user_input:
             return handle_no_input(response)
 
         conversation_history.append({"role": "user", "content": user_input})
-        logger.info(f"Entrada del usuario: {user_input}")
+        logger.info(f"🗣️ Entrada del usuario: {user_input}")
 
+        # 📌 Generar respuesta de IA en un hilo separado
         ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
 
         if "[ERROR]" in ai_response:
@@ -93,11 +105,6 @@ async def process_user_input(request: Request):
         conversation_history.append({"role": "assistant", "content": ai_response})
 
         return await generate_twilio_response(response, ai_response)
-
-    except TypeError as te:
-        logger.error(f"❌ Tipo de dato incorrecto en request: {str(te)}")
-        response.say("Ha ocurrido un error interno en la solicitud.")
-        return str(response)
 
     except Exception as e:
         logger.error(f"❌ Error en el procesamiento de voz: {str(e)}")
