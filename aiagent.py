@@ -98,7 +98,6 @@ def generate_openai_response(conversation_history: list):
         start_time = time.time()
         logger.info("Generando respuesta con OpenAI...")
 
-        # Llamada a OpenAI
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=conversation_history,
@@ -106,13 +105,24 @@ def generate_openai_response(conversation_history: list):
             tool_choice="auto",
         )
 
-        # Manejo de herramientas (si OpenAI sugiere una)
         tool_calls = response.choices[0].message.tool_calls
         if tool_calls:
             tool_call = tool_calls[0]
-            return handle_tool_execution(tool_call)
+            tool_result = handle_tool_execution(tool_call)
 
-        # Respuesta directa de la IA
+            # Agregar los datos obtenidos al historial de la conversación
+            conversation_history.append({
+                "role": "function",
+                "name": tool_call.function.name,
+                "content": json.dumps(tool_result)
+            })
+
+            # Hacer una nueva llamada a OpenAI con el historial actualizado
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=conversation_history,
+            )
+
         ai_response = response.choices[0].message.content
         logger.info(f"Respuesta generada en {time.time() - start_time:.2f}s")
         return ai_response
@@ -123,30 +133,25 @@ def generate_openai_response(conversation_history: list):
 
 # Ejecución de herramientas solicitadas por OpenAI
 def handle_tool_execution(tool_call):
-    """Ejecuta la herramienta solicitada por OpenAI"""
+    """Ejecuta la herramienta solicitada por OpenAI y devuelve datos crudos."""
     function_name = tool_call.function.name
-    args = json.loads(tool_call.function.arguments)  # Parsea los argumentos en formato JSON
+    args = json.loads(tool_call.function.arguments)
 
     logger.info(f"🛠️ Ejecutando herramienta: {function_name} con argumentos {args}")
 
     try:
-        # 🔹 Obtener información desde Google Sheets
         if function_name == "read_sheet_data":
             data = read_sheet_data()
             if not data:
                 return {"error": "No pude obtener la información en este momento."}
+            return {"data": data}  # Devuelve los datos crudos
 
-            # ⏩ En lugar de armar una respuesta fija, devolvemos los datos tal cual
-            return {"data": data}
-
-        # 🔹 Buscar el siguiente horario disponible
         elif function_name == "find_next_available_slot":
             slot = find_next_available_slot()
             if not slot:
                 return {"message": "No hay horarios disponibles en este momento."}
-            return {"message": f"El siguiente horario disponible es el {slot['start_time']}."}
+            return {"slot": slot}  
 
-        # 🔹 Crear una nueva cita en el calendario
         elif function_name == "create_calendar_event":
             event = create_calendar_event(
                 args["name"],
@@ -155,9 +160,8 @@ def handle_tool_execution(tool_call):
                 args["start_time"],
                 args["end_time"]
             )
-            return {"message": f"Tu cita ha sido agendada para el {event['start']}."}
+            return {"event": event}  
 
-        # 🔹 Editar una cita existente
         elif function_name == "edit_calendar_event":
             result = edit_calendar_event(
                 args["phone"],
@@ -165,26 +169,17 @@ def handle_tool_execution(tool_call):
                 args.get("new_start_time"),
                 args.get("new_end_time")
             )
-            return {"message": f"Tu cita ha sido modificada. La nueva fecha es {result['start']}."}
+            return {"result": result}  
 
-        # 🔹 Eliminar una cita existente
         elif function_name == "delete_calendar_event":
             result = delete_calendar_event(args["phone"], args.get("patient_name"))
-            return {"message": f"La cita ha sido cancelada. {result['message']}."}
+            return {"result": result}  
 
         return {"error": "No entendí esa solicitud."}
 
-    except ConnectionError as e:
-        return {"error": format_error_response(str(e))}
     except Exception as e:
         logger.error(f"❌ Error ejecutando herramienta: {str(e)}")
         return {"error": "Hubo un error técnico al procesar tu solicitud."}
-
-    except ConnectionError as e:
-        return format_error_response(str(e))
-    except Exception as e:
-        logger.error(f"Error ejecutando herramienta: {str(e)}")
-        return "Hubo un error técnico."
 
 # Manejo de errores
 def format_error_response(error_code: str) -> str:
