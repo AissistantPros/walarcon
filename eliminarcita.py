@@ -5,12 +5,14 @@ Permite buscar y eliminar eventos en la agenda del consultorio del Dr. Wilfrido 
 """
 
 # ==================================================
-# 🔹 Parte 1: Importaciones y Configuración
+# 📌 Importaciones y Configuración
 # ==================================================
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from decouple import config
 import logging
+import pytz
+from utils import get_cancun_time  # Asegura el uso de la zona horaria correcta
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -22,14 +24,8 @@ GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")
 GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 
-
-
-
-
-
-
 # ==================================================
-# 🔹 Parte 2: Inicialización de Google Calendar
+# 🔹 Inicialización de Google Calendar
 # ==================================================
 def initialize_google_calendar():
     """
@@ -51,18 +47,11 @@ def initialize_google_calendar():
         )
         return build("calendar", "v3", credentials=credentials)
     except Exception as e:
-        logger.error(f"Error al conectar con Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Nueva línea para manejo de error
-
-
-
-
-
-
-
+        logger.error(f"❌ Error al conectar con Google Calendar: {str(e)}")
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 3: Eliminación de un evento en Google Calendar
+# 🔹 Eliminación de un evento en Google Calendar
 # ==================================================
 def delete_calendar_event(phone, patient_name=None):
     """
@@ -79,7 +68,7 @@ def delete_calendar_event(phone, patient_name=None):
     try:
         # Validar el número de teléfono
         if not phone or len(phone) != 10 or not phone.isdigit():
-            raise ValueError("El campo 'phone' debe ser un número de 10 dígitos.")
+            raise ValueError("⚠️ El campo 'phone' debe ser un número de 10 dígitos.")
 
         # Inicializar Google Calendar API
         service = initialize_google_calendar()
@@ -87,7 +76,7 @@ def delete_calendar_event(phone, patient_name=None):
         # Buscar eventos que coincidan con el número de teléfono
         events = service.events().list(
             calendarId=GOOGLE_CALENDAR_ID,
-            q=phone,  # Buscar por teléfono en las notas del evento
+            q=phone,  # Buscar por teléfono en la descripción del evento
             singleEvents=True
         ).execute()
 
@@ -127,15 +116,10 @@ def delete_calendar_event(phone, patient_name=None):
         raise
     except Exception as e:
         logger.error(f"❌ Error al eliminar cita en Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Manejo de error
-
-
-
-
-
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 4: Prueba Local del Módulo
+# 🔹 Prueba Local del Módulo
 # ==================================================
 if __name__ == "__main__":
     """

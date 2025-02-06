@@ -5,14 +5,15 @@ Permite agendar citas para los pacientes del consultorio del Dr. Wilfrido Alarc�
 """
 
 # ==================================================
-# 🔹 Parte 1: Importaciones y Configuración
+# 📌 Importaciones y Configuración
 # ==================================================
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from decouple import config
 import pytz
 import logging
-from utils import get_iso_format  # Utilidad para formato de fechas
+from utils import get_cancun_time
+from buscarslot import check_availability  # Importar verificación de disponibilidad
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
@@ -24,13 +25,8 @@ GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")
 GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 
-
-
-
-
-
 # ==================================================
-# 🔹 Parte 2: Inicialización de Google Calendar
+# 🔹 Inicialización de Google Calendar
 # ==================================================
 def initialize_google_calendar():
     """
@@ -49,19 +45,11 @@ def initialize_google_calendar():
         }, scopes=["https://www.googleapis.com/auth/calendar"])
         return build("calendar", "v3", credentials=credentials)
     except Exception as e:
-        logger.error(f"Error al conectar con Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Manejo de error
-
-
-
-
-
-
-
-
+        logger.error(f"❌ Error al conectar con Google Calendar: {str(e)}")
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 3: Creación de un evento en Google Calendar
+# 🔹 Creación de un evento en Google Calendar
 # ==================================================
 def create_calendar_event(name, phone, reason, start_time, end_time):
     """
@@ -82,20 +70,25 @@ def create_calendar_event(name, phone, reason, start_time, end_time):
 
         # Validaciones básicas
         if not name.strip():
-            raise ValueError("El nombre del paciente no puede estar vacío.")
+            raise ValueError("⚠️ El nombre del paciente no puede estar vacío.")
         if not phone.strip().isdigit() or len(phone.strip()) != 10:
-            raise ValueError("El número de teléfono debe tener 10 dígitos numéricos.")
+            raise ValueError("⚠️ El número de teléfono debe tener 10 dígitos numéricos.")
         if not start_time or not end_time:
-            raise ValueError("Los valores de fecha y hora no pueden estar vacíos.")
+            raise ValueError("⚠️ Los valores de fecha y hora no pueden estar vacíos.")
 
-        # Convertir a formato ISO con zona horaria de Cancún
-        start_iso = start_time.isoformat()
-        end_iso = end_time.isoformat()
+        # Convertir a formato ISO 8601 con zona horaria de Cancún
+        start_iso = start_time.astimezone(pytz.timezone("America/Cancun")).isoformat()
+        end_iso = end_time.astimezone(pytz.timezone("America/Cancun")).isoformat()
+
+        # Verificar disponibilidad antes de crear la cita
+        if not check_availability(start_time, end_time):
+            logger.warning(f"⚠️ No se puede agendar. El horario {start_iso} - {end_iso} ya está ocupado.")
+            raise ValueError("El horario solicitado no está disponible. Intente otro horario.")
 
         # Crear el evento en Google Calendar
         event = {
             "summary": name,
-            "description": f"Teléfono: {phone}\nMotivo: {reason or 'No especificado'}",
+            "description": f"📌 Teléfono: {phone}\n📝 Motivo: {reason or 'No especificado'}",
             "start": {"dateTime": start_iso, "timeZone": "America/Cancun"},
             "end": {"dateTime": end_iso, "timeZone": "America/Cancun"},
         }
@@ -105,7 +98,7 @@ def create_calendar_event(name, phone, reason, start_time, end_time):
             body=event
         ).execute()
 
-        logger.info(f"✅ Cita creada para {name} el {start_time}")
+        logger.info(f"✅ Cita creada para {name} el {start_iso}")
 
         return {
             "id": created_event["id"],
@@ -114,23 +107,14 @@ def create_calendar_event(name, phone, reason, start_time, end_time):
         }
 
     except ValueError as ve:
-        logger.warning(f"⚠️ Validación fallida: {str(ve)}")
+        logger.warning(f"⚠️ Error de validación: {str(ve)}")
         raise
     except Exception as e:
         logger.error(f"❌ Error al crear la cita en Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Manejo de error
-
-
-
-
-
-
-
-
-
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 4: Prueba Local del Módulo
+# 🔹 Prueba Local del Módulo
 # ==================================================
 if __name__ == "__main__":
     """
@@ -139,12 +123,17 @@ if __name__ == "__main__":
     from datetime import datetime, timedelta
 
     try:
+        # Obtener la hora actual en Cancún
+        now = get_cancun_time()
+        start_test = now + timedelta(days=1, hours=3)
+        end_test = start_test + timedelta(minutes=45)
+
         test_event = create_calendar_event(
             name="Juan Pérez",
             phone="9981234567",
             reason="Chequeo general",
-            start_time=datetime.now() + timedelta(days=1, hours=3),
-            end_time=datetime.now() + timedelta(days=1, hours=4)
+            start_time=start_test,
+            end_time=end_test
         )
 
         print("✅ Cita creada exitosamente:")

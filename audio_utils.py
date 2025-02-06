@@ -4,14 +4,11 @@ Módulo para generar audio con ElevenLabs.
 Convierte texto en audio para su uso en llamadas telefónicas con Twilio.
 """
 
-# ==================================================
-# Parte 1: Importaciones y Configuración
-# ==================================================
 from elevenlabs import ElevenLabs, VoiceSettings
 from decouple import config
 import io
 import logging
-import time
+import asyncio
 from typing import Optional
 
 # Configuración del sistema de logs
@@ -21,17 +18,10 @@ logger = logging.getLogger(__name__)
 # Inicialización del cliente de ElevenLabs con la API Key
 client = ElevenLabs(api_key=config("ELEVEN_LABS_API_KEY"))
 
-
-
-
-
-
-
-
 # ==================================================
-# Parte 2: Generación de audio con ElevenLabs
+# 🔹 Generación de audio con ElevenLabs
 # ==================================================
-def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
+async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
     """
     Convierte un texto en audio usando ElevenLabs.
 
@@ -47,10 +37,11 @@ def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
             raise ValueError("El texto para generar audio está vacío.")
 
         # Medir el tiempo de generación
-        start_time = time.time()
-
+        logger.info("Generando audio con ElevenLabs...")
+        
         # Configuración de la voz y modelo
-        audio_stream = client.text_to_speech.convert(
+        audio_stream = await asyncio.to_thread(
+            client.text_to_speech.convert,
             text=text,
             voice_id=config("ELEVEN_LABS_VOICE_ID"),
             model_id="eleven_multilingual_v2",
@@ -61,47 +52,22 @@ def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
             )
         )
 
+        # Verificar si hay contenido en el stream
+        if not audio_stream:
+            raise Exception("El stream de audio está vacío.")
+
         # Buffer para almacenar el audio
         buffer = io.BytesIO()
         for chunk in audio_stream:
             buffer.write(chunk)
         buffer.seek(0)
 
-        # Log de tiempo de generación
-        logger.info(f"🔊 Audio generado en {time.time() - start_time:.2f}s")
+        logger.info("✅ Audio generado con éxito")
         return buffer
 
     except ValueError as ve:
-        # Log para errores de validación (texto vacío)
         logger.warning(f"⚠️ Error de validación en generación de audio: {str(ve)}")
         return None
     except Exception as e:
-        # Log de errores generales en la conversión de texto a voz
         logger.error(f"❌ Error en ElevenLabs al generar audio: {str(e)}")
         return None
-
-
-
-
-
-
-
-
-
-# ==================================================
-# Parte 3: Prueba Local del Módulo
-# ==================================================
-if __name__ == "__main__":
-    """
-    Prueba rápida de la conversión de texto a audio.
-    Se recomienda ejecutar este archivo directamente para verificar la funcionalidad.
-    """
-    test_text = "Hola, esta es una prueba del sistema de generación de voz."
-    audio_buffer = generate_audio_with_eleven_labs(test_text)
-
-    if audio_buffer:
-        with open("test_audio.mp3", "wb") as f:
-            f.write(audio_buffer.getvalue())
-        print("✅ Prueba exitosa: Archivo 'test_audio.mp3' generado.")
-    else:
-        print("❌ Prueba fallida: No se generó audio.")

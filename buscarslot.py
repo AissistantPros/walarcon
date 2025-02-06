@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 Módulo para buscar el siguiente horario disponible en Google Calendar.
-Utiliza la API de Google Calendar para verificar disponibilidad.
+Optimizado para manejar prioridades y fechas específicas.
 """
 
-
-
-
-
 # ==================================================
-# Parte 1 📌 Importaciones y Configuración
+# 📌 Importaciones y Configuración
 # ==================================================
 from datetime import datetime, timedelta
 from googleapiclient.discovery import build
@@ -29,14 +25,8 @@ GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")
 GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 
-
-
-
-
-
-
 # ==================================================
-# Parte 2 🔹 Inicialización de Google Calendar
+# 🔹 Inicialización de Google Calendar
 # ==================================================
 def initialize_google_calendar():
     """
@@ -56,15 +46,10 @@ def initialize_google_calendar():
         return build("calendar", "v3", credentials=credentials)
     except Exception as e:
         logger.error(f"Error al conectar con Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Error manejado
-
-
-
-
-
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# Parte 3 🔹 Verificación de Disponibilidad
+# 🔹 Verificación de Disponibilidad
 # ==================================================
 def check_availability(start_time, end_time):
     """
@@ -88,23 +73,22 @@ def check_availability(start_time, end_time):
         return len(events["calendars"][GOOGLE_CALENDAR_ID]["busy"]) == 0
     except Exception as e:
         logger.error(f"Error al verificar disponibilidad en Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Error manejado
-
-
-
-
-
-
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# Parte 4 🔹 Búsqueda del Próximo Horario Disponible
+# 🔹 Búsqueda del Próximo Horario Disponible
 # ==================================================
-def find_next_available_slot():
+def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
     """
     Busca el siguiente horario disponible en Google Calendar.
-    
+
+    Parámetros:
+        target_date (datetime, opcional): Fecha específica para buscar disponibilidad.
+        target_hour (str, opcional): Hora exacta preferida por el usuario (HH:MM).
+        urgent (bool, opcional): Si es True, busca lo antes posible pero omitiendo las próximas 4 horas.
+
     Retorna:
-        dict: Horario disponible con formato {"start_time": datetime, "end_time": datetime}.
+        dict: Horario disponible con formato {"start_time": str, "end_time": str}.
     """
     try:
         # Definir horarios estándar de atención
@@ -121,10 +105,17 @@ def find_next_available_slot():
         # Obtener la hora actual en Cancún
         now = get_cancun_time()
 
-        # Iniciar la búsqueda desde el día actual en adelante
+        # Determinar el punto de inicio de búsqueda
         day_offset = 0
+        start_day = now
+
+        if target_date:
+            start_day = target_date
+        elif urgent:
+            start_day = now + timedelta(hours=4)  # Evita las próximas 4 horas si es urgente
+
         while True:
-            day = now + timedelta(days=day_offset)
+            day = start_day + timedelta(days=day_offset)
 
             # Saltar domingos
             if day.weekday() == 6:  
@@ -132,6 +123,10 @@ def find_next_available_slot():
                 continue
 
             for slot in slot_times:
+                # Si el usuario pidió una hora específica, solo busca en ese horario
+                if target_hour and slot["start"] != target_hour:
+                    continue  
+
                 # Formatear fechas de inicio y fin en formato ISO
                 start_time_str = f"{day.strftime('%Y-%m-%d')} {slot['start']}:00"
                 end_time_str = f"{day.strftime('%Y-%m-%d')} {slot['end']}:00"
@@ -140,33 +135,30 @@ def find_next_available_slot():
                 start_time = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("America/Cancun"))
                 end_time = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("America/Cancun"))
 
-                # Omitir horarios en las próximas 4 horas del mismo día
-                if day_offset == 0 and start_time <= now + timedelta(hours=4):
+                # Omitir horarios en las próximas 4 horas si es una búsqueda urgente
+                if urgent and day_offset == 0 and start_time <= now + timedelta(hours=4):
                     continue
 
                 # Verificar si el horario está disponible
                 if check_availability(start_time, end_time):
-                    logger.info(f"Horario disponible encontrado: {start_time} - {end_time}")
-                    return {"start_time": start_time, "end_time": end_time}
+                    logger.info(f"✅ Horario disponible encontrado: {start_time} - {end_time}")
+                    return {
+                        "start_time": start_time.isoformat(),
+                        "end_time": end_time.isoformat()
+                    }
 
             # Si no encuentra en el día actual, pasa al siguiente día
             day_offset += 1
 
     except ConnectionError as ce:
-        # Error ya mapeado en `initialize_google_calendar()` y `check_availability()`
-        logger.warning(f"Error al buscar horario: {str(ce)}")
+        logger.warning(f"⚠️ Error al buscar horario: {str(ce)}")
         raise
     except Exception as e:
-        logger.error(f"Error inesperado al buscar horario: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Error general
-
-
-
-
-
+        logger.error(f"❌ Error inesperado al buscar horario: {str(e)}")
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# Parte 5 🔹 Prueba Local del Módulo
+# 🔹 Prueba Local del Módulo
 # ==================================================
 if __name__ == "__main__":
     """

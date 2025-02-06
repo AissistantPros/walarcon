@@ -5,13 +5,15 @@ Permite modificar horarios de citas ya existentes en la agenda del consultorio d
 """
 
 # ==================================================
-# 🔹 Parte 1: Importaciones y Configuración
+# 📌 Importaciones y Configuración
 # ==================================================
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from decouple import config
+import pytz
 import logging
 from datetime import timedelta
+from utils import get_cancun_time  # Asegura el uso de la zona horaria correcta
 
 # Importaciones de módulos internos
 from crearcita import create_calendar_event
@@ -27,12 +29,8 @@ GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")
 GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 
-
-
-
-
 # ==================================================
-# 🔹 Parte 2: Inicialización de Google Calendar
+# 🔹 Inicialización de Google Calendar
 # ==================================================
 def initialize_google_calendar():
     """
@@ -54,21 +52,11 @@ def initialize_google_calendar():
         )
         return build("calendar", "v3", credentials=credentials)
     except Exception as e:
-        logger.error(f"Error al conectar con Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Nueva línea para manejo de error
-
-
-
-
-
-
-
-
-
-
+        logger.error(f"❌ Error al conectar con Google Calendar: {str(e)}")
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 3: Edición de un evento en Google Calendar
+# 🔹 Edición de un evento en Google Calendar
 # ==================================================
 def edit_calendar_event(phone, original_start_time, new_start_time=None, new_end_time=None):
     """
@@ -86,7 +74,7 @@ def edit_calendar_event(phone, original_start_time, new_start_time=None, new_end
     try:
         # Validar el número de teléfono
         if not phone or len(phone) != 10 or not phone.isdigit():
-            raise ValueError("El campo 'phone' debe ser un número de 10 dígitos.")
+            raise ValueError("⚠️ El campo 'phone' debe ser un número de 10 dígitos.")
 
         # Inicializar Google Calendar API
         service = initialize_google_calendar()
@@ -94,7 +82,7 @@ def edit_calendar_event(phone, original_start_time, new_start_time=None, new_end
         # Buscar eventos que coincidan con el teléfono y la hora de inicio original
         events = service.events().list(
             calendarId=GOOGLE_CALENDAR_ID,
-            q=phone,  # Buscar por teléfono en las notas del evento
+            q=phone,  # Buscar por teléfono en la descripción del evento
             timeMin=original_start_time.isoformat(),
             timeMax=(original_start_time + timedelta(minutes=45)).isoformat(),
             singleEvents=True
@@ -124,14 +112,18 @@ def edit_calendar_event(phone, original_start_time, new_start_time=None, new_end
             new_start_time = event["start"]["dateTime"]
             new_end_time = event["end"]["dateTime"]
 
+        # Convertir fechas al formato ISO 8601 con zona horaria de Cancún
+        new_start_iso = new_start_time.astimezone(pytz.timezone("America/Cancun")).isoformat()
+        new_end_iso = new_end_time.astimezone(pytz.timezone("America/Cancun")).isoformat()
+
         # Verificar disponibilidad para la nueva fecha/hora
         if not check_availability(new_start_time, new_end_time):
-            logger.warning(f"⚠️ El horario solicitado ({new_start_time} - {new_end_time}) no está disponible.")
+            logger.warning(f"⚠️ El horario solicitado ({new_start_iso} - {new_end_iso}) no está disponible.")
             return {"message": "El horario solicitado no está disponible. Intente otro horario."}
 
         # Actualizar la fecha/hora en el evento
-        event["start"] = {"dateTime": new_start_time.isoformat(), "timeZone": "America/Cancun"}
-        event["end"] = {"dateTime": new_end_time.isoformat(), "timeZone": "America/Cancun"}
+        event["start"] = {"dateTime": new_start_iso, "timeZone": "America/Cancun"}
+        event["end"] = {"dateTime": new_end_iso, "timeZone": "America/Cancun"}
 
         # Guardar los cambios en el evento
         updated_event = service.events().update(
@@ -140,7 +132,7 @@ def edit_calendar_event(phone, original_start_time, new_start_time=None, new_end
             body=event
         ).execute()
 
-        logger.info(f"✅ Cita editada para {event['summary']} el {new_start_time}")
+        logger.info(f"✅ Cita editada para {event['summary']} el {new_start_iso}")
 
         # Retornar detalles del evento modificado
         return {
@@ -156,17 +148,10 @@ def edit_calendar_event(phone, original_start_time, new_start_time=None, new_end
         raise
     except Exception as e:
         logger.error(f"❌ Error al editar la cita en Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")  # Manejo de error
-
-
-
-
-
-
-
+        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 4: Prueba Local del Módulo
+# 🔹 Prueba Local del Módulo
 # ==================================================
 if __name__ == "__main__":
     """
@@ -175,9 +160,11 @@ if __name__ == "__main__":
     from datetime import datetime, timedelta
 
     try:
+        # Obtener la hora actual en Cancún
+        now = get_cancun_time()
         test_phone = "9981234567"
-        test_original_time = datetime.now() + timedelta(days=1, hours=3)
-        test_new_time = datetime.now() + timedelta(days=1, hours=5)
+        test_original_time = now + timedelta(days=1, hours=3)
+        test_new_time = now + timedelta(days=1, hours=5)
 
         result = edit_calendar_event(
             phone=test_phone,

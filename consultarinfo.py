@@ -5,30 +5,29 @@ Utilizado para obtener información como precios, políticas y otros datos del c
 """
 
 # ==================================================
-# 🔹 Parte 1: Importaciones y Configuración
+# 📌 Importaciones y Configuración
 # ==================================================
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from decouple import config
 import logging
 
-# Configurar logging
+# Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Variables de configuración de Google Sheets
-GOOGLE_SHEETS_ID = config("GOOGLE_SHEETS_ID")  # ID del archivo de Google Sheets
-GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")  # Llave privada con formato correcto
-GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")  # ID del proyecto
-GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")  # Correo de la cuenta de servicio
+GOOGLE_SHEETS_ID = config("GOOGLE_SHEETS_ID", default=None)
+GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY", default=None).replace("\\n", "\n")
+GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID", default=None)
+GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL", default=None)
 
-
-
-
-
+# Validar que todas las variables de entorno estén definidas
+if not all([GOOGLE_SHEETS_ID, GOOGLE_PRIVATE_KEY, GOOGLE_PROJECT_ID, GOOGLE_CLIENT_EMAIL]):
+    raise ValueError("⚠️ Faltan variables de entorno requeridas para conectar con Google Sheets.")
 
 # ==================================================
-# 🔹 Parte 2: Inicialización de Google Sheets
+# 🔹 Inicialización de Google Sheets
 # ==================================================
 def initialize_google_sheets():
     """
@@ -50,18 +49,11 @@ def initialize_google_sheets():
         )
         return build("sheets", "v4", credentials=credentials)
     except Exception as e:
-        logger.error(f"Error al conectar con Google Sheets: {str(e)}")
-        raise ConnectionError("GOOGLE_SHEETS_UNAVAILABLE")  # Nueva línea para manejo de error
-
-
-
-
-
-
-
+        logger.error(f"❌ Error al conectar con Google Sheets: {str(e)}")
+        raise ConnectionError("GOOGLE_SHEETS_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 3: Función para leer datos de Google Sheets
+# 🔹 Función para leer datos de Google Sheets
 # ==================================================
 def read_sheet_data(sheet_range="Generales!A:B"):
     """
@@ -80,25 +72,31 @@ def read_sheet_data(sheet_range="Generales!A:B"):
         rows = result.get("values", [])
 
         if not rows:
-            logger.warning("⚠️ La hoja está vacía o no se encontraron datos.")
+            logger.warning("⚠️ La hoja de cálculo está vacía o no se encontraron datos en el rango especificado.")
             return {}
 
-        return {row[0].strip(): row[1].strip() for row in rows if len(row) >= 2}
+        # Procesar y devolver los datos como un diccionario
+        data = {}
+        for row in rows:
+            if len(row) >= 2 and row[0] and row[1]:  # Evita errores si hay celdas vacías
+                key = row[0].strip()
+                value = row[1].strip()
+                data[key] = value
 
+        if not data:
+            logger.warning("⚠️ No se encontraron valores válidos en la hoja de cálculo.")
+        
+        return data
+
+    except ConnectionError as ce:
+        logger.warning(f"⚠️ Error de conexión con Google Sheets: {str(ce)}")
+        raise
     except Exception as e:
-        logger.error(f"Error al leer datos de Google Sheets: {str(e)}")
-        raise ConnectionError("GOOGLE_SHEETS_UNAVAILABLE")  # Nueva línea para manejo de error
-
-
-
-
-
-
-
-
+        logger.error(f"❌ Error inesperado al leer datos de Google Sheets: {str(e)}")
+        raise ConnectionError("GOOGLE_SHEETS_UNAVAILABLE")
 
 # ==================================================
-# 🔹 Parte 4: Prueba Local del Módulo
+# 🔹 Prueba Local del Módulo
 # ==================================================
 if __name__ == "__main__":
     """

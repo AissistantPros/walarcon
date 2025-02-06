@@ -1,19 +1,13 @@
 # -*- coding: utf-8 -*-
 """
 Módulo principal del agente de IA - Dr. Alarcón IVR System
-Función principal: Procesar entradas de usuario y gestionar integraciones con APIs externas
+Procesa entradas del usuario y gestiona integraciones con APIs externas.
 """
-
-# ==================================================
-# Parte 1: Configuración inicial y dependencias
-# ==================================================
-# Propósito: 
-# - Importar librerías necesarias
-# - Configurar logging
-# - Inicializar cliente de OpenAI
 
 import logging
 import time
+import asyncio
+import json
 from decouple import config
 from openai import OpenAI
 from consultarinfo import read_sheet_data
@@ -21,137 +15,165 @@ from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
-from prompt import generate_openai_prompt
 
-# Configurar sistema de logs
+# Configuración de logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Inicializar cliente OpenAI
+# Inicialización del cliente OpenAI
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 
+# Definición de herramientas disponibles
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_sheet_data",
+            "description": "Obtener información del consultorio"
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_next_available_slot",
+            "description": "Buscar el siguiente horario disponible"
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_calendar_event",
+            "description": "Crear una nueva cita médica",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "start_time": {"type": "string", "format": "date-time"},
+                    "end_time": {"type": "string", "format": "date-time"}
+                },
+                "required": ["name", "phone", "start_time", "end_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_calendar_event",
+            "description": "Modificar una cita existente",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string"},
+                    "original_start_time": {"type": "string", "format": "date-time"},
+                    "new_start_time": {"type": "string", "format": "date-time"},
+                    "new_end_time": {"type": "string", "format": "date-time"}
+                },
+                "required": ["phone", "original_start_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_calendar_event",
+            "description": "Eliminar una cita médica",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string"},
+                    "patient_name": {"type": "string"}
+                },
+                "required": ["phone"]
+            }
+        }
+    }
+]
 
-
-
-
-
-
-# ==================================================
-# Parte 2: Núcleo de generación de respuestas
-# ==================================================
-# Propósito:
-# - Comunicarse con OpenAI
-# - Ejecutar herramientas según sea necesario
-# - Manejar errores de integraciones
-
+# Generación de respuestas con OpenAI
 def generate_openai_response(conversation_history: list):
-    """
-    Procesa la conversación y genera una respuesta usando GPT-4o
-    """
+    """Procesa la conversación y genera una respuesta usando GPT-4o"""
     try:
         start_time = time.time()
-        
-        # Generar prompt con instrucciones específicas
-        messages = generate_openai_prompt(conversation_history)
-        
-        # Configurar herramientas disponibles
-        tools = [
-            {
-                "type": "function",
-                "function": {
-                    "name": "read_sheet_data",
-                    "description": "Obtener información de precios y políticas del consultorio"
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "find_next_available_slot",
-                    "description": "Buscar próximos horarios disponibles para citas"
-                }
-            }
-        ]
-        
+        logger.info("Generando respuesta con OpenAI...")
+
         # Llamada a OpenAI
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            tools=tools,
+            model="gpt-4o",
+            messages=conversation_history,
+            tools=TOOLS,
             tool_choice="auto",
         )
-        
-        # Verificar si debe ejecutar una herramienta
-        if response.choices[0].message.tool_calls:
-            tool_call = response.choices[0].message.tool_calls[0]
-            function_name = tool_call.function.name
-            
-            # Ejecutar herramienta correspondiente
-            try:
-                if function_name == "read_sheet_data":
-                    sheet_data = read_sheet_data()
-                    return f"Información actualizada: {sheet_data.get('precio_consulta', 'No disponible')}"
-                
-                elif function_name == "find_next_available_slot":
-                    slot = find_next_available_slot()
-                    return f"Horario disponible: {slot['start_time']}" if slot else "No hay horarios"
-            
-            except ConnectionError as e:
-                error_code = str(e)
-                return format_error_response(error_code)
-        
-        # Si no usa herramientas, devolver respuesta normal
+
+        # Manejo de herramientas (si OpenAI sugiere una)
+        tool_calls = response.choices[0].message.tool_calls
+        if tool_calls:
+            tool_call = tool_calls[0]
+            return handle_tool_execution(tool_call)
+
+        # Respuesta directa de la IA
         ai_response = response.choices[0].message.content
-        logger.info(f"🤖 OpenAI respondió en {time.time() - start_time:.2f}s")
+        logger.info(f"Respuesta generada en {time.time() - start_time:.2f}s")
         return ai_response
-        
+
     except Exception as e:
-        logger.error(f"❌ Error en OpenAI: {str(e)}")
+        logger.error(f"Error en OpenAI: {str(e)}")
         return "Lo siento, estoy teniendo dificultades técnicas. ¿Podría repetir su pregunta?"
 
+# Ejecución de herramientas solicitadas por OpenAI
+def handle_tool_execution(tool_call):
+    """Ejecuta la herramienta solicitada por OpenAI"""
+    function_name = tool_call.function.name
+    args = json.loads(tool_call.function.arguments)  # Reemplazo de `eval()`
 
+    logger.info(f"Ejecutando herramienta: {function_name} con argumentos {args}")
 
+    try:
+        if function_name == "read_sheet_data":
+            return f"Información: {read_sheet_data().get('precio_consulta', 'No disponible')}"
+        
+        elif function_name == "find_next_available_slot":
+            slot = find_next_available_slot()
+            return f"Horario disponible: {slot['start_time']}" if slot else "No hay horarios disponibles."
+        
+        elif function_name == "create_calendar_event":
+            event = create_calendar_event(
+                args["name"],
+                args["phone"],
+                args.get("reason", "No especificado"),
+                args["start_time"],
+                args["end_time"]
+            )
+            return f"Cita creada para {event['start']}"
+        
+        elif function_name == "edit_calendar_event":
+            result = edit_calendar_event(
+                args["phone"],
+                args["original_start_time"],
+                args.get("new_start_time"),
+                args.get("new_end_time")
+            )
+            return f"Cita modificada: {result['start']}"
+        
+        elif function_name == "delete_calendar_event":
+            result = delete_calendar_event(args["phone"], args.get("patient_name"))
+            return f"Cita eliminada: {result['message']}"
 
+        return "No entendí esa solicitud"
 
+    except ConnectionError as e:
+        return format_error_response(str(e))
+    except Exception as e:
+        logger.error(f"Error ejecutando herramienta: {str(e)}")
+        return "Hubo un error técnico."
 
-
-
-# ==================================================
-# Parte 3: Manejo de errores estructurado
-# ==================================================
-# Propósito:
-# - Traducir códigos de error técnicos a mensajes de usuario
-# - Mantener consistencia en las respuestas
-
+# Manejo de errores
 def format_error_response(error_code: str) -> str:
-    """
-    Convierte códigos de error técnicos en mensajes amigables
-    """
+    """Convierte códigos de error técnicos en mensajes amigables"""
     error_messages = {
-        "GOOGLE_SHEETS_UNAVAILABLE": "No puedo acceder a la base de datos en este momento",
-        "GOOGLE_CALENDAR_UNAVAILABLE": "El sistema de citas no está disponible ahora",
-        "DEFAULT": "Estoy teniendo problemas técnicos"
+        "GOOGLE_SHEETS_UNAVAILABLE": "No puedo acceder a la base de datos en este momento.",
+        "GOOGLE_CALENDAR_UNAVAILABLE": "El sistema de citas no está disponible.",
+        "DEFAULT": "Ocurrió un error técnico. Por favor, intenta de nuevo."
     }
-    return f"[ERROR] {error_messages.get(error_code, error_messages['DEFAULT'])}"
-
-
-
-
-
-
-
-# ==================================================
-# Parte 4: Punto de entrada para pruebas locales
-# ==================================================
-# Propósito:
-# - Permitir ejecución directa para debugging
-# - Ejemplo de uso básico
-
-if __name__ == "__main__":
-    # Simular conversación de prueba
-    test_history = [
-        {"role": "user", "content": "¿Cuánto cuesta una consulta?"}
-    ]
-    
-    print("Testeando IA...")
-    response = generate_openai_response(test_history)
-    print(f"Respuesta: {response}")
+    return error_messages.get(error_code, error_messages["DEFAULT"])
