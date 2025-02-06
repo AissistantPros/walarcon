@@ -4,7 +4,7 @@ Módulo de integración con Twilio - Dr. Alarcón IVR System
 Función principal: Manejar el flujo de llamadas y procesar entradas de voz.
 """
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from twilio.twiml.voice_response import VoiceResponse, Gather, Hangup
 from aiagent import generate_openai_response
 from audio_utils import generate_audio_with_eleven_labs
@@ -70,6 +70,11 @@ async def process_user_input(request: Request):
     response = VoiceResponse()
 
     try:
+        # 🔹 Verificar si el request es realmente un objeto de FastAPI
+        if not isinstance(request, Request):
+            logger.error("⚠️ Error: El parámetro 'request' no es una instancia de Request.")
+            raise HTTPException(status_code=400, detail="Error interno en el procesamiento de la solicitud.")
+
         form_data = await request.form()
         user_input = form_data.get("SpeechResult", "").strip()
 
@@ -87,15 +92,12 @@ async def process_user_input(request: Request):
 
         conversation_history.append({"role": "assistant", "content": ai_response})
 
-        # Evaluar si la IA desea terminar la llamada
-        if "[END_CALL]" in ai_response:
-            reason = ai_response.split("[END_CALL] ")[1].strip()
-            return await end_call(response, reason)
-
         return await generate_twilio_response(response, ai_response)
 
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        logger.error(f"Error en el procesamiento de voz: {str(e)}")
+        logger.error(f"❌ Error en el procesamiento de voz: {str(e)}")
         response.say("Lo siento, ha ocurrido un error. ¿Podría repetir su solicitud?")
         return str(response)
 
