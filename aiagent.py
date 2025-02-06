@@ -125,18 +125,28 @@ def generate_openai_response(conversation_history: list):
 def handle_tool_execution(tool_call):
     """Ejecuta la herramienta solicitada por OpenAI"""
     function_name = tool_call.function.name
-    args = json.loads(tool_call.function.arguments)  # Reemplazo de `eval()`
+    args = json.loads(tool_call.function.arguments)  # Parsea los argumentos en formato JSON
 
-    logger.info(f"Ejecutando herramienta: {function_name} con argumentos {args}")
+    logger.info(f"🛠️ Ejecutando herramienta: {function_name} con argumentos {args}")
 
     try:
+        # 🔹 Obtener información desde Google Sheets
         if function_name == "read_sheet_data":
-            return f"Información: {read_sheet_data().get('precio_consulta', 'No disponible')}"
-        
+            data = read_sheet_data()
+            if not data:
+                return {"error": "No pude obtener la información en este momento."}
+
+            # ⏩ En lugar de armar una respuesta fija, devolvemos los datos tal cual
+            return {"data": data}
+
+        # 🔹 Buscar el siguiente horario disponible
         elif function_name == "find_next_available_slot":
             slot = find_next_available_slot()
-            return f"Horario disponible: {slot['start_time']}" if slot else "No hay horarios disponibles."
-        
+            if not slot:
+                return {"message": "No hay horarios disponibles en este momento."}
+            return {"message": f"El siguiente horario disponible es el {slot['start_time']}."}
+
+        # 🔹 Crear una nueva cita en el calendario
         elif function_name == "create_calendar_event":
             event = create_calendar_event(
                 args["name"],
@@ -145,8 +155,9 @@ def handle_tool_execution(tool_call):
                 args["start_time"],
                 args["end_time"]
             )
-            return f"Cita creada para {event['start']}"
-        
+            return {"message": f"Tu cita ha sido agendada para el {event['start']}."}
+
+        # 🔹 Editar una cita existente
         elif function_name == "edit_calendar_event":
             result = edit_calendar_event(
                 args["phone"],
@@ -154,13 +165,20 @@ def handle_tool_execution(tool_call):
                 args.get("new_start_time"),
                 args.get("new_end_time")
             )
-            return f"Cita modificada: {result['start']}"
-        
+            return {"message": f"Tu cita ha sido modificada. La nueva fecha es {result['start']}."}
+
+        # 🔹 Eliminar una cita existente
         elif function_name == "delete_calendar_event":
             result = delete_calendar_event(args["phone"], args.get("patient_name"))
-            return f"Cita eliminada: {result['message']}"
+            return {"message": f"La cita ha sido cancelada. {result['message']}."}
 
-        return "No entendí esa solicitud"
+        return {"error": "No entendí esa solicitud."}
+
+    except ConnectionError as e:
+        return {"error": format_error_response(str(e))}
+    except Exception as e:
+        logger.error(f"❌ Error ejecutando herramienta: {str(e)}")
+        return {"error": "Hubo un error técnico al procesar tu solicitud."}
 
     except ConnectionError as e:
         return format_error_response(str(e))

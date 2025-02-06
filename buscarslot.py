@@ -89,6 +89,16 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
 
     Retorna:
         dict: Horario disponible con formato {"start_time": str, "end_time": str}.
+
+        Busca el siguiente horario disponible en Google Calendar.
+
+    Parámetros:
+        target_date (datetime, opcional): Fecha específica para buscar disponibilidad.
+        target_hour (str, opcional): Hora exacta preferida por el usuario (HH:MM).
+        urgent (bool, opcional): Si es True, busca lo antes posible pero omitiendo las próximas 4 horas.
+
+    Retorna:
+        dict: Horario disponible con formato {"start_time": str, "end_time": str}.
     """
     try:
         # Definir horarios estándar de atención
