@@ -4,8 +4,8 @@ Módulo de integración con Twilio - Dr. Alarcón IVR System
 Función principal: Manejar el flujo de llamadas y procesar entradas de voz.
 """
 
-from fastapi import HTTPException, Request, Form
-from twilio.twiml.voice_response import VoiceResponse, Gather, Hangup
+from fastapi import HTTPException, Request
+from twilio.twiml.voice_response import VoiceResponse, Gather
 from aiagent import generate_openai_response
 from audio_utils import generate_audio_with_eleven_labs
 import logging
@@ -83,16 +83,8 @@ async def process_user_input(request: Request):
             logger.error(f"❌ Error al leer form_data: {str(form_error)}")
             raise HTTPException(status_code=400, detail="No se pudo procesar la solicitud, formato incorrecto")
 
-        # 📌 Mostrar datos recibidos
-        logger.info(f"📌 Datos recibidos en request.form(): {form_data}")
-
         # 📌 Validar que SpeechResult está presente en la solicitud
-        if "SpeechResult" not in form_data:
-            logger.warning("⚠️ 'SpeechResult' no encontrado en los datos del formulario.")
-            return handle_no_input(response)
-
-        user_input = form_data["SpeechResult"].strip()
-
+        user_input = form_data.get("SpeechResult", "").strip()
         if not user_input:
             return handle_no_input(response)
 
@@ -112,10 +104,6 @@ async def process_user_input(request: Request):
 
         return await generate_twilio_response(response, ai_response)
 
-    except HTTPException as he:
-        logger.error(f"❌ Error HTTP: {str(he)}")
-        response.say("Lo siento, ha ocurrido un error en el sistema. ¿Podría repetir su solicitud?")
-    
     except Exception as e:
         logger.error(f"❌ Error en el procesamiento de voz: {str(e)}")
         response.say("Lo siento, ha ocurrido un error. ¿Podría repetir su solicitud?")
@@ -136,7 +124,7 @@ async def end_call(response, reason=""):
 
     message = farewell_messages.get(reason, "Gracias por llamar. Hasta luego.")
 
-    audio_buffer = await asyncio.to_thread(generate_audio_with_eleven_labs, message)
+    audio_buffer = await generate_audio_with_eleven_labs(message)
 
     if audio_buffer:
         with open(AUDIO_TEMP_PATH, "wb") as f:
@@ -145,7 +133,6 @@ async def end_call(response, reason=""):
     else:
         response.say(message)
 
-    # Si es una despedida normal, esperar 5 segundos antes de colgar
     if reason == "user_request":
         await asyncio.sleep(5)
 
@@ -181,27 +168,3 @@ async def generate_twilio_response(response, ai_response):
 
     logger.info(f"Tiempo total de llamada: {time.time() - call_start_time:.2f}s")
     return str(response)
-
-# ==================================================
-# 🔹 Manejo de errores
-# ==================================================
-def handle_no_input(response):
-    """Maneja el caso en el que el usuario no dice nada."""
-    response.say("No escuché ninguna respuesta. ¿Podría repetir, por favor?")
-    response.append(Gather(
-        input="speech",
-        action="/process-user-input",
-        method="POST",
-        timeout=10,
-        language="es-MX"
-    ))
-    return str(response)
-
-def map_error_to_message(error_code: str) -> str:
-    """Traduce códigos de error a mensajes amigables."""
-    error_messages = {
-        "GOOGLE_SHEETS_UNAVAILABLE": "No puedo acceder a la base de datos en este momento.",
-        "GOOGLE_CALENDAR_UNAVAILABLE": "El sistema de citas no responde.",
-        "DEFAULT": "Hubo un problema técnico."
-    }
-    return error_messages.get(error_code, error_messages["DEFAULT"])
