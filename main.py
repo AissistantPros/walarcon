@@ -81,19 +81,25 @@ async def twilio_call():
         logger.error(f"Error en Twilio Call: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
 @app.post("/process-user-input")
 async def twilio_process_input(request: Request):
     try:
-        form_data = await request.form()
-        user_input = form_data.get("SpeechResult", "").strip()
-        if not user_input:
-            raise HTTPException(status_code=400, detail="Entrada de voz vacía")
-
-        twilio_response = await process_user_input(user_input)
+        twilio_response = await process_user_input(request)  # ✅ Ahora pasamos el request completo
         return Response(content=twilio_response, media_type="text/xml")
     except Exception as e:
         logger.error(f"Error en Process Input: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
+
+
 
 # ==================================================
 # 🔹 Google Sheets - Consultar Información
