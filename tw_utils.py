@@ -25,7 +25,7 @@ AUDIO_TEMP_PATH = "/tmp/audio_response.mp3"
 # ==================================================
 # 🔹 Manejo de llamadas entrantes de Twilio
 # ==================================================
-def handle_twilio_call(gather_action: str):
+async def handle_twilio_call(gather_action: str):
     """Inicia el flujo de la llamada con un mensaje de bienvenida."""
     global call_start_time, conversation_history
     call_start_time = time.time()
@@ -35,7 +35,9 @@ def handle_twilio_call(gather_action: str):
     try:
         # Generar saludo inicial
         greeting = "Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
-        audio = generate_audio_with_eleven_labs(greeting)
+        
+        # CORREGIDO: Usar "await" para esperar la respuesta de la función asíncrona
+        audio = await generate_audio_with_eleven_labs(greeting)
 
         if audio:
             with open(AUDIO_TEMP_PATH, "wb") as f:

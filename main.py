@@ -76,7 +76,7 @@ def read_root():
 @app.post("/twilio-call")
 async def twilio_call():
     try:
-        return Response(content=handle_twilio_call("/process-user-input"), media_type="text/xml")
+        return Response(content=await handle_twilio_call("/process-user-input"), media_type="text/xml")
     except Exception as e:
         logger.error(f"Error en Twilio Call: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
