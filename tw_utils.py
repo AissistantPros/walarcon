@@ -71,22 +71,22 @@ async def process_user_input(request: Request):
     response = VoiceResponse()
 
     try:
-        # 📌 Verificar que request es una instancia de Request
+        # 📌 Verificar tipo de request
         if not isinstance(request, Request):
             logger.error(f"❌ Error: 'request' no es una instancia válida de Request. Tipo recibido: {type(request)}")
             raise HTTPException(status_code=400, detail="Formato de solicitud inválido")
 
-        # 📌 Extraer los datos del formulario correctamente
+        # 📌 Verificar si los datos se están enviando en formato `form-data`
         try:
             form_data = await request.form()
         except Exception as form_error:
             logger.error(f"❌ Error al leer form_data: {str(form_error)}")
-            raise HTTPException(status_code=400, detail="No se pudo procesar la solicitud")
+            raise HTTPException(status_code=400, detail="No se pudo procesar la solicitud, formato incorrecto")
 
-        # 📌 Depuración: Mostrar datos recibidos
+        # 📌 Mostrar datos recibidos
         logger.info(f"📌 Datos recibidos en request.form(): {form_data}")
 
-        # 📌 Verificar que SpeechResult está presente en los datos de Twilio
+        # 📌 Validar que SpeechResult está presente en la solicitud
         if "SpeechResult" not in form_data:
             logger.warning("⚠️ 'SpeechResult' no encontrado en los datos del formulario.")
             return handle_no_input(response)
@@ -100,7 +100,7 @@ async def process_user_input(request: Request):
         conversation_history.append({"role": "user", "content": user_input})
         logger.info(f"🗣️ Entrada del usuario: {user_input}")
 
-        # 📌 Generar respuesta de la IA en un hilo separado
+        # 📌 Generar respuesta de IA en un hilo separado
         ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
 
         # 📌 Manejo de errores específicos de IA
