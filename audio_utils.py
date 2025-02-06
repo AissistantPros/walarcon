@@ -4,12 +4,12 @@ Módulo para generar audio con ElevenLabs.
 Convierte texto en audio para su uso en llamadas telefónicas con Twilio.
 """
 
-from elevenlabs import ElevenLabs, VoiceSettings
-from decouple import config
 import io
 import logging
 import asyncio
 from typing import Optional
+from elevenlabs import ElevenLabs, VoiceSettings
+from decouple import config
 
 # Configuración del sistema de logs
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 client = ElevenLabs(api_key=config("ELEVEN_LABS_API_KEY"))
 
 # ==================================================
-# 🔹 Generación de audio con ElevenLabs
+# 🔹 Generación de audio con ElevenLabs (Corrección de async/await)
 # ==================================================
 async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
     """
@@ -36,10 +36,9 @@ async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
         if not text.strip():
             raise ValueError("El texto para generar audio está vacío.")
 
-        # Medir el tiempo de generación
-        logger.info("Generando audio con ElevenLabs...")
-        
-        # Configuración de la voz y modelo
+        logger.info("🗣️ Generando audio con ElevenLabs...")
+
+        # Convertir texto a audio en un hilo separado (para evitar bloqueos)
         audio_stream = await asyncio.to_thread(
             client.text_to_speech.convert,
             text=text,
@@ -60,6 +59,7 @@ async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
         buffer = io.BytesIO()
         for chunk in audio_stream:
             buffer.write(chunk)
+
         buffer.seek(0)
 
         logger.info("✅ Audio generado con éxito")

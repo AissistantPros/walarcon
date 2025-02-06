@@ -5,7 +5,7 @@ Función principal: Manejar el flujo de llamadas y procesar entradas de voz.
 """
 
 from fastapi import Request
-from twilio.twiml.voice_response import VoiceResponse, Gather
+from twilio.twiml.voice_response import VoiceResponse, Gather, Hangup
 from aiagent import generate_openai_response
 from audio_utils import generate_audio_with_eleven_labs
 import logging
@@ -85,12 +85,47 @@ async def process_user_input(request: Request):
 
         conversation_history.append({"role": "assistant", "content": ai_response})
 
+        # Evaluar si la IA desea terminar la llamada
+        if "[END_CALL]" in ai_response:
+            reason = ai_response.split("[END_CALL] ")[1].strip()
+            return await end_call(response, reason)
+
         return await generate_twilio_response(response, ai_response)
 
     except Exception as e:
         logger.error(f"Error en el procesamiento de voz: {str(e)}")
         response.say("Lo siento, ha ocurrido un error. ¿Podría repetir su solicitud?")
         return str(response)
+
+# ==================================================
+# 🔹 Herramienta para que la IA finalice la llamada
+# ==================================================
+async def end_call(response, reason=""):
+    """Permite que la IA termine la llamada de manera natural según la razón."""
+    farewell_messages = {
+        "silence": "Lo siento, no puedo escuchar. Terminaré la llamada. Que tenga buen día.",
+        "user_request": "Fue un placer atenderle, que tenga un excelente día.",
+        "spam": "Hola colega, este número es solo para información y citas del Dr. Wilfrido Alarcón. Hasta luego.",
+        "time_limit": "Qué pena, tengo que terminar la llamada. Si puedo ayudar en algo más, por favor, marque nuevamente."
+    }
+
+    message = farewell_messages.get(reason, "Gracias por llamar. Hasta luego.")
+
+    audio_buffer = await asyncio.to_thread(generate_audio_with_eleven_labs, message)
+
+    if audio_buffer:
+        with open(AUDIO_TEMP_PATH, "wb") as f:
+            f.write(audio_buffer.getvalue())
+        response.play("/audio-response")
+    else:
+        response.say(message)
+
+    # Si es una despedida normal, esperar 5 segundos antes de colgar
+    if reason == "user_request":
+        await asyncio.sleep(5)
+
+    response.hangup()
+    return str(response)
 
 # ==================================================
 # 🔹 Generación de respuesta de Twilio
