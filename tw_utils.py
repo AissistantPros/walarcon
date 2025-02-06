@@ -70,11 +70,11 @@ async def process_user_input(request: Request):
     response = VoiceResponse()
 
     try:
-        # 🔹 Verificar si el request es realmente un objeto de FastAPI
+        # 📌 Verifica que el request sea del tipo correcto
         if not isinstance(request, Request):
-            logger.error("⚠️ Error: El parámetro 'request' no es una instancia de Request.")
-            raise HTTPException(status_code=400, detail="Error interno en el procesamiento de la solicitud.")
+            raise TypeError("⚠️ Error: El parámetro 'request' no es una instancia de Request.")
 
+        # 📌 Intenta obtener los datos correctamente
         form_data = await request.form()
         user_input = form_data.get("SpeechResult", "").strip()
 
@@ -94,8 +94,11 @@ async def process_user_input(request: Request):
 
         return await generate_twilio_response(response, ai_response)
 
-    except HTTPException as he:
-        raise he
+    except TypeError as te:
+        logger.error(f"❌ Tipo de dato incorrecto en request: {str(te)}")
+        response.say("Ha ocurrido un error interno en la solicitud.")
+        return str(response)
+
     except Exception as e:
         logger.error(f"❌ Error en el procesamiento de voz: {str(e)}")
         response.say("Lo siento, ha ocurrido un error. ¿Podría repetir su solicitud?")
