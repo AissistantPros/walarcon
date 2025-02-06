@@ -144,7 +144,10 @@ async def end_call(response, reason=""):
 async def generate_twilio_response(response, ai_response):
     """Genera el audio de respuesta y lo envía a Twilio."""
     try:
-        audio_buffer = await generate_audio_with_eleven_labs(ai_response)
+        if isinstance(ai_response, dict):  # Si es un diccionario, convertirlo a texto
+             ai_response = ". ".join(ai_response.get("data", {}).values())
+
+        audio_buffer = await asyncio.to_thread(generate_audio_with_eleven_labs, ai_response)
 
         if audio_buffer:
             with open(AUDIO_TEMP_PATH, "wb") as f:
