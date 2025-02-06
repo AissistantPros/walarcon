@@ -64,25 +64,29 @@ async def handle_twilio_call(gather_action: str):
 # ==================================================
 # 🔹 Procesamiento de entradas del usuario
 # ==================================================
+
 async def process_user_input(request: Request):
     """Procesa la entrada de voz del usuario y genera una respuesta."""
     global conversation_history, call_start_time
     response = VoiceResponse()
 
     try:
-        # 📌 Verifica que el request sea del tipo correcto
+        # 📌 Verificar que request es una instancia de Request
         if not isinstance(request, Request):
-            logger.error("❌ Error: 'request' no es una instancia válida de Request.")
-            response.say("Ha ocurrido un error interno en la solicitud.")
-            return str(response)
+            logger.error(f"❌ Error: 'request' no es una instancia válida de Request. Tipo recibido: {type(request)}")
+            raise HTTPException(status_code=400, detail="Formato de solicitud inválido")
 
-        # 📌 Extraer los datos del formulario
-        form_data = await request.form()
-        
-        # 📌 Depuración para verificar qué está llegando
+        # 📌 Extraer los datos del formulario correctamente
+        try:
+            form_data = await request.form()
+        except Exception as form_error:
+            logger.error(f"❌ Error al leer form_data: {str(form_error)}")
+            raise HTTPException(status_code=400, detail="No se pudo procesar la solicitud")
+
+        # 📌 Depuración: Mostrar datos recibidos
         logger.info(f"📌 Datos recibidos en request.form(): {form_data}")
 
-        # 📌 Verifica que 'SpeechResult' exista en los datos
+        # 📌 Verificar que SpeechResult está presente en los datos de Twilio
         if "SpeechResult" not in form_data:
             logger.warning("⚠️ 'SpeechResult' no encontrado en los datos del formulario.")
             return handle_no_input(response)
@@ -92,12 +96,14 @@ async def process_user_input(request: Request):
         if not user_input:
             return handle_no_input(response)
 
+        # 📌 Agregar el mensaje del usuario a la conversación
         conversation_history.append({"role": "user", "content": user_input})
         logger.info(f"🗣️ Entrada del usuario: {user_input}")
 
-        # 📌 Generar respuesta de IA en un hilo separado
+        # 📌 Generar respuesta de la IA en un hilo separado
         ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
 
+        # 📌 Manejo de errores específicos de IA
         if "[ERROR]" in ai_response:
             error_code = ai_response.split("[ERROR] ")[1].strip()
             ai_response = f"Hubo un problema con la consulta. {map_error_to_message(error_code)}."
@@ -106,10 +112,15 @@ async def process_user_input(request: Request):
 
         return await generate_twilio_response(response, ai_response)
 
+    except HTTPException as he:
+        logger.error(f"❌ Error HTTP: {str(he)}")
+        response.say("Lo siento, ha ocurrido un error en el sistema. ¿Podría repetir su solicitud?")
+    
     except Exception as e:
         logger.error(f"❌ Error en el procesamiento de voz: {str(e)}")
         response.say("Lo siento, ha ocurrido un error. ¿Podría repetir su solicitud?")
-        return str(response)
+    
+    return str(response)
 
 # ==================================================
 # 🔹 Herramienta para que la IA finalice la llamada
