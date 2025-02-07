@@ -159,10 +159,10 @@ end_time = fecha y hora inicial que eligió el usuario y sumas 45 minutos.
 📌 **Cuando almacenes `start_time` y `end_time`, usa siempre el formato ISO 8601 con zona horaria -05:00 (Cancún).**  
 Ejemplo correcto:  
 ```json
-{
+[
     "start_time": "2025-02-06T09:30:00-05:00",
     "end_time": "2025-02-06T10:15:00-05:00"
-}
+]
 
 
 Paso 2: Recoger los Datos del Usuario
