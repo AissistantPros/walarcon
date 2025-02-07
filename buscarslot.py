@@ -89,16 +89,6 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
 
     Retorna:
         dict: Horario disponible con formato {"start_time": str, "end_time": str}.
-
-        Busca el siguiente horario disponible en Google Calendar.
-
-    Parámetros:
-        target_date (datetime, opcional): Fecha específica para buscar disponibilidad.
-        target_hour (str, opcional): Hora exacta preferida por el usuario (HH:MM).
-        urgent (bool, opcional): Si es True, busca lo antes posible pero omitiendo las próximas 4 horas.
-
-    Retorna:
-        dict: Horario disponible con formato {"start_time": str, "end_time": str}.
     """
     try:
         # Definir horarios estándar de atención
@@ -114,12 +104,14 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
 
         # Obtener la hora actual en Cancún
         now = get_cancun_time()
+        logger.info(f"🕒 Hora actual en Cancún: {now}")
 
         # Determinar el punto de inicio de búsqueda
         day_offset = 0
         start_day = now
 
         if target_date:
+            logger.info(f"🎯 Se especificó fecha objetivo: {target_date}")
             start_day = target_date
         elif urgent:
             start_day = now + timedelta(hours=4)  # Evita las próximas 4 horas si es urgente
@@ -141,9 +133,13 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                 start_time_str = f"{day.strftime('%Y-%m-%d')} {slot['start']}:00"
                 end_time_str = f"{day.strftime('%Y-%m-%d')} {slot['end']}:00"
 
-                # Convertir a objetos datetime con zona horaria
+                # Convertir a objetos datetime con zona horaria correcta
                 start_time = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("America/Cancun"))
                 end_time = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("America/Cancun"))
+
+                # 🔹 Corregir la zona horaria a UTC-5 exactamente (-05:00)
+                start_time = start_time.astimezone(pytz.FixedOffset(-300))
+                end_time = end_time.astimezone(pytz.FixedOffset(-300))
 
                 # Omitir horarios en las próximas 4 horas si es una búsqueda urgente
                 if urgent and day_offset == 0 and start_time <= now + timedelta(hours=4):
@@ -167,6 +163,15 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
         logger.error(f"❌ Error inesperado al buscar horario: {str(e)}")
         raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
+    
+
+
+
+
+
+
+
+
 # ==================================================
 # 🔹 Prueba Local del Módulo
 # ==================================================
@@ -185,3 +190,4 @@ if __name__ == "__main__":
         print(f"⚠️ Error de conexión: {str(ce)}")
     except Exception as e:
         print(f"❌ Error desconocido: {str(e)}")
+

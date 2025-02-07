@@ -107,7 +107,7 @@ def generate_openai_response(conversation_history: list):
         logger.info(f"📢 Historial de conversación enviado a OpenAI: {conversation_history}")
 
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-3.5-turbo",
             messages=conversation_history,
             tools=TOOLS,
             tool_choice="auto",
@@ -157,15 +157,19 @@ def handle_tool_execution(tool_call):
             return {"slot": slot} if slot else {"message": "No hay horarios disponibles en este momento."}
 
         elif function_name == "create_calendar_event":
-            start_time = datetime.fromisoformat(args["start_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
-            end_time = datetime.fromisoformat(args["end_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
-            
-            logger.info(f"📅 Intentando crear cita con start_time: {start_time}, end_time: {end_time}")
+           start_time = datetime.fromisoformat(args["start_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
+           end_time = datetime.fromisoformat(args["end_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
+    
+    # 📌 Log para rastrear qué datos está enviando la IA antes de llamar a `create_calendar_event`
+           logger.info(f"📌 Datos enviados por la IA: {json.dumps(args, indent=2)}")
 
-            event = create_calendar_event(
-                args["name"], args["phone"], args.get("reason", "No especificado"), start_time, end_time
-            )
-            return {"event": event}  
+           logger.info(f"📅 Intentando crear cita con start_time: {start_time}, end_time: {end_time}")
+
+           event = create_calendar_event(
+               args["name"], args["phone"], args.get("reason", "No especificado"), start_time, end_time
+           )
+
+           return {"event": event}  
 
         elif function_name == "edit_calendar_event":
             result = edit_calendar_event(

@@ -30,10 +30,10 @@ GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 # ==================================================
 def initialize_google_calendar():
     """
-    Configura y conecta la API de Google Calendar usando credenciales de servicio.
-
+    Inicializa la conexión con Google Calendar usando credenciales de servicio.
+    
     Retorna:
-        object: Cliente autenticado de Google Calendar.
+        service (obj): Cliente autenticado de Google Calendar.
     """
     try:
         credentials = Credentials.from_service_account_info({
@@ -45,7 +45,7 @@ def initialize_google_calendar():
         }, scopes=["https://www.googleapis.com/auth/calendar"])
         return build("calendar", "v3", credentials=credentials)
     except Exception as e:
-        logger.error(f"❌ Error al conectar con Google Calendar: {str(e)}")
+        logger.error(f"Error al conectar con Google Calendar: {str(e)}")
         raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
 
 # ==================================================
