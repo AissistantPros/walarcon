@@ -40,16 +40,18 @@ async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
 
         # Convertir texto a audio en un hilo separado (para evitar bloqueos)
         audio_stream = await asyncio.to_thread(
-            client.text_to_speech.convert,
-            text=text,
-            voice_id=config("ELEVEN_LABS_VOICE_ID"),
-            model_id="eleven_multilingual_v2",
-            voice_settings=VoiceSettings(
-                stability=0.3,         # Controla la variabilidad en la voz
-                similarity_boost=0.8,  # Aumenta la similitud con la voz predefinida
-                speed=1.5              # Ajusta la velocidad del habla
-            )
-        )
+        client.text_to_speech.convert,
+        text=text,
+        voice_id=config("ELEVEN_LABS_VOICE_ID"),
+        model_id="eleven_multilingual_v2",
+        voice_settings=VoiceSettings(
+        stability=0.15,         # Más expresividad y menos monotonía
+        similarity_boost=0.6,   # Permite más variabilidad en la voz
+        speed=1.7,              # Aumenta la velocidad para mayor energía
+        use_speaker_boost=True  # Activa el boost de expresividad
+    )
+)
+
 
         # Verificar si hay contenido en el stream
         if not audio_stream:
