@@ -15,6 +15,8 @@ from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
+from prompt import generate_openai_prompt  # Importar la función del prompt
+
 
 # Configuración de logs
 logging.basicConfig(level=logging.INFO)
@@ -97,6 +99,10 @@ def generate_openai_response(conversation_history: list):
     try:
         start_time = time.time()
         logger.info("Generando respuesta con OpenAI...")
+
+        # 📌 Asegurar que el prompt del sistema esté en la conversación
+        if not any(msg["role"] == "system" for msg in conversation_history):
+            conversation_history = generate_openai_prompt(conversation_history)
 
         response = client.chat.completions.create(
             model="gpt-4o",
