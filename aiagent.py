@@ -6,7 +6,6 @@ Procesa entradas del usuario y gestiona integraciones con APIs externas.
 
 import logging
 import time
-import asyncio
 import json
 from decouple import config
 from openai import OpenAI
@@ -16,7 +15,8 @@ from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
 from prompt import generate_openai_prompt  # Importar la función del prompt
-
+from datetime import datetime
+import pytz
 
 # Configuración de logs
 logging.basicConfig(level=logging.INFO)
@@ -103,6 +103,8 @@ def generate_openai_response(conversation_history: list):
         # 📌 Asegurar que el prompt del sistema esté en la conversación
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation_history = generate_openai_prompt(conversation_history)
+        
+        logger.info(f"📢 Historial de conversación enviado a OpenAI: {conversation_history}")
 
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -148,23 +150,20 @@ def handle_tool_execution(tool_call):
     try:
         if function_name == "read_sheet_data":
             data = read_sheet_data()
-            if not data:
-                return {"error": "No pude obtener la información en este momento."}
-            return {"data": data}  # Devuelve los datos crudos
+            return {"data": data} if data else {"error": "No pude obtener la información en este momento."}
 
         elif function_name == "find_next_available_slot":
             slot = find_next_available_slot()
-            if not slot:
-                return {"message": "No hay horarios disponibles en este momento."}
-            return {"slot": slot}  
+            return {"slot": slot} if slot else {"message": "No hay horarios disponibles en este momento."}
 
         elif function_name == "create_calendar_event":
+            start_time = datetime.fromisoformat(args["start_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
+            end_time = datetime.fromisoformat(args["end_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
+            
+            logger.info(f"📅 Intentando crear cita con start_time: {start_time}, end_time: {end_time}")
+
             event = create_calendar_event(
-                args["name"],
-                args["phone"],
-                args.get("reason", "No especificado"),
-                args["start_time"],
-                args["end_time"]
+                args["name"], args["phone"], args.get("reason", "No especificado"), start_time, end_time
             )
             return {"event": event}  
 
