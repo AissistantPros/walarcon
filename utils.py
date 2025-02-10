@@ -4,45 +4,54 @@ from decouple import config
 import logging
 from datetime import datetime
 import pytz
+import os
+from dotenv import load_dotenv
+import json
 
+# Cargar variables del .env
+load_dotenv()
 
-
-# 📌 Configuración de logging (¡aquí está el problema!)
+# Configurar logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)  # 🔹 Esto define correctamente logger
+logger = logging.getLogger(__name__)
 
-
-# Variables de configuración de Google Calendar
+# Cargar variables de Google
 GOOGLE_CALENDAR_ID = config("GOOGLE_CALENDAR_ID")
-GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")
 GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
+GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
 
-# ==================================================
-# 🔹 Inicialización de Google Calendar
-# ==================================================
+print(f"🔑 Clave privada cargada: {GOOGLE_PRIVATE_KEY[:500]}...")  # Muestra solo los primeros 500 caracteres
+
+
 def initialize_google_calendar():
-    """
-    Configura y conecta la API de Google Calendar usando credenciales de servicio.
-
-    Retorna:
-        object: Cliente autenticado de Google Calendar.
-    """
     try:
+        logger.info("🔍 Inicializando Google Calendar...")
+        
+        # Crear diccionario de credenciales
+        credentials_info = {
+            "type": "service_account",
+            "project_id": GOOGLE_PROJECT_ID,
+            "private_key_id": config("GOOGLE_PRIVATE_KEY_ID"),
+            "private_key": GOOGLE_PRIVATE_KEY,
+            "client_email": GOOGLE_CLIENT_EMAIL,
+            "client_id": config("GOOGLE_CLIENT_ID"),
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": config("GOOGLE_CLIENT_CERT_URL")
+        }
+
         credentials = Credentials.from_service_account_info(
-            {
-                "type": "service_account",
-                "project_id": GOOGLE_PROJECT_ID,
-                "private_key": GOOGLE_PRIVATE_KEY,
-                "client_email": GOOGLE_CLIENT_EMAIL,
-                "token_uri": "https://oauth2.googleapis.com/token",
-            },
+            credentials_info,
             scopes=["https://www.googleapis.com/auth/calendar"]
         )
+
         return build("calendar", "v3", credentials=credentials)
+    
     except Exception as e:
-        logger.error(f"❌ Error al conectar con Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
+        logger.error(f"❌ Error en initialize_google_calendar: {str(e)}")
+        raise RuntimeError("Error de conexión con Google Calendar")
 
 # ==================================================
 # 🔹 Buscar citas por número de teléfono

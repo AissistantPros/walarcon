@@ -145,7 +145,7 @@ def handle_tool_execution(tool_call):
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
 
-    logger.info(f"🛠️ Ejecutando herramienta: {function_name} con argumentos {args}")
+    logger.info(f"🛠️ Ejecutando herramienta: {function_name} con argumentos {json.dumps(args, indent=2)}")
 
     try:
         if function_name == "read_sheet_data":
@@ -157,19 +157,27 @@ def handle_tool_execution(tool_call):
             return {"slot": slot} if slot else {"message": "No hay horarios disponibles en este momento."}
 
         elif function_name == "create_calendar_event":
-           start_time = datetime.fromisoformat(args["start_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
-           end_time = datetime.fromisoformat(args["end_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
-    
-    # 📌 Log para rastrear qué datos está enviando la IA antes de llamar a `create_calendar_event`
-           logger.info(f"📌 Datos enviados por la IA: {json.dumps(args, indent=2)}")
+            try:
+                # 📌 Log para verificar qué datos está enviando la IA
+                logger.info(f"📌 Datos que la IA generó antes de procesarlos: {json.dumps(args, indent=2)}")
 
-           logger.info(f"📅 Intentando crear cita con start_time: {start_time}, end_time: {end_time}")
+                # Convertir a formato correcto con zona horaria de Cancún
+                start_time = datetime.fromisoformat(args["start_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
+                end_time = datetime.fromisoformat(args["end_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
 
-           event = create_calendar_event(
-               args["name"], args["phone"], args.get("reason", "No especificado"), start_time, end_time
-           )
+                logger.info(f"📅 Intentando crear cita con start_time: {start_time}, end_time: {end_time}")
 
-           return {"event": event}  
+                event = create_calendar_event(
+                    args["name"], args["phone"], args.get("reason", "No especificado"), start_time, end_time
+                )
+
+                logger.info(f"✅ Cita creada con éxito: {event}")
+
+                return {"event": event}
+
+            except Exception as e:
+                logger.error(f"❌ Error al crear cita en Google Calendar: {str(e)}")
+                return {"error": "Hubo un problema al crear la cita."}
 
         elif function_name == "edit_calendar_event":
             result = edit_calendar_event(

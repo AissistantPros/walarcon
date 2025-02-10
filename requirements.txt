@@ -41,6 +41,7 @@ pydantic_core==2.27.2
 PyJWT==2.10.1
 pyparsing==3.2.1
 python-decouple==3.8
+python-dotenv==1.0.1
 python-multipart==0.0.20
 pytz==2024.2
 requests==2.32.3
