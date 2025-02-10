@@ -21,8 +21,9 @@ GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
 
-print(f"🔑 Clave privada cargada: {GOOGLE_PRIVATE_KEY[:500]}...")  # Muestra solo los primeros 500 caracteres
-
+print(f"🔑 Clave privada cargada:\n{GOOGLE_PRIVATE_KEY}")
+print(f"🔑 Clave privada cargada (raw): {repr(GOOGLE_PRIVATE_KEY)}")
+print(f"🔍 ¿Tiene saltos de línea?: {'Sí' if '\n' in GOOGLE_PRIVATE_KEY else 'No'}")
 
 def initialize_google_calendar():
     try:
