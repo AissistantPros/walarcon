@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Módulo principal del agente de IA - Dr. Alarcón IVR System
-Procesa entradas del usuario y gestiona integraciones con APIs externas.
-"""
-
 import logging
 import time
 import json
@@ -98,7 +92,7 @@ TOOLS = [
 # 🔹 Generación de respuestas con OpenAI
 # ==================================================
 def generate_openai_response(conversation_history: list):
-    """Procesa la conversación y genera una respuesta usando GPT-4o"""
+    """Procesa la conversación y genera una respuesta usando GPT-3.5 Turbo"""
     try:
         start_time = time.time()
         logger.info("Generando respuesta con OpenAI...")
@@ -153,30 +147,15 @@ def handle_tool_execution(tool_call, conversation_history):
     logger.info(f"🛠️ Ejecutando herramienta: {function_name} con argumentos {json.dumps(args, indent=2)}")
 
     try:
-        if function_name == "read_sheet_data":
-            data = read_sheet_data()
-            return {"data": data} if data else {"error": "No pude obtener la información en este momento."}
-
-        elif function_name == "find_next_available_slot":
-            slot = find_next_available_slot()
-            return {"slot": slot} if slot else {"message": "No hay horarios disponibles en este momento."}
-
-        elif function_name == "search_calendar_event_by_phone":
-            result = search_calendar_event_by_phone(args["phone"])
-            
+        if function_name == "search_calendar_event_by_phone":
+            result = search_calendar_event_by_phone(args["phone"], args.get("name"))
             if "error" not in result:
-                return {
-                    "message": f"Encontré una cita a nombre de {result['name']} para el {result['date']} a las {result['time']}. ¿Es correcto?"
-                }
-            
+                return {"message": result["message"]}
             return {"error": result["error"]}
-
-        elif function_name == "create_calendar_event":
-            event = create_calendar_event(
-                args["name"], args["phone"], args.get("reason", "No especificado"),
-                args["start_time"], args["end_time"]
-            )
-            return {"event": event}
+        
+        elif function_name == "find_next_available_slot":
+            result = find_next_available_slot()
+            return {"slot": result} if result else {"message": "No hay horarios disponibles en este momento."}
 
         elif function_name == "edit_calendar_event":
             result = edit_calendar_event(
@@ -186,17 +165,6 @@ def handle_tool_execution(tool_call, conversation_history):
                 args.get("new_end_time")
             )
             return {"result": result}  
-
-        elif function_name == "delete_calendar_event":
-            logger.info("🔍 Verificando si la eliminación fue solicitada explícitamente...")
-
-            # Evitar que la IA elimine una cita sin confirmación del usuario
-            if not any("cancelar" in msg["content"].lower() or "eliminar" in msg["content"].lower() for msg in conversation_history):
-                logger.warning("⚠️ No se detectó una solicitud explícita de eliminación. Ignorando.")
-                return {"error": "No se detectó una solicitud clara para eliminar la cita."}
-
-            result = delete_calendar_event(args["phone"], args.get("patient_name"))
-            return {"result": result} 
 
         return {"error": "No entendí esa solicitud."}
 

@@ -21,7 +21,6 @@ GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
 GOOGLE_PRIVATE_KEY = os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n")
 
-
 def initialize_google_calendar():
     try:
         logger.info("🔍 Inicializando Google Calendar...")
@@ -52,17 +51,20 @@ def initialize_google_calendar():
         raise RuntimeError("Error de conexión con Google Calendar")
 
 # ==================================================
-# 🔹 Buscar citas por número de teléfono
+# 🔹 Buscar citas por número de teléfono y nombre
 # ==================================================
-def search_calendar_event_by_phone(phone):
-    """
-    Busca todas las citas que coincidan con el número de teléfono en Google Calendar.
 
+def search_calendar_event_by_phone(phone, name=None):
+    """
+    Busca todas las citas futuras que coincidan con el número de teléfono en Google Calendar.
+    Si hay múltiples citas, permite filtrar por nombre del paciente.
+    
     Parámetros:
         phone (str): Número de teléfono del paciente.
+        name (str, opcional): Nombre del paciente para filtrar la búsqueda.
 
     Retorna:
-        dict: Datos de la cita encontrada.
+        dict: Datos de la cita encontrada o mensaje de error.
     """
     try:
         # Validar el número de teléfono
@@ -72,10 +74,14 @@ def search_calendar_event_by_phone(phone):
         # Inicializar Google Calendar API
         service = initialize_google_calendar()
 
-        # Buscar eventos que contengan el número de teléfono
+        # Obtener la fecha actual en formato ISO 8601
+        now = datetime.utcnow().isoformat() + 'Z'
+
+        # Buscar eventos que contengan el número de teléfono en el futuro
         events = service.events().list(
             calendarId=GOOGLE_CALENDAR_ID,
             q=phone,  # Buscar por teléfono en la descripción del evento
+            timeMin=now,  # Solo eventos futuros
             singleEvents=True,
             orderBy="startTime"
         ).execute()
@@ -84,10 +90,20 @@ def search_calendar_event_by_phone(phone):
 
         if not items:
             logger.warning(f"⚠️ No se encontró ninguna cita con el número {phone}.")
-            return {"error": "No se encontraron citas con este número."}
+            return {"error": "No se encontraron citas futuras con este número."}
 
-        # Tomar solo la primera cita encontrada
-        event = items[0]
+        # Si solo hay una cita, devolverla directamente
+        if len(items) == 1:
+            event = items[0]
+        else:
+            # Si hay múltiples citas, filtrar por nombre si se proporcionó
+            if name:
+                filtered_events = [evt for evt in items if evt.get("summary", "").lower() == name.lower()]
+                if not filtered_events:
+                    return {"error": "No se encontraron citas con ese nombre y número."}
+                event = filtered_events[0]
+            else:
+                return {"error": "Hay múltiples citas con este número. Proporcione el nombre del paciente."}
 
         # Extraer nombre del paciente del resumen de la cita
         patient_name = event.get("summary", "Nombre no disponible")
@@ -106,31 +122,17 @@ def search_calendar_event_by_phone(phone):
             "id": event["id"],
             "name": patient_name,
             "date": start_date,
-            "time": start_hour
+            "time": start_hour,
+            "message": f"Su cita está programada para el {start_date} a las {start_hour} a nombre de {patient_name}."
         }
 
     except Exception as e:
         logger.error(f"❌ Error al buscar citas en Google Calendar: {str(e)}")
         return {"error": "GOOGLE_CALENDAR_UNAVAILABLE"}
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ==================================================
+# 🔹 Utilidades de Tiempo
+# ==================================================
 
 def get_cancun_time():
     """Obtiene la fecha y hora actual en la zona horaria de Cancún."""
