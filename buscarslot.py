@@ -110,8 +110,14 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
             for slot in slot_times:
                 logger.info(f"🧐 Revisando slot válido: {slot['start']} - {slot['end']}")
 
-                if target_hour and slot["start"] != target_hour:
-                    continue  
+                if target_hour:
+                    if slot["start"] != target_hour:
+                        continue  # Si hay una hora específica, seguimos buscando
+                else:
+                    return {
+                     "start_time": start_time.isoformat(),
+                     "end_time": end_time.isoformat()
+    }  # Si no hay una hora específica, tomamos la primera opción disponible
 
                 # 🔹 Corrección: Usar localize en lugar de replace
                 naive_start = datetime.combine(day.date(), datetime.strptime(slot["start"], "%H:%M").time())

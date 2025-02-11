@@ -62,12 +62,12 @@ def search_calendar_event_by_phone(phone):
         phone (str): Número de teléfono del paciente.
 
     Retorna:
-        list: Lista de eventos encontrados con detalles.
+        dict: Datos de la cita encontrada.
     """
     try:
         # Validar el número de teléfono
-        if not phone or len(phone) != 10 or not phone.isdigit():
-            raise ValueError("⚠️ El campo 'phone' debe ser un número de 10 dígitos.")
+        if not phone or len(phone) < 10 or not phone.isdigit():
+            raise ValueError("⚠️ El campo 'phone' debe ser un número de al menos 10 dígitos.")
 
         # Inicializar Google Calendar API
         service = initialize_google_calendar()
@@ -84,20 +84,30 @@ def search_calendar_event_by_phone(phone):
 
         if not items:
             logger.warning(f"⚠️ No se encontró ninguna cita con el número {phone}.")
-            return {"message": "No se encontraron citas con este número."}
+            return {"error": "No se encontraron citas con este número."}
 
-        # Formatear los eventos encontrados
-        citas = []
-        for item in items:
-            citas.append({
-                "id": item["id"],
-                "start": item["start"]["dateTime"],
-                "end": item["end"]["dateTime"],
-                "summary": item.get("summary", "Cita sin nombre"),
-                "description": item.get("description", ""),
-            })
+        # Tomar solo la primera cita encontrada
+        event = items[0]
 
-        return {"citas": citas}
+        # Extraer nombre del paciente del resumen de la cita
+        patient_name = event.get("summary", "Nombre no disponible")
+
+        # Convertir fecha y hora a formato legible
+        start_time = event["start"].get("dateTime", "").split("T")
+        end_time = event["end"].get("dateTime", "").split("T")
+
+        if len(start_time) < 2 or len(end_time) < 2:
+            return {"error": "No se pudo extraer la fecha y hora correctamente."}
+
+        start_date = start_time[0]  # Fecha en formato YYYY-MM-DD
+        start_hour = start_time[1][:5]  # Solo HH:MM
+
+        return {
+            "id": event["id"],
+            "name": patient_name,
+            "date": start_date,
+            "time": start_hour
+        }
 
     except Exception as e:
         logger.error(f"❌ Error al buscar citas en Google Calendar: {str(e)}")
