@@ -136,6 +136,7 @@ async def end_call(response, reason=""):
         await asyncio.sleep(5)
 
     response.hangup()
+    conversation_history.clear()  # 🔹 Borra el historial al terminar la llamada
     return str(response)
 
 # ==================================================

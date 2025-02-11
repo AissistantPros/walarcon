@@ -106,6 +106,16 @@ def generate_openai_response(conversation_history: list):
         
         logger.info(f"📢 Historial de conversación enviado a OpenAI: {conversation_history}")
 
+        # 📌 Antes de enviar la conversación a OpenAI, asegurarnos de que se pidan los datos necesarios
+        missing_data = []
+        if not any("name" in msg.get("content", "").lower() for msg in conversation_history):
+            missing_data.append("nombre")
+        if not any("phone" in msg.get("content", "").lower() for msg in conversation_history):
+            missing_data.append("teléfono")
+
+        if missing_data:
+            return f"Antes de continuar, necesito su {' y '.join(missing_data)}."
+
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=conversation_history,
@@ -158,10 +168,12 @@ def handle_tool_execution(tool_call):
 
         elif function_name == "create_calendar_event":
             try:
-                # 📌 Log para verificar qué datos está enviando la IA
+                # 📌 Verificar que la IA haya recibido todos los datos antes de crear la cita
+                if not args.get("name") or not args.get("phone"):
+                    return {"error": "Faltan datos esenciales. Pregunta primero el nombre y teléfono antes de continuar."}
+
                 logger.info(f"📌 Datos que la IA generó antes de procesarlos: {json.dumps(args, indent=2)}")
 
-                # Convertir a formato correcto con zona horaria de Cancún
                 start_time = datetime.fromisoformat(args["start_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
                 end_time = datetime.fromisoformat(args["end_time"]).astimezone(pytz.timezone("America/Cancun")).isoformat()
 
@@ -197,13 +209,3 @@ def handle_tool_execution(tool_call):
     except Exception as e:
         logger.error(f"❌ Error ejecutando herramienta: {str(e)}")
         return {"error": "Hubo un error técnico al procesar tu solicitud."}
-
-# Manejo de errores
-def format_error_response(error_code: str) -> str:
-    """Convierte códigos de error técnicos en mensajes amigables"""
-    error_messages = {
-        "GOOGLE_SHEETS_UNAVAILABLE": "No puedo acceder a la base de datos en este momento.",
-        "GOOGLE_CALENDAR_UNAVAILABLE": "El sistema de citas no está disponible.",
-        "DEFAULT": "Ocurrió un error técnico. Por favor, intenta de nuevo."
-    }
-    return error_messages.get(error_code, error_messages["DEFAULT"])
