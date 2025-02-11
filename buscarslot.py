@@ -13,8 +13,8 @@ from utils import get_cancun_time, initialize_google_calendar, GOOGLE_CALENDAR_I
 import pytz
 import logging
 from dotenv import load_dotenv
-load_dotenv()  # ✅ Carga las variables
 
+load_dotenv()  # ✅ Carga las variables
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -91,18 +91,17 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
             start_day = now + timedelta(hours=4)  # Siempre sumar 4 horas antes de iniciar
             logger.info(f"⏩ Ajustando inicio de búsqueda a: {start_day}")
 
-# 📌 Si el horario ya está fuera del rango de citas, ir al siguiente día hábil
+        # 📌 Si el horario ya está fuera del rango de citas, ir al siguiente día hábil
         if start_day.hour >= 15:
             logger.info("🌙 Fuera del horario laboral tras ajustar 4 horas, avanzando al siguiente día hábil.")
             day_offset += 1
-
 
         tz = pytz.timezone("America/Cancun")  # 🔹 Definir zona horaria
 
         while True:
             day = start_day + timedelta(days=day_offset)
 
-            if day.weekday() == 6:
+            if day.weekday() == 6:  # Evitar domingos
                 logger.info("📅 Se omite el domingo y se pasa al siguiente día.")
                 day_offset += 1
                 continue
@@ -110,16 +109,6 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
             for slot in slot_times:
                 logger.info(f"🧐 Revisando slot válido: {slot['start']} - {slot['end']}")
 
-                if target_hour:
-                    if slot["start"] != target_hour:
-                        continue  # Si hay una hora específica, seguimos buscando
-                else:
-                    return {
-                     "start_time": start_time.isoformat(),
-                     "end_time": end_time.isoformat()
-    }  # Si no hay una hora específica, tomamos la primera opción disponible
-
-                # 🔹 Corrección: Usar localize en lugar de replace
                 naive_start = datetime.combine(day.date(), datetime.strptime(slot["start"], "%H:%M").time())
                 start_time = tz.localize(naive_start)
                 naive_end = datetime.combine(day.date(), datetime.strptime(slot["end"], "%H:%M").time())
@@ -131,6 +120,11 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
 
                 logger.info(f"🔍 Evaluando slot: {start_time} - {end_time}")
 
+                # Si el usuario pidió una hora específica, verificamos que coincida
+                if target_hour and slot["start"] != target_hour:
+                    continue  
+
+                # 📌 Validaciones de urgencia y horarios pasados
                 if urgent and start_time <= now + timedelta(hours=4):
                     logger.info(f"⚠️ Omitiendo {start_time}, ya que está dentro de las próximas 4 horas (modo urgente).")
                     continue
@@ -139,6 +133,7 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                     logger.info(f"⚠️ Omitiendo {start_time}, ya que está en el pasado.")
                     continue
 
+                # 📌 Verificar disponibilidad en Google Calendar
                 if check_availability(start_time, end_time):
                     logger.info(f"✅ Horario disponible encontrado: {start_time} - {end_time}")
                     return {
@@ -146,7 +141,7 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                         "end_time": end_time.isoformat()
                     }
 
-            day_offset += 1
+            day_offset += 1  # Avanzar al siguiente día si no hay horarios disponibles
 
     except ConnectionError as ce:
         logger.warning(f"⚠️ Error al buscar horario: {str(ce)}")
