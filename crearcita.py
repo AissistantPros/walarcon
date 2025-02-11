@@ -9,7 +9,7 @@ Permite agendar citas para los pacientes del consultorio del Dr. Wilfrido Alarc√
 # ==================================================
 import logging
 from logging import config
-from utils import initialize_google_calendar, get_cancun_time, search_calendar_event_by_phone
+from utils import initialize_google_calendar, get_cancun_time, search_calendar_event_by_phone, GOOGLE_CALENDAR_ID
 from buscarslot import check_availability  # Importar verificaci√≥n de disponibilidad
 from datetime import datetime
 import pytz
@@ -79,7 +79,7 @@ def create_calendar_event(name, phone, reason, start_time, end_time):
         }
 
         created_event = service.events().insert(
-            calendarId=config("GOOGLE_CALENDAR_ID"),
+            calendarId=GOOGLE_CALENDAR_ID,
             body=event
         ).execute()
 
