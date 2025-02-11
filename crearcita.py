@@ -41,6 +41,9 @@ def create_calendar_event(name, phone, reason, start_time, end_time):
         start_dt = datetime.fromisoformat(start_time).astimezone(pytz.timezone("America/Cancun"))
         end_dt = datetime.fromisoformat(end_time).astimezone(pytz.timezone("America/Cancun"))
 
+        # 📌 Limpiar el número de teléfono (eliminar espacios y guiones)
+        phone = phone.replace(" ", "").replace("-", "").strip()
+
         # 📌 Log para verificar qué datos está recibiendo la función
         logger.info(f"📩 Datos recibidos en `create_calendar_event`:\n"
                     f"  - Nombre: {name}\n"
@@ -55,9 +58,6 @@ def create_calendar_event(name, phone, reason, start_time, end_time):
         if not name.strip():
             logger.warning("⚠️ Error: El nombre del paciente no puede estar vacío.")
             raise ValueError("El nombre del paciente no puede estar vacío.")
-        if not phone.strip().isdigit() or len(phone.strip()) != 10:
-            logger.warning("⚠️ Error: El número de teléfono debe tener 10 dígitos numéricos.")
-            raise ValueError("El número de teléfono debe tener 10 dígitos numéricos.")
         if not start_time or not end_time:
             logger.warning("⚠️ Error: Los valores de fecha y hora no pueden estar vacíos.")
             raise ValueError("Los valores de fecha y hora no pueden estar vacíos.")
