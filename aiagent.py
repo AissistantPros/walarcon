@@ -10,7 +10,7 @@ from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
 from utils import search_calendar_event_by_phone  # Importar la búsqueda de citas
 from prompt import generate_openai_prompt  # Importar la función del prompt
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 # Configuración de logs
@@ -111,7 +111,7 @@ TOOLS = [
 # ==================================================
 
 def generate_openai_response(conversation_history: list):
-    """Procesa la conversación y genera una respuesta usando GPT-3.5 Turbo"""
+    """Procesa la conversación y genera una respuesta usando GPT-4o-mini"""
     try:
         start_time = time.time()
         logger.info("Generando respuesta con OpenAI...")
@@ -119,8 +119,6 @@ def generate_openai_response(conversation_history: list):
         # 📌 Asegurar que el prompt del sistema esté en la conversación
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation_history = generate_openai_prompt(conversation_history)
-        
-       
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -148,7 +146,7 @@ def generate_openai_response(conversation_history: list):
             )
 
         ai_response = response.choices[0].message.content
-        logger.info(f"🗣️ Respuesta generada para el usuario: {ai_response}")  # Nuevo log para registrar la respuesta de la IA antes de enviarla a ElevenLabs
+        logger.info(f"🗣️ Respuesta generada para el usuario: {ai_response}")
         logger.info(f"Respuesta generada en {time.time() - start_time:.2f}s")
         return ai_response
 
@@ -168,34 +166,16 @@ def handle_tool_execution(tool_call, conversation_history):
     logger.info(f"🛠️ Ejecutando herramienta: {function_name} con argumentos {json.dumps(args, indent=2)}")
 
     try:
-        if function_name == "search_calendar_event_by_phone":
-            result = search_calendar_event_by_phone(args["phone"], args.get("name"))
-            if "error" not in result:
-                return {"message": result["message"]}
-            return {"error": result["error"]}
-        
-        elif function_name == "find_next_available_slot":
-            result = find_next_available_slot()
-            return {"slot": result} if result else {"message": "No hay horarios disponibles en este momento."}
+        if function_name == "create_calendar_event":
+            start_time = datetime.fromisoformat(args["start_time"])
+            end_time = start_time + timedelta(minutes=45)  # 🔹 Asegurar que end_time siempre sea +45 min
 
-        elif function_name == "create_calendar_event":
             result = create_calendar_event(
                 args["name"], args["phone"], args.get("reason", "No especificado"),
-                args["start_time"], args["end_time"]
+                start_time.isoformat(), end_time.isoformat()
             )
-            if "error" in result:
-                return {"error": "Hubo un problema al crear la cita. Intente nuevamente."}
             return {"event": result}
         
-        elif function_name == "edit_calendar_event":
-            result = edit_calendar_event(
-                args["phone"],
-                args["original_start_time"],
-                args.get("new_start_time"),
-                args.get("new_end_time")
-            )
-            return {"result": result}  
-
         return {"error": "No entendí esa solicitud."}
 
     except Exception as e:
