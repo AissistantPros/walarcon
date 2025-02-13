@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Variables de configuración de Google Sheets
 GOOGLE_SHEETS_ID = config("GOOGLE_SHEETS_ID", default=None)
-GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY", default=None).replace("\\n", "\n")
+GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY", default=None)
 GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID", default=None)
 GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL", default=None)
 
