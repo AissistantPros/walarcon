@@ -36,7 +36,31 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "find_next_available_slot",
-            "description": "Buscar el siguiente horario disponible"
+            "description": "Buscar el siguiente horario disponible",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_date": {"type": "string", "format": "date"},
+                    "target_hour": {"type": "string", "format": "time"},
+                    "urgent": {"type": "boolean"}
+                },
+                "required": ["target_date"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_availability",
+            "description": "Verificar si un horario específico está disponible en Google Calendar",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_time": {"type": "string", "format": "date-time"},
+                    "end_time": {"type": "string", "format": "date-time"}
+                },
+                "required": ["start_time", "end_time"]
+            }
         }
     },
     {
@@ -97,8 +121,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "phone": {"type": "string"},
-                    "name": {"type": "string"}
+                    "phone": {"type": "string"}
                 },
                 "required": ["phone"]
             }
