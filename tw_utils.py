@@ -36,7 +36,7 @@ async def handle_twilio_call(gather_action: str):
         # Generar saludo inicial
         greeting = "Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
         
-        # CORREGIDO: Usar "await" para esperar la respuesta de la función asíncrona
+        # Generar audio de saludo con ElevenLabs
         audio = await generate_audio_with_eleven_labs(greeting)
 
         if audio:
@@ -46,7 +46,7 @@ async def handle_twilio_call(gather_action: str):
         else:
             response.say(greeting)
 
-        # Configurar recolección de voz
+        # Iniciar recolección de voz
         response.append(Gather(
             input="speech",
             action=gather_action,
@@ -70,37 +70,39 @@ async def process_user_input(request: Request):
     response = VoiceResponse()
 
     try:
-        # 📌 Verificar tipo de request
+        # Verificar tipo de request
         if not isinstance(request, Request):
             logger.error(f"❌ Error: 'request' no es una instancia válida de Request. Tipo recibido: {type(request)}")
             raise HTTPException(status_code=400, detail="Formato de solicitud inválido")
 
-        # 📌 Verificar si los datos se están enviando en formato `form-data`
+        # Verificar form-data
         try:
             form_data = await request.form()
         except Exception as form_error:
             logger.error(f"❌ Error al leer form_data: {str(form_error)}")
             raise HTTPException(status_code=400, detail="No se pudo procesar la solicitud, formato incorrecto")
 
-        # 📌 Validar que SpeechResult está presente en la solicitud
+        # Validar que SpeechResult esté presente
         user_input = form_data.get("SpeechResult", "").strip()
         if not user_input:
             return handle_no_input(response)
 
-        # 📌 Agregar el mensaje del usuario a la conversación
+        # Agregar la entrada del usuario al historial
         conversation_history.append({"role": "user", "content": user_input})
         logger.info(f"🗣️ Entrada del usuario: {user_input}")
 
-        # 📌 Generar respuesta de IA en un hilo separado
+        # Generar respuesta de IA en un hilo separado
         ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
 
-        # 📌 Manejo de errores específicos de IA
+        # Manejo de errores específicos de IA
         if "[ERROR]" in ai_response:
             error_code = ai_response.split("[ERROR] ")[1].strip()
             ai_response = f"Hubo un problema con la consulta. {map_error_to_message(error_code)}."
 
+        # Agregar respuesta de la IA al historial
         conversation_history.append({"role": "assistant", "content": ai_response})
 
+        # Generar la respuesta Twilio con audio
         return await generate_twilio_response(response, ai_response)
 
     except Exception as e:
@@ -110,43 +112,14 @@ async def process_user_input(request: Request):
     return str(response)
 
 # ==================================================
-# 🔹 Herramienta para que la IA finalice la llamada
-# ==================================================
-async def end_call(response, reason=""):
-    """Permite que la IA termine la llamada de manera natural según la razón."""
-    farewell_messages = {
-        "silence": "Lo siento, no puedo escuchar. Terminaré la llamada. Que tenga buen día.",
-        "user_request": "Fue un placer atenderle, que tenga un excelente día.",
-        "spam": "Hola colega, este número es solo para información y citas del Dr. Wilfrido Alarcón. Hasta luego.",
-        "time_limit": "Qué pena, tengo que terminar la llamada. Si puedo ayudar en algo más, por favor, marque nuevamente."
-    }
-
-    message = farewell_messages.get(reason, "Gracias por llamar. Hasta luego.")
-
-    audio_buffer = await generate_audio_with_eleven_labs(message)
-
-    if audio_buffer:
-        with open(AUDIO_TEMP_PATH, "wb") as f:
-            f.write(audio_buffer.getvalue())
-        response.play("/audio-response")
-    else:
-        response.say(message)
-
-    if reason == "user_request":
-        await asyncio.sleep(5)
-
-    response.hangup()
-    conversation_history.clear()  # 🔹 Borra el historial al terminar la llamada
-    return str(response)
-
-# ==================================================
 # 🔹 Generación de respuesta de Twilio
 # ==================================================
 async def generate_twilio_response(response, ai_response):
     """Genera el audio de respuesta y lo envía a Twilio."""
     try:
-        if isinstance(ai_response, dict):  # Si es un diccionario, convertirlo a texto
-             ai_response = ". ".join(ai_response.get("data", {}).values())
+        # Si es un dict con "data", concatenarlo en string
+        if isinstance(ai_response, dict):
+            ai_response = ". ".join(ai_response.get("data", {}).values())
 
         audio_buffer = await generate_audio_with_eleven_labs(ai_response)
 

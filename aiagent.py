@@ -5,7 +5,8 @@ from decouple import config
 from openai import OpenAI
 from consultarinfo import read_sheet_data
 from buscarslot import find_next_available_slot
-from tw_utils import end_call  # Importar la función de finalización de llamada
+# Quitar import circular de end_call:
+# from tw_utils import end_call
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
@@ -33,7 +34,7 @@ Las herramientas que siempre tienen que estar disponibles son:
 5. Buscar una cita previamente hecha de utils.py "def search_calendar_event_by_phone(phone, name=None):".
 6. Editar una cita previamente hecha, de editarcita.py "def edit_calendar_event(phone, new_start_time=None, new_end_time=None)".
 7. Eliminar una cita previamente hecha, de eliminarcita.py "def delete_calendar_event(phone, patient_name=None):".
-8. Terminar la llamada de tw_utils.py "async def end_call(response, reason=""):".
+8. Terminar la llamada de utils.py "async def end_call(response, reason=""):".
 """
 
 TOOLS = [
@@ -137,15 +138,12 @@ TOOLS = [
                       "type": "string",
                       "enum": ["silence", "user_request", "spam", "time_limit"],
                       "description": "Razón para finalizar la llamada."
-                      }
+                    }
                 },
                 "required": ["reason"]
             }
         }
     },
-
-
-
     {
         "type": "function",
         "function": {
@@ -166,15 +164,13 @@ TOOLS = [
 # 🔹 Generación de respuestas con OpenAI
 # ==================================================
 
-
-
 def generate_openai_response(conversation_history: list):
     """Procesa la conversación y genera una respuesta usando GPT-4o-mini"""
     try:
         start_time = time.time()
         logger.info("Generando respuesta con OpenAI...")
 
-        # 📌 Asegurar que el prompt del sistema esté en la conversación
+        # Asegurar que el prompt del sistema esté en la conversación
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation_history = generate_openai_prompt(conversation_history)
 
@@ -190,14 +186,14 @@ def generate_openai_response(conversation_history: list):
             tool_call = tool_calls[0]
             tool_result = handle_tool_execution(tool_call, conversation_history)
 
-            # Agregar los datos obtenidos al historial de la conversación
+            # Agregar los datos obtenidos al historial
             conversation_history.append({
                 "role": "function",
                 "name": tool_call.function.name,
                 "content": json.dumps(tool_result)
             })
 
-            # Hacer una nueva llamada a OpenAI con el historial actualizado
+            # Nueva llamada a OpenAI con el historial actualizado
             response = client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=conversation_history,
@@ -226,14 +222,18 @@ def handle_tool_execution(tool_call, conversation_history):
     try:
         if function_name == "create_calendar_event":
             start_time = datetime.fromisoformat(args["start_time"])
-            end_time = start_time + timedelta(minutes=45)  # 🔹 Asegurar que end_time siempre sea +45 min
+            end_time = start_time + timedelta(minutes=45)  # Asegurar que end_time siempre sea +45 min
 
             result = create_calendar_event(
-                args["name"], args["phone"], args.get("reason", "No especificado"),
-                start_time.isoformat(), end_time.isoformat()
+                args["name"],
+                args["phone"],
+                args.get("reason", "No especificado"),
+                start_time.isoformat(),
+                end_time.isoformat()
             )
             return {"event": result}
         
+        # Si no reconocemos la herramienta
         return {"error": "No entendí esa solicitud."}
 
     except Exception as e:
