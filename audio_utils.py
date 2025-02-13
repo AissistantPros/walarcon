@@ -47,7 +47,7 @@ async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
         voice_settings=VoiceSettings(
         stability=.3,         # Más expresividad y menos monotonía
         similarity_boost=1.0,   # Permite más variabilidad en la voz
-        style=0.1,
+        style=0.9,
         speed=4.5,              # Aumenta la velocidad para mayor energía
         use_speaker_boost=True  # Activa el boost de expresividad
     )
