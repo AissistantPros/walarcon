@@ -5,6 +5,7 @@ from decouple import config
 from openai import OpenAI
 from consultarinfo import read_sheet_data
 from buscarslot import find_next_available_slot
+from tw_utils import end_call  # Importar la función de finalización de llamada
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
@@ -23,6 +24,17 @@ client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 # ==================================================
 # 🔹 Definición de herramientas disponibles
 # ==================================================
+"""
+Las herramientas que siempre tienen que estar disponibles son:
+1. Cómo buscar información de consultarinfo.py: "def read_sheet_data(sheet_range="Generales!A:B"):"
+2. Encontrar una fecha y hora específica para la cita, de buscarslot.py: "check_availability(start_time, end_time)"
+3. Encontrar una fecha y hora relativa de buscarslot.py: "def find_next_available_slot(target_date=None, target_hour=None, urgent=False):"
+4. Crear una nueva cita de crearcita.py: "def create_calendar_event(name, phone, reason, start_time, end_time):"
+5. Buscar una cita previamente hecha de utils.py "def search_calendar_event_by_phone(phone, name=None):".
+6. Editar una cita previamente hecha, de editarcita.py "def edit_calendar_event(phone, new_start_time=None, new_end_time=None)".
+7. Eliminar una cita previamente hecha, de eliminarcita.py "def delete_calendar_event(phone, patient_name=None):".
+8. Terminar la llamada de tw_utils.py "async def end_call(response, reason=""):".
+"""
 
 TOOLS = [
     {
@@ -114,6 +126,27 @@ TOOLS = [
         }
     },
     {
+         "type": "function",
+         "function": {
+             "name": "end_call",
+             "description": "Finaliza la llamada con un mensaje de despedida adecuado.",
+             "parameters": {
+                 "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "enum": ["silence", "user_request", "spam", "time_limit"],
+                      "description": "Razón para finalizar la llamada."
+                      }
+                },
+                "required": ["reason"]
+            }
+        }
+    },
+
+
+
+    {
         "type": "function",
         "function": {
             "name": "search_calendar_event_by_phone",
@@ -132,6 +165,8 @@ TOOLS = [
 # ==================================================
 # 🔹 Generación de respuestas con OpenAI
 # ==================================================
+
+
 
 def generate_openai_response(conversation_history: list):
     """Procesa la conversación y genera una respuesta usando GPT-4o-mini"""
