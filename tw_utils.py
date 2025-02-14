@@ -13,6 +13,9 @@ import time
 import asyncio
 from decouple import config
 
+# 1) IMPORTA end_call
+from utils import end_call
+
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -114,13 +117,22 @@ async def process_user_input(request: Request):
 # ==================================================
 # 🔹 Generación de respuesta de Twilio
 # ==================================================
-async def generate_twilio_response(response, ai_response):
-    """Genera el audio de respuesta y lo envía a Twilio."""
+async def generate_twilio_response(response: VoiceResponse, ai_response):
+    """
+    Genera el audio con ElevenLabs y decide si finaliza la llamada según la IA.
+    """
     try:
+        # 2) VERIFICAR SI LA IA DEVOLVIÓ end_call
+        if isinstance(ai_response, dict) and "end_call" in ai_response:
+            reason = ai_response["end_call"]
+            # Llamamos la función real de colgar la llamada y no ponemos más Gather
+            return await end_call(response, reason=reason, conversation_history=conversation_history)
+
         # Si es un dict con "data", concatenarlo en string
         if isinstance(ai_response, dict):
             ai_response = ". ".join(ai_response.get("data", {}).values())
 
+        # Generar audio
         audio_buffer = await generate_audio_with_eleven_labs(ai_response)
 
         if audio_buffer:
@@ -130,6 +142,7 @@ async def generate_twilio_response(response, ai_response):
         else:
             response.say(ai_response)
 
+        # Continuamos la llamada
         response.append(Gather(
             input="speech",
             action="/process-user-input",
