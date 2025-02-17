@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request, Response, HTTPException
 from twilio.twiml.voice_response import VoiceResponse
 from tw_utils import handle_twilio_call, process_user_input
 from consultarinfo import read_sheet_data
-from buscarslot import find_next_available_slot  # Corregido nombre del módulo
+from buscarslot import find_next_available_slot  # ✅ Ahora sin check_availability()
 from crearcita import create_calendar_event
 from editarcita import edit_calendar_event
 from eliminarcita import delete_calendar_event
@@ -81,8 +81,6 @@ async def twilio_call():
         logger.error(f"Error en Twilio Call: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
 @app.post("/process-user-input")
 async def twilio_process_input(request: Request):
     try:
@@ -91,15 +89,6 @@ async def twilio_process_input(request: Request):
     except Exception as e:
         logger.error(f"Error en Process Input: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
-
-
-
-
-
-
 
 # ==================================================
 # 🔹 Google Sheets - Consultar Información

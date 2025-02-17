@@ -8,18 +8,18 @@ import io
 import logging
 import asyncio
 from typing import Optional
-from elevenlabs import ElevenLabs, VoiceSettings
+from elevenlabs import set_api_key, generate
 from decouple import config
 
 # Configuración del sistema de logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Inicialización del cliente de ElevenLabs con la API Key
-client = ElevenLabs(api_key=config("ELEVEN_LABS_API_KEY"))
+# Configuración de la API Key de ElevenLabs
+set_api_key(config("ELEVEN_LABS_API_KEY"))
 
 # ==================================================
-# 🔹 Generación de audio con ElevenLabs (Corrección de async/await)
+# 🔹 Generación de audio con ElevenLabs
 # ==================================================
 async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
     """
@@ -38,21 +38,17 @@ async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
 
         logger.info("🗣️ Generando audio con ElevenLabs...")
 
-        # Convertir texto a audio en un hilo separado (para evitar bloqueos)
-        audio_stream = await asyncio.to_thread(
-        client.text_to_speech.convert,
-        text=text,
-        voice_id=config("ELEVEN_LABS_VOICE_ID"),
-        model_id="eleven_multilingual_v2",
-        voice_settings=VoiceSettings(
-        stability=.3,         # Más expresividad y menos monotonía
-        similarity_boost=1.0,   # Permite más variabilidad en la voz
-        style=0.9,
-        speed=4.5,              # Aumenta la velocidad para mayor energía
-        use_speaker_boost=True  # Activa el boost de expresividad
-    )
-)
-
+        # Generar audio con ElevenLabs (sin necesidad de `asyncio.to_thread()`)
+        audio_stream = await generate(
+            text=text,
+            voice=config("ELEVEN_LABS_VOICE_ID"),
+            model="eleven_multilingual_v2",
+            stability=0.3,        # Más expresividad y menos monotonía
+            similarity_boost=0.8, # Permite más variabilidad en la voz
+            style=0.5,
+            speed=1.8,            # Ajustado para mejor naturalidad
+            use_speaker_boost=True # Activa el boost de expresividad
+        )
 
         # Verificar si hay contenido en el stream
         if not audio_stream:
@@ -60,9 +56,7 @@ async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
 
         # Buffer para almacenar el audio
         buffer = io.BytesIO()
-        for chunk in audio_stream:
-            buffer.write(chunk)
-
+        buffer.write(audio_stream)
         buffer.seek(0)
 
         logger.info("✅ Audio generado con éxito")
