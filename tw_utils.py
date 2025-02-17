@@ -99,7 +99,7 @@ async def process_user_input(request: Request):
 
         # Manejo de errores específicos de IA
         if "[ERROR]" in ai_response:
-            error_code = ai_response.split("[ERROR] ")[1].strip()
+            error_code = ai_response.replace("[ERROR]", "").strip()
             ai_response = f"Hubo un problema con la consulta. {map_error_to_message(error_code)}."
 
         # Agregar respuesta de la IA al historial
@@ -125,12 +125,11 @@ async def generate_twilio_response(response: VoiceResponse, ai_response):
         # 2) VERIFICAR SI LA IA DEVOLVIÓ end_call
         if isinstance(ai_response, dict) and "end_call" in ai_response:
             reason = ai_response["end_call"]
-            # Llamamos la función real de colgar la llamada y no ponemos más Gather
             return await end_call(response, reason=reason, conversation_history=conversation_history)
 
-        # Si es un dict con "data", concatenarlo en string
-        if isinstance(ai_response, dict):
-            ai_response = ". ".join(ai_response.get("data", {}).values())
+        # Si es un dict con "data", extraer correctamente el mensaje
+        if isinstance(ai_response, dict) and "data" in ai_response:
+            ai_response = " ".join(str(value) for value in ai_response["data"].values())
 
         # Generar audio
         audio_buffer = await generate_audio_with_eleven_labs(ai_response)
@@ -155,7 +154,10 @@ async def generate_twilio_response(response: VoiceResponse, ai_response):
         logger.error(f"Error en la generación de audio: {str(e)}")
         response.say("Lo siento, no pude generar la respuesta.")
 
-    logger.info(f"Tiempo total de llamada: {time.time() - call_start_time:.2f}s")
+    # Validar si `call_start_time` está definido antes de calcular la duración
+    if call_start_time:
+        logger.info(f"Tiempo total de llamada: {time.time() - call_start_time:.2f}s")
+    
     return str(response)
 
 # ==================================================
