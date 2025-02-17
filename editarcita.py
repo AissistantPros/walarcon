@@ -14,7 +14,7 @@ import pytz
 import logging
 from datetime import timedelta
 from utils import get_cancun_time, search_calendar_event_by_phone  # Se usará para buscar citas por teléfono
-from buscarslot import check_availability  # Verificar disponibilidad de horarios
+
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
