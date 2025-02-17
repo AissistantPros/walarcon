@@ -4,7 +4,7 @@ import json
 from decouple import config
 from openai import OpenAI
 from consultarinfo import read_sheet_data
-from buscarslot import find_next_available_slot, check_availability
+from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
@@ -59,21 +59,6 @@ TOOLS = [
                     "urgent": {"type": "boolean"}
                 },
                 "required": ["target_date"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_availability",
-            "description": "Verificar si un horario específico está disponible en Google Calendar",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "start_time": {"type": "string", "format": "date-time"},
-                    "end_time": {"type": "string", "format": "date-time"}
-                },
-                "required": ["start_time", "end_time"]
             }
         }
     },
@@ -242,14 +227,8 @@ def handle_tool_execution(tool_call, conversation_history):
                 result = find_next_available_slot(target_date=None, target_hour=target_hour, urgent=urgent)
             return {"slot": result}
 
-        # 3) check_availability
-        elif function_name == "check_availability":
-            st = datetime.fromisoformat(args["start_time"])
-            et = datetime.fromisoformat(args["end_time"])
-            availability = check_availability(st, et)
-            return {"availability": availability}
 
-        # 4) create_calendar_event
+        # 3) create_calendar_event
         elif function_name == "create_calendar_event":
             start_time_dt = datetime.fromisoformat(args["start_time"])
             end_time_dt = datetime.fromisoformat(args["end_time"])
@@ -263,7 +242,7 @@ def handle_tool_execution(tool_call, conversation_history):
             )
             return {"event": result}
 
-        # 5) edit_calendar_event
+        # 4) edit_calendar_event
         elif function_name == "edit_calendar_event":
             phone = args["phone"]
             original_start_time = datetime.fromisoformat(args["original_start_time"])
@@ -284,14 +263,14 @@ def handle_tool_execution(tool_call, conversation_history):
             )
             return {"event": result}
 
-        # 6) delete_calendar_event
+        # 5) delete_calendar_event
         elif function_name == "delete_calendar_event":
             phone = args["phone"]
             patient_name = args.get("patient_name", None)
             result = delete_calendar_event(phone, patient_name)
             return {"event": result}
 
-        # 7) end_call
+        # 6) end_call
         elif function_name == "end_call":
             # La IA está solicitando terminar la llamada.
             # Normalmente esto requiere un "response" de Twilio, así que
@@ -299,7 +278,7 @@ def handle_tool_execution(tool_call, conversation_history):
             reason = args["reason"]
             return {"end_call": reason}
 
-        # 8) search_calendar_event_by_phone
+        # 7) search_calendar_event_by_phone
         elif function_name == "search_calendar_event_by_phone":
             phone = args["phone"]
             # name es opcional, a veces la IA puede enviar "name" para filtrar
