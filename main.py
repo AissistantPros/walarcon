@@ -25,21 +25,15 @@ app = FastAPI()
 # ==================================================
 @app.post("/twilio-voice")
 async def twilio_voice():
-    """
-    Este endpoint es llamado por Twilio cuando una llamada entra.
-    Devuelve un XML en formato TwiML que le dice a Twilio que inicie una conexión WebSocket con nuestro backend.
-    """
     logger.info("📞 Nueva llamada entrante desde Twilio.")
-
-    twiml_response = f"""
+    twiml_response = """
     <?xml version="1.0" encoding="UTF-8"?>
     <Response>
         <Connect>
-            <Stream url="wss://walarcon.onrender.com/twilio-websocket" />
+            <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" />
         </Connect>
     </Response>
     """
-    
     return Response(content=twiml_response, media_type="application/xml")
 
 # ==================================================
