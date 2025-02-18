@@ -9,13 +9,13 @@ import logging
 import base64
 import asyncio
 from fastapi import WebSocket, WebSocketDisconnect
-from aiagent import generate_openai_response
 from audio_utils import speech_to_text, text_to_speech
+from aiagent import generate_openai_response
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def process_audio_stream(data: dict, websocket: WebSocket, conversation_history: list):
+async def process_audio_stream(data: dict, websocket: WebSocket, conversation_history: list, stream_sid: str):
     try:
         # Decodificar audio desde base64
         audio_payload = data.get("media", {}).get("payload", "")
@@ -39,7 +39,15 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
         # Convertir a audio (formato PCMU)
         audio_response = await text_to_speech(ai_response)
         if audio_response:
-            await websocket.send_bytes(audio_response)
+            # ✅ Enviar audio como mensaje JSON válido para Twilio
+            media_message = {
+                "event": "media",
+                "streamSid": stream_sid,
+                "media": {
+                    "payload": base64.b64encode(audio_response).decode("utf-8")
+                }
+            }
+            await websocket.send_text(json.dumps(media_message))
             conversation_history.append({"role": "assistant", "content": ai_response})
 
     except Exception as e:
@@ -48,7 +56,7 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
 async def handle_twilio_websocket(websocket: WebSocket):
     await websocket.accept()
     conversation_history = []
-    call_start_time = time.time()
+    stream_sid = None  # Almacenar el SID del stream
     
     try:
         # ✅ Handshake crítico con Twilio
@@ -58,20 +66,33 @@ async def handle_twilio_websocket(websocket: WebSocket):
             "version": "1.0"
         })
         
-        # Saludo inicial
-        greeting = "Hola! Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
-        audio_greeting = await text_to_speech(greeting)
-        if audio_greeting:
-            await websocket.send_bytes(audio_greeting)
-        conversation_history.append({"role": "assistant", "content": greeting})
-
         while True:
             message = await websocket.receive_text()
             data = json.loads(message)
             event_type = data.get("event", "")
             
-            if event_type == "media":
-                await process_audio_stream(data, websocket, conversation_history)
+            if event_type == "start":
+                # Capturar stream_sid para enviar audio
+                stream_sid = data.get("streamSid")
+                logger.info(f"🎤 Inicio de stream - SID: {stream_sid}")
+                
+                # Saludo inicial
+                greeting = "Hola! Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+                audio_greeting = await text_to_speech(greeting)
+                if audio_greeting:
+                    media_message = {
+                        "event": "media",
+                        "streamSid": stream_sid,
+                        "media": {
+                            "payload": base64.b64encode(audio_greeting).decode("utf-8")
+                        }
+                    }
+                    await websocket.send_text(json.dumps(media_message))
+                conversation_history.append({"role": "assistant", "content": greeting})
+                
+            elif event_type == "media" and stream_sid:
+                await process_audio_stream(data, websocket, conversation_history, stream_sid)
+                
             elif event_type == "stop":
                 logger.info("🚫 Llamada finalizada")
                 break
@@ -81,5 +102,4 @@ async def handle_twilio_websocket(websocket: WebSocket):
     except Exception as e:
         logger.error(f"💥 Error crítico: {str(e)}")
     finally:
-        call_duration = time.time() - call_start_time
-        logger.info(f"⏱ Duración total: {call_duration:.2f}s")
+        await websocket.close()

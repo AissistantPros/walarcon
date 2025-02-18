@@ -9,7 +9,7 @@ import asyncio
 from decouple import config
 from openai import OpenAI
 from elevenlabs.client import ElevenLabs
-from elevenlabs import VoiceSettings  # ✅ Añadido nuevamente
+from elevenlabs import VoiceSettings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,7 +36,6 @@ async def speech_to_text(audio_bytes: bytes) -> str:
 
 async def text_to_speech(text: str) -> bytes:
     try:
-        # ✅ Mantenemos los ajustes de voz y añadimos formato PCMU
         audio_stream = await asyncio.to_thread(
             elevenlabs_client.text_to_speech.convert,
             text=text,
@@ -49,7 +48,7 @@ async def text_to_speech(text: str) -> bytes:
                 speed=1.5,
                 use_speaker_boost=True
             ),
-            output_format="pcm_mulaw"  # 🚨 Clave para Twilio
+            output_format="pcm_mulaw"  # Formato requerido por Twilio
         )
         return b''.join(audio_stream)
     except Exception as e:
