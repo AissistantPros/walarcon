@@ -26,8 +26,7 @@ app = FastAPI()
 @app.post("/twilio-voice")
 async def twilio_voice():
     logger.info("📞 Nueva llamada entrante desde Twilio.")
-    twiml_response = """
-    <?xml version="1.0" encoding="UTF-8"?>
+    twiml_response = """<?xml version="1.0" encoding="UTF-8"?>
     <Response>
         <Connect>
             <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" />
