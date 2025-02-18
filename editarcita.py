@@ -1,166 +1,104 @@
 # -*- coding: utf-8 -*-
 """
-Módulo para la edición de citas en Google Calendar.
-Permite modificar horarios de citas ya existentes en la agenda del consultorio del Dr. Wilfrido Alarcón.
+Módulo para edición segura de citas con validación de horarios.
 """
 
-# ==================================================
-# 📌 Importaciones y Configuración
-# ==================================================
-from googleapiclient.discovery import build
-from google.oauth2.service_account import Credentials
-from decouple import config
-import pytz
 import logging
-from datetime import timedelta
-from utils import get_cancun_time, search_calendar_event_by_phone  # Se usará para buscar citas por teléfono
+import pytz
+from datetime import datetime
+from fastapi import APIRouter, HTTPException
+from utils import (
+    initialize_google_calendar,
+    GOOGLE_CALENDAR_ID,
+    search_calendar_event_by_phone,
+    is_slot_available,
+    get_cached_availability
+)
 
-
-# Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Variables de configuración de Google Calendar
-GOOGLE_CALENDAR_ID = config("GOOGLE_CALENDAR_ID")
-GOOGLE_PRIVATE_KEY = config("GOOGLE_PRIVATE_KEY").replace("\\n", "\n")
-GOOGLE_PROJECT_ID = config("GOOGLE_PROJECT_ID")
-GOOGLE_CLIENT_EMAIL = config("GOOGLE_CLIENT_EMAIL")
+router = APIRouter()
 
-# ==================================================
-# 🔹 Inicialización de Google Calendar
-# ==================================================
-def initialize_google_calendar():
-    """
-    Configura y conecta la API de Google Calendar usando credenciales de servicio.
-
-    Retorna:
-        object: Cliente autenticado de Google Calendar.
-    """
+def validate_and_convert_time(time_str: str):
+    """Valida y convierte a datetime con zona horaria."""
     try:
-        credentials = Credentials.from_service_account_info(
-            {
-                "type": "service_account",
-                "project_id": GOOGLE_PROJECT_ID,
-                "private_key": GOOGLE_PRIVATE_KEY,
-                "client_email": GOOGLE_CLIENT_EMAIL,
-                "token_uri": "https://oauth2.googleapis.com/token",
-            },
-            scopes=["https://www.googleapis.com/auth/calendar"]
-        )
-        return build("calendar", "v3", credentials=credentials)
-    except Exception as e:
-        logger.error(f"❌ Error al conectar con Google Calendar: {str(e)}")
-        raise ConnectionError("GOOGLE_CALENDAR_UNAVAILABLE")
+        dt = datetime.fromisoformat(time_str)
+        if not dt.tzinfo:
+            raise ValueError("Falta zona horaria")
+        return dt.astimezone(pytz.timezone("America/Cancun"))
+    except ValueError as e:
+        logger.error(f"❌ Formato de tiempo inválido: {str(e)}")
+        raise HTTPException(status_code=400, detail="Formato inválido (usar ISO8601 con zona horaria)")
 
-# ==================================================
-# 🔹 Edición de un evento en Google Calendar
-# ==================================================
-def edit_calendar_event(phone, new_start_time=None, new_end_time=None):
-    """
-    Edita una cita existente en Google Calendar. Si no se encuentra el evento, se ofrece crear una nueva cita.
-
-    Parámetros:
-        phone (str): Número de teléfono del paciente para identificar el evento.
-        new_start_time (datetime, opcional): Nueva fecha y hora de inicio.
-        new_end_time (datetime, opcional): Nueva fecha y hora de fin.
-
-    Retorna:
-        dict: Detalles del evento modificado o un mensaje indicando que no se encontró la cita.
-    """
+def edit_calendar_event(phone: str, original_start: str, new_start: str, new_end: str):
     try:
-        # 📌 Validar el número de teléfono
-        if not phone or len(phone) != 10 or not phone.isdigit():
-            raise ValueError("⚠️ El campo 'phone' debe ser un número de 10 dígitos.")
+        # Validación inicial
+        if len(phone) != 10 or not phone.isdigit():
+            raise ValueError("Teléfono inválido")
+        
+        # Buscar evento existente
+        events = search_calendar_event_by_phone(phone)
+        if not events:
+            raise ValueError("No se encontró la cita")
+        
+        if len(events) > 1:
+            raise ValueError("Múltiples citas encontradas - Proporcione nombre")
 
-        # 📌 Inicializar Google Calendar API
+        event = events[0]
         service = initialize_google_calendar()
 
-        # 📌 Buscar la cita en el calendario usando solo el teléfono
-        event = search_calendar_event_by_phone(phone)
+        # Validar nuevo horario
+        new_start_dt = validate_and_convert_time(new_start)
+        new_end_dt = validate_and_convert_time(new_end)
         
-        if not event:
-            logger.warning(f"⚠️ No se encontró una cita con el número {phone}.")
-            return {"message": "No se encontró una cita con este número. Procedemos a crear una nueva."}
+        # Verificar disponibilidad
+        busy_slots = get_cached_availability()
+        if not is_slot_available(new_start_dt, new_end_dt, busy_slots):
+            raise ValueError("Horario no disponible")
 
-        # 📌 Confirmar con el usuario si el nombre del paciente es correcto
-        patient_name = event["summary"]  # Se asume que el nombre está en el campo "summary"
-        logger.info(f"📌 Se encontró una cita a nombre de {patient_name}. Confirmando con el usuario...")
-
-        # 📌 Si no se proporciona nueva fecha/hora, conservar la original
-        if not new_start_time or not new_end_time:
-            new_start_time = event["start"]["dateTime"]
-            new_end_time = event["end"]["dateTime"]
-
-        # 📌 Convertir fechas al formato ISO 8601 con zona horaria de Cancún
-        tz = pytz.timezone("America/Cancun")
-        if isinstance(new_start_time, str):
-            new_start_time = tz.localize(datetime.fromisoformat(new_start_time))
-        if isinstance(new_end_time, str):
-            new_end_time = tz.localize(datetime.fromisoformat(new_end_time))
-
-        new_start_iso = new_start_time.isoformat()
-        new_end_iso = new_end_time.isoformat()
-
-        # 📌 Verificar disponibilidad para la nueva fecha/hora
-        if not check_availability(new_start_time, new_end_time):
-            logger.warning(f"⚠️ El horario solicitado ({new_start_iso} - {new_end_iso}) no está disponible.")
-            return {"message": "El horario solicitado no está disponible. Intente otro horario."}
-
-        # 📌 Actualizar la fecha/hora en el evento
-        event["start"] = {"dateTime": new_start_iso, "timeZone": "America/Cancun"}
-        event["end"] = {"dateTime": new_end_iso, "timeZone": "America/Cancun"}
-
-        # 📌 Guardar los cambios en el evento
-        updated_event = service.events().update(
+        # Actualizar evento
+        updated_event = service.events().patch(
             calendarId=GOOGLE_CALENDAR_ID,
             eventId=event["id"],
-            body=event
+            body={
+                "start": {"dateTime": new_start_dt.isoformat(), "timeZone": "America/Cancun"},
+                "end": {"dateTime": new_end_dt.isoformat(), "timeZone": "America/Cancun"}
+            }
         ).execute()
 
-        logger.info(f"✅ Cita editada para {event['summary']} el {new_start_iso}")
-
-        # 📌 Retornar detalles del evento modificado
         return {
-            "id": updated_event.get("id"),
+            "id": updated_event["id"],
             "start": updated_event["start"]["dateTime"],
-            "end": updated_event["end"]["dateTime"],
-            "summary": updated_event.get("summary"),
-            "description": updated_event.get("description"),
-            "message": "Cita actualizada correctamente."
+            "end": updated_event["end"]["dateTime"]
         }
 
     except ValueError as ve:
-        logger.warning(f"⚠️ Error de validación: {str(ve)}")
+        logger.error(f"❌ Error de validación: {str(ve)}")
         return {"error": str(ve)}
     except Exception as e:
-        logger.error(f"❌ Error al editar la cita en Google Calendar: {str(e)}")
-        return {"error": "GOOGLE_CALENDAR_UNAVAILABLE"}
+        logger.error(f"❌ Error en Google Calendar: {str(e)}")
+        return {"error": "CALENDAR_UNAVAILABLE"}
 
-# ==================================================
-# 🔹 Prueba Local del Módulo
-# ==================================================
-if __name__ == "__main__":
-    """
-    Prueba rápida para verificar la conexión y edición de citas en Google Calendar.
-    """
-    from datetime import datetime, timedelta
-
+@router.put("/editar-cita")
+async def api_edit_calendar_event(phone: str, new_start: str, new_end: str):
     try:
-        # 📌 Obtener la hora actual en Cancún
-        now = get_cancun_time()
-        test_phone = "9981234567"
-        test_new_time = now + timedelta(days=1, hours=3)
+        # Validación básica
+        if not new_start or not new_end:
+            raise HTTPException(status_code=400, detail="Se requieren nuevos horarios")
 
-        result = edit_calendar_event(
-            phone=test_phone,
-            new_start_time=test_new_time,
-            new_end_time=test_new_time + timedelta(minutes=45)
-        )
+        result = edit_calendar_event(phone, new_start, new_end)
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
 
-        print("✅ Resultado de la edición de la cita:")
-        print(result)
+        return {
+            "message": "✅ Cita actualizada",
+            "new_start": result["start"],
+            "new_end": result["end"]
+        }
 
-    except ConnectionError as ce:
-        print(f"❌ Error de conexión con Google Calendar: {str(ce)}")
+    except HTTPException as he:
+        raise he
     except Exception as e:
-        print(f"❌ Error desconocido: {str(e)}")
+        logger.error(f"❌ Error crítico: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor")

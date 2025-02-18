@@ -1,28 +1,74 @@
 # -*- coding: utf-8 -*-
 """
-Módulo para generar audio con ElevenLabs.
-Convierte texto en audio para su uso en llamadas telefónicas con Twilio.
+Módulo para manejar la transcripción de voz a texto (STT) con Whisper de OpenAI
+y la generación de audio (TTS) con ElevenLabs.
 """
 
 import io
 import logging
 import asyncio
+import time
 from typing import Optional
+from decouple import config
+from openai import OpenAI
 from elevenlabs.client import ElevenLabs
 from elevenlabs import VoiceSettings
-from decouple import config
 
 # Configuración del sistema de logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Inicialización del cliente de ElevenLabs con la API Key
-client = ElevenLabs(api_key=config("ELEVEN_LABS_API_KEY"))
+# Inicializar clientes de OpenAI y ElevenLabs
+openai_client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+elevenlabs_client = ElevenLabs(api_key=config("ELEVEN_LABS_API_KEY"))
 
 # ==================================================
-# 🔹 Generación de audio con ElevenLabs (Corrección de async/await)
+# 🔹 Transcripción de Audio con Whisper (OpenAI)
 # ==================================================
-async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
+async def speech_to_text(audio_bytes: bytes) -> Optional[str]:
+    """
+    Convierte audio en texto utilizando Whisper de OpenAI.
+
+    Parámetros:
+        audio_bytes (bytes): El audio en formato de bytes.
+
+    Retorna:
+        Optional[str]: Texto transcrito si la conversión es exitosa, de lo contrario None.
+    """
+    try:
+        start_time = time.time()  # Medir tiempo de ejecución
+        logger.info("🎙️ Procesando audio con Whisper...")
+
+        # Guardar temporalmente el audio en un buffer para enviarlo a Whisper
+        audio_buffer = io.BytesIO(audio_bytes)
+        audio_buffer.name = "audio.mp3"  # Whisper requiere un nombre de archivo
+
+        # Enviar audio a OpenAI Whisper
+        response = await asyncio.to_thread(
+            openai_client.audio.transcriptions.create,
+            model="whisper-1",
+            file=audio_buffer,
+            language="es"
+        )
+
+        transcript = response.text.strip()
+
+        if not transcript:
+            raise Exception("Whisper no pudo transcribir el audio.")
+
+        end_time = time.time()
+        logger.info(f"✅ Transcripción completada en {end_time - start_time:.2f} seg: {transcript}")
+
+        return transcript
+
+    except Exception as e:
+        logger.error(f"❌ Error en transcripción con Whisper: {str(e)}")
+        return None
+
+# ==================================================
+# 🔹 Generación de Audio con ElevenLabs
+# ==================================================
+async def text_to_speech(text: str) -> Optional[bytes]:
     """
     Convierte un texto en audio usando ElevenLabs.
 
@@ -30,46 +76,40 @@ async def generate_audio_with_eleven_labs(text: str) -> Optional[io.BytesIO]:
         text (str): El texto que se convertirá en audio.
 
     Retorna:
-        Optional[io.BytesIO]: Un buffer de audio en formato MP3 si la conversión es exitosa, de lo contrario None.
+        Optional[bytes]: Audio en formato MP3 si la conversión es exitosa, de lo contrario None.
     """
     try:
-        # Validación: El texto no debe estar vacío
         if not text.strip():
             raise ValueError("El texto para generar audio está vacío.")
 
-        logger.info("🗣️ Generando audio con ElevenLabs...")
+        start_time = time.time()
+        logger.info(f"🗣️ Generando audio con ElevenLabs...")
 
-        # Convertir texto a audio en un hilo separado (para evitar bloqueos)
+        # Convertir texto a audio en un hilo separado
         audio_stream = await asyncio.to_thread(
-            client.text_to_speech.convert,
+            elevenlabs_client.text_to_speech.convert,
             text=text,
             voice_id=config("ELEVEN_LABS_VOICE_ID"),
             model_id="eleven_multilingual_v2",
             voice_settings=VoiceSettings(
-                stability=0.3,         # Más expresividad y menos monotonía
-                similarity_boost=0.8,  # Permite más variabilidad en la voz
-                style=0.5,
-                speed=1.8,             # Aumenta la velocidad para mayor energía
-                use_speaker_boost=True # Activa el boost de expresividad
+                stability=0.3,         # Controla la estabilidad de la voz
+                similarity_boost=0.8,  # Ajusta la similitud con la voz base
+                style=0.5,             # Ajuste de estilo (naturalidad)
+                speed=1.5,             # Velocidad de la voz (ajustable según necesidad)
+                use_speaker_boost=True # Potencia la expresividad de la voz
             )
         )
 
-        # Verificar si hay contenido en el stream
-        if not audio_stream:
-            raise Exception("El stream de audio está vacío.")
+        # Convertir el audio stream a bytes
+        audio_bytes = b''.join(audio_stream)
 
-        # Buffer para almacenar el audio
-        buffer = io.BytesIO()
-        for chunk in audio_stream:
-            buffer.write(chunk)
+        end_time = time.time()
+        logger.info(f"✅ Audio generado en {end_time - start_time:.2f} seg.")
 
-        buffer.seek(0)
-
-        logger.info("✅ Audio generado con éxito")
-        return buffer
+        return audio_bytes
 
     except ValueError as ve:
-        logger.warning(f"⚠️ Error de validación en generación de audio: {str(ve)}")
+        logger.warning(f"⚠️ Error de validación en TTS: {str(ve)}")
         return None
     except Exception as e:
         logger.error(f"❌ Error en ElevenLabs al generar audio: {str(e)}")

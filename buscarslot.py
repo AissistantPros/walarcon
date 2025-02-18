@@ -1,21 +1,30 @@
 # -*- coding: utf-8 -*-
 """
-Módulo para buscar el siguiente horario disponible en Google Calendar.
+Módulo para buscar el siguiente horario disponible en Google Calendar (usando caché).
 Optimizado para manejar prioridades y fechas específicas.
 """
 
 from datetime import datetime, timedelta
 import pytz
 import logging
-from utils import get_cancun_time, initialize_google_calendar, GOOGLE_CALENDAR_ID
+from fastapi import APIRouter, HTTPException
+from utils import (
+    get_cancun_time,
+    is_slot_available,
+    get_cached_availability
+)
 
 # Configuración de logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Crear el router para FastAPI
+router = APIRouter()
+
 # ==================================================
 # 🔹 Configuración de horarios
 # ==================================================
+# Cada cita dura 45 minutos. Estos slots son de ejemplo.
 SLOT_TIMES = [
     {"start": "09:30", "end": "10:15"},
     {"start": "10:15", "end": "11:00"},
@@ -31,80 +40,69 @@ SLOT_TIMES = [
 # ==================================================
 def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
     """
-    Busca el siguiente horario disponible en Google Calendar.
+    Busca el siguiente horario disponible, consultando la caché de slots ocupados.
+    Si target_date no está vacío, busca a partir de esa fecha.
+    Si target_hour se especifica, busca slots después de esa hora.
+    Si urgent=True, evita las próximas 4 horas desde 'ahora'.
 
-    Parámetros:
-      target_date (str, opcional): Fecha específica para buscar disponibilidad (YYYY-MM-DD).
-      target_hour (str, opcional): Hora preferida (HH:MM). 
-        - Si no coincide con los slots válidos, se ajustará al más cercano.
-      urgent (bool, opcional): Si True, evita los próximos 4 horas y busca después.
-    
     Retorna:
-      dict: {"start_time": <ISO 8601>, "end_time": <ISO 8601>} con la cita encontrada
-      o {"error": "..."} si no hay disponibilidad.
+      dict: {"start_time": <ISO>, "end_time": <ISO>} o {"error": "..."}
     """
-
     try:
-        # Inicializar Google Calendar
-        service = initialize_google_calendar()
-
-        # Configurar límites de búsqueda (6 meses adelante, 2 semanas atrás **pero nunca antes de hoy**)
-        MAX_DAYS_LOOKAHEAD = 180  # 6 meses adelante
-        MAX_DAYS_BACKWARD = 14    # 2 semanas atrás **solo si sigue en el futuro**
-
-        # Obtener la hora actual en Cancún
         now = get_cancun_time()
-
-        # Determinar fecha base para la búsqueda
         if target_date:
-            search_start = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=pytz.timezone("America/Cancun"))
+            # Construimos la fecha base (con la hora 00:00).
+            # Ej: "2025-02-10"
+            date_obj = datetime.strptime(target_date, "%Y-%m-%d")
+            local_tz = pytz.timezone("America/Cancun")
+            search_start = local_tz.localize(datetime(date_obj.year, date_obj.month, date_obj.day, 0, 0))
+            # No permitir fecha en el pasado
             if search_start < now:
-                return {"error": "No se puede agendar en el pasado"}
+                return {"error": "No se puede agendar en el pasado."}
         elif urgent:
-            search_start = now + timedelta(hours=4)  # Evita las próximas 4 horas
+            search_start = now + timedelta(hours=4)
         else:
             search_start = now
 
-        # Ajustar target_hour si no es un slot válido
+        # Convertir target_hour a hora + slot
         if target_hour:
             target_hour = adjust_to_valid_slot(target_hour, SLOT_TIMES)
 
-        # Buscar en fechas **hacia atrás y hacia adelante**
-        for offset in range(-MAX_DAYS_BACKWARD, MAX_DAYS_LOOKAHEAD):
-            search_day = search_start + timedelta(days=offset)
+        # Obtenemos los busy_slots de la caché
+        busy_slots = get_cached_availability()
 
-            # No buscar en domingos
-            if search_day.weekday() == 6:
-                continue
+        # Buscar hasta 6 meses en adelante
+        MAX_DAYS_LOOKAHEAD = 180
+        for offset in range(MAX_DAYS_LOOKAHEAD):
+            day_to_check = search_start + timedelta(days=offset)
 
-            # No buscar en fechas anteriores a hoy
-            if search_day.date() < now.date():
+            # Evitar domingos
+            if day_to_check.weekday() == 6:
                 continue
 
             for slot in SLOT_TIMES:
-                start_time_str = f"{search_day.strftime('%Y-%m-%d')} {slot['start']}:00"
-                end_time_str = f"{search_day.strftime('%Y-%m-%d')} {slot['end']}:00"
+                # Construimos la hora de inicio y fin en local time
+                start_str = f"{day_to_check.strftime('%Y-%m-%d')} {slot['start']}:00"
+                end_str = f"{day_to_check.strftime('%Y-%m-%d')} {slot['end']}:00"
 
-                start_dt = datetime.strptime(start_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("America/Cancun"))
-                end_dt = datetime.strptime(end_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=pytz.timezone("America/Cancun"))
+                cancun_tz = pytz.timezone("America/Cancun")
+                start_dt = cancun_tz.localize(datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S"))
+                end_dt = cancun_tz.localize(datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S"))
 
-                # Si es hoy y hay restricción de urgencia, evitar horarios antes de `now + 4h`
-                if search_day.date() == now.date() and urgent and start_dt < now + timedelta(hours=4):
+                # Si es hoy y urgent, evitamos < now+4h
+                if urgent and start_dt < now + timedelta(hours=4):
                     continue
 
-                # Si target_hour está definido, buscar esa hora exacta en los días cercanos
+                # Si target_hour está definido, skip slots menores
                 if target_hour and slot["start"] < target_hour:
                     continue
 
-                # Verificar disponibilidad real en Google Calendar
-                events = service.freebusy().query(body={
-                    "timeMin": start_dt.isoformat(),
-                    "timeMax": end_dt.isoformat(),
-                    "timeZone": "America/Cancun",
-                    "items": [{"id": GOOGLE_CALENDAR_ID}]
-                }).execute()
+                # Verificamos que el slot no sea pasado
+                if start_dt < now:
+                    continue
 
-                if not events["calendars"][GOOGLE_CALENDAR_ID]["busy"]:
+                # Verificamos que no haya overlap con busy_slots
+                if is_slot_available(start_dt, end_dt, busy_slots):
                     return {
                         "start_time": start_dt.isoformat(),
                         "end_time": end_dt.isoformat()
@@ -116,43 +114,35 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
         logger.error(f"❌ Error inesperado al buscar horario: {str(e)}")
         return {"error": "GOOGLE_CALENDAR_UNAVAILABLE"}
 
-# ==================================================
-# 🔹 Ajuste de Horario a Slot Válido
-# ==================================================
 def adjust_to_valid_slot(requested_time, slot_times):
     """
-    Ajusta una hora solicitada a un slot válido.
+    Ajusta una hora solicitada a un slot válido (por ejemplo, si piden "10:00",
+    se busca el slot que comience >= 10:00).
+    """
+    req_time_obj = datetime.strptime(requested_time, "%H:%M").time()
+    for s in slot_times:
+        slot_start_obj = datetime.strptime(s["start"], "%H:%M").time()
+        if slot_start_obj >= req_time_obj:
+            return s["start"]
+    return slot_times[-1]["start"]  # si no hay slot mayor, usar el último
 
+# ==================================================
+# 🔹 Endpoint para consultar disponibilidad
+# ==================================================
+@router.get("/buscar-disponibilidad")
+async def get_next_available_slot(target_date: str = None, target_hour: str = None, urgent: bool = False):
+    """
+    Endpoint para buscar el próximo horario disponible en la agenda.
+    
     Parámetros:
-        requested_time (str): Hora solicitada por el usuario en formato HH:MM.
-        slot_times (list): Lista de horarios válidos.
+    - target_date (str, opcional): Fecha específica (YYYY-MM-DD).
+    - target_hour (str, opcional): Hora preferida (HH:MM).
+    - urgent (bool, opcional): Si True, omite las próximas 4 horas.
 
     Retorna:
-        str: La hora ajustada al slot más cercano.
+    - Un diccionario con el horario disponible o un mensaje de error.
     """
-    requested_time_obj = datetime.strptime(requested_time, "%H:%M").time()
-
-    for slot in slot_times:
-        slot_time = datetime.strptime(slot["start"], "%H:%M").time()
-        if slot_time >= requested_time_obj:
-            return slot["start"]
-
-    # Si la hora solicitada es después del último slot, devolver el último slot
-    return slot_times[-1]["start"]
-
-# ==================================================
-# 🔹 Prueba Local del Módulo
-# ==================================================
-if __name__ == "__main__":
-    """
-    Prueba rápida para verificar el funcionamiento de la búsqueda de horarios.
-    Se recomienda ejecutar este script directamente para depuración.
-    """
-    try:
-        slot = find_next_available_slot()
-        if isinstance(slot, dict) and "start_time" in slot:
-            print(f"✅ Próximo horario disponible: {slot['start_time']} - {slot['end_time']}")
-        else:
-            print(f"❌ No se encontró horario: {slot}")
-    except Exception as e:
-        print(f"❌ Error desconocido: {str(e)}")
+    slot = find_next_available_slot(target_date, target_hour, urgent)
+    if "error" in slot:
+        raise HTTPException(status_code=404, detail=slot["error"])
+    return slot
