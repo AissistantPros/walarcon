@@ -4,7 +4,6 @@ Módulo de integración con Twilio - Manejo de WebSockets
 """
 
 import json
-import time
 import logging
 import base64
 import asyncio
@@ -20,9 +19,14 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
         # Decodificar audio desde base64
         audio_payload = data.get("media", {}).get("payload", "")
         audio_bytes = base64.b64decode(audio_payload)
-        
+
         if not audio_bytes:
-            logger.warning("⚠️ Audio vacío")
+            logger.warning("⚠️ Audio vacío recibido")
+            return
+
+        # Verificar que el audio no sea demasiado corto
+        if len(audio_bytes) < 1600:  # 0.1 segundos de audio en PCM 8000Hz
+            logger.warning("⚠️ Audio demasiado corto, descartando")
             return
 
         # Transcripción con Whisper
@@ -35,11 +39,10 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
 
         # Generar respuesta
         ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
-        
-        # Convertir a audio (formato PCMU)
+
+        # Convertir respuesta de texto a audio
         audio_response = await asyncio.to_thread(text_to_speech, ai_response)
         if audio_response:
-            # ✅ Enviar audio como mensaje JSON válido para Twilio
             media_message = {
                 "event": "media",
                 "streamSid": stream_sid,
@@ -51,31 +54,30 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
             conversation_history.append({"role": "assistant", "content": ai_response})
 
     except Exception as e:
-        logger.error(f"❌ Error: {str(e)}")
+        logger.error(f"❌ Error en process_audio_stream: {str(e)}")
 
 async def handle_twilio_websocket(websocket: WebSocket):
     await websocket.accept()
     conversation_history = []
-    stream_sid = None  # Almacenar el SID del stream
-    
+    stream_sid = None
+
     try:
-        # ✅ Handshake crítico con Twilio
+        # Handshake con Twilio
         await websocket.send_json({
             "event": "connected",
             "protocol": "Call",
             "version": "1.0"
         })
-        
+
         while True:
             message = await websocket.receive_text()
             data = json.loads(message)
             event_type = data.get("event", "")
-            
+
             if event_type == "start":
-                # Capturar stream_sid para enviar audio
                 stream_sid = data.get("streamSid")
                 logger.info(f"🎤 Inicio de stream - SID: {stream_sid}")
-                
+
                 # Saludo inicial
                 greeting = "Hola! Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
                 audio_greeting = await asyncio.to_thread(text_to_speech, greeting)
@@ -89,10 +91,10 @@ async def handle_twilio_websocket(websocket: WebSocket):
                     }
                     await websocket.send_text(json.dumps(media_message))
                 conversation_history.append({"role": "assistant", "content": greeting})
-                
+
             elif event_type == "media" and stream_sid:
                 await process_audio_stream(data, websocket, conversation_history, stream_sid)
-                
+
             elif event_type == "stop":
                 logger.info("🚫 Llamada finalizada")
                 break
@@ -100,6 +102,6 @@ async def handle_twilio_websocket(websocket: WebSocket):
     except WebSocketDisconnect:
         logger.info("🔌 Usuario colgó")
     except Exception as e:
-        logger.error(f"💥 Error crítico: {str(e)}")
+        logger.error(f"💥 Error crítico en WebSocket: {str(e)}")
     finally:
         await websocket.close()

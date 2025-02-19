@@ -5,17 +5,16 @@ Módulo para audio con ajustes de voz y formato PCMU (Twilio).
 
 import io
 import logging
-import requests
+import httpx
 from decouple import config
 from openai import OpenAI
-from elevenlabs.client import ElevenLabs
-from elevenlabs import VoiceSettings
+from elevenlabs import ElevenLabs, VoiceSettings
 from pydub import AudioSegment
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Claves
+# Claves API
 OPENAI_API_KEY = config("CHATGPT_SECRET_KEY")
 ELEVEN_LABS_API_KEY = config("ELEVEN_LABS_API_KEY")
 
@@ -26,7 +25,7 @@ elevenlabs_client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
 def text_to_speech(text: str) -> bytes:
     """
     Convierte texto en voz usando ElevenLabs con ajustes personalizados.
-    Genera audio mu-law 8 kHz (ulaw_8000), compatible con Twilio.
+    Genera audio en formato mu-law 8 kHz, compatible con Twilio.
     """
     try:
         audio_stream = elevenlabs_client.text_to_speech.convert(
@@ -40,18 +39,16 @@ def text_to_speech(text: str) -> bytes:
                 speed=1.5,
                 use_speaker_boost=True
             ),
-            # OJO: ElevenLabs NO soporta "pcm_mulaw",
-            # usa "ulaw_8000" en su lugar.
             output_format="ulaw_8000"
         )
         return b"".join(audio_stream)
     except Exception as e:
-        logger.error(f"❌ Error ElevenLabs: {str(e)}")
+        logger.error(f"❌ Error en text_to_speech: {str(e)}")
         return b""
 
 def convert_mulaw_to_wav(mulaw_data: bytes) -> io.BytesIO:
     """
-    Convierte mu-law 8kHz a WAV (16-bit PCM, 8kHz).
+    Convierte audio mu-law 8kHz a WAV (16-bit PCM, 8kHz).
     """
     try:
         segment = AudioSegment(
@@ -66,40 +63,41 @@ def convert_mulaw_to_wav(mulaw_data: bytes) -> io.BytesIO:
         return wav_data
     except Exception as e:
         logger.error(f"❌ Error al convertir mu-law a WAV: {e}")
-        return io.BytesIO()  # vacío
+        return io.BytesIO()
 
-def speech_to_text(audio_bytes: bytes) -> str:
+async def speech_to_text(audio_bytes: bytes) -> str:
     """
-    Función simple que asume que 'audio_bytes' viene en mu-law/8000
-    y lo convierte a WAV y lo manda a Whisper.
-    (un solo chunk)
+    Convierte audio mu-law/8000 a texto usando Whisper.
+    Se asegura de que el audio no sea demasiado corto antes de enviarlo.
     """
     try:
+        # Validar tamaño mínimo (1600 bytes ≈ 0.1 segundos en PCM 8000Hz)
+        if len(audio_bytes) < 1600:
+            logger.warning("⚠️ Audio demasiado corto, descartando")
+            return ""
+
         wav_data = convert_mulaw_to_wav(audio_bytes)
         if not wav_data.getbuffer().nbytes:
             logger.error("❌ WAV result is empty, can't send to Whisper.")
             return ""
 
-        files = {
-            "file": ("audio.wav", wav_data, "audio/wav")
-        }
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}"
-        }
-        data = {
-            "model": "whisper-1"
-        }
-        resp = requests.post(
-            "https://api.openai.com/v1/audio/transcriptions",
-            headers=headers,
-            files=files,
-            data=data
-        )
+        async with httpx.AsyncClient() as client:
+            files = {"file": ("audio.wav", wav_data, "audio/wav")}
+            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+            data = {"model": "whisper-1"}
+
+            resp = await client.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers=headers,
+                files=files,
+                data=data
+            )
+
         if resp.status_code == 200:
             return resp.json().get("text", "").strip()
         else:
             logger.error(f"❌ Error Whisper: {resp.status_code} - {resp.text}")
             return ""
     except Exception as e:
-        logger.error(f"❌ Error speech_to_text: {str(e)}")
+        logger.error(f"❌ Error en speech_to_text: {str(e)}")
         return ""
