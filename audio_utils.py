@@ -52,12 +52,12 @@ async def speech_to_text(audio_bytes: bytes) -> str:
         logger.error(f"❌ Error en speech_to_text: {e}")
         return ""
 
-def text_to_speech(text: str) -> bytes:
+async def text_to_speech(text: str) -> bytes:
     """
     Convierte texto en voz usando ElevenLabs con ajustes personalizados.
     """
     try:
-        audio_stream = asyncio.run(asyncio.to_thread(
+        audio_stream = await asyncio.to_thread(
             elevenlabs_client.text_to_speech.convert,
             text=text,
             voice_id=config("ELEVEN_LABS_VOICE_ID"),
@@ -70,7 +70,7 @@ def text_to_speech(text: str) -> bytes:
                 use_speaker_boost=True
             ),
             output_format="ulaw_8000"  # Formato compatible con Twilio
-        ))
+        )
         return b''.join(audio_stream)
     except Exception as e:
         logger.error(f"❌ Error ElevenLabs: {str(e)}")
