@@ -22,22 +22,30 @@ ELEVEN_LABS_API_KEY = config("ELEVEN_LABS_API_KEY")
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
 elevenlabs_client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
 
-def text_to_speech(text: str) -> bytes:
+def text_to_speech(text: str, language: str = "es") -> bytes:
     """
     Convierte texto en voz usando ElevenLabs con ajustes personalizados.
     Genera audio en formato mu-law 8 kHz, compatible con Twilio.
     """
     try:
+        voice_id = config("ELEVEN_LABS_VOICE_ID")
+
+        # Ajustar voz según el idioma detectado
+        if language == "en":
+            voice_id = config("ELEVEN_LABS_VOICE_ID_EN")  # Asegúrate de definir esto en tu .env
+        elif language == "fr":
+            voice_id = config("ELEVEN_LABS_VOICE_ID_FR")  # Definir si quieres usar una voz específica para francés
+
         audio_stream = elevenlabs_client.text_to_speech.convert(
             text=text,
-            voice_id=config("ELEVEN_LABS_VOICE_ID"),
+            voice_id=voice_id,
             model_id="eleven_multilingual_v2",
             voice_settings=VoiceSettings(
-                stability=0.4,  # Menos pausas
+                stability=0.4,
                 similarity_boost=0.7,
-                style=0.3,
-                speed=1.3,  # Velocidad moderada
-                use_speaker_boost=False  # Desactivado para mayor velocidad
+                style=0.8,
+                speed=1.9,
+                use_speaker_boost=False
             ),
             output_format="ulaw_8000"
         )
