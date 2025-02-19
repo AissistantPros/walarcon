@@ -37,7 +37,7 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
         ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
         
         # Convertir a audio (formato PCMU)
-        audio_response = await text_to_speech(ai_response)
+        audio_response = await asyncio.to_thread(text_to_speech, ai_response)
         if audio_response:
             # ✅ Enviar audio como mensaje JSON válido para Twilio
             media_message = {
@@ -78,7 +78,7 @@ async def handle_twilio_websocket(websocket: WebSocket):
                 
                 # Saludo inicial
                 greeting = "Hola! Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
-                audio_greeting = await text_to_speech(greeting)
+                audio_greeting = await asyncio.to_thread(text_to_speech, greeting)
                 if audio_greeting:
                     media_message = {
                         "event": "media",
