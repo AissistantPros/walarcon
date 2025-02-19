@@ -14,20 +14,14 @@ from aiagent import generate_openai_response
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def process_audio_stream(data: dict, websocket: WebSocket, conversation_history: list, stream_sid: str):
+async def process_audio_stream(audio_buffer: bytearray, websocket: WebSocket, conversation_history: list, stream_sid: str):
     try:
-        # Decodificar audio desde base64
-        audio_payload = data.get("media", {}).get("payload", "")
-        audio_bytes = base64.b64decode(audio_payload)
-
-        if not audio_bytes:
-            logger.warning("⚠️ Audio vacío recibido")
+        if len(audio_buffer) < 1600 * 20:  # Procesar solo si hay suficiente audio (2 segundos)
             return
 
-        # Verificar que el audio no sea demasiado corto
-        if len(audio_bytes) < 1600:  # 0.1 segundos de audio en PCM 8000Hz
-            logger.warning("⚠️ Audio demasiado corto, descartando")
-            return
+        # Convertir a base64 para procesar
+        audio_bytes = bytes(audio_buffer)
+        audio_buffer.clear()  # Limpiar buffer después de procesar
 
         # Transcripción con Whisper
         transcript = await speech_to_text(audio_bytes)
@@ -37,10 +31,10 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
         logger.info(f"👤 Usuario: {transcript}")
         conversation_history.append({"role": "user", "content": transcript})
 
-        # Generar respuesta
+        # Generar respuesta con OpenAI
         ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
 
-        # Convertir respuesta de texto a audio
+        # Convertir respuesta a audio
         audio_response = await asyncio.to_thread(text_to_speech, ai_response)
         if audio_response:
             media_message = {
@@ -51,6 +45,15 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
                 }
             }
             await websocket.send_text(json.dumps(media_message))
+
+            # Enviar marca de fin de audio para Twilio
+            mark_message = {
+                "event": "mark",
+                "streamSid": stream_sid,
+                "mark": {"name": "end_of_audio"}
+            }
+            await websocket.send_text(json.dumps(mark_message))
+
             conversation_history.append({"role": "assistant", "content": ai_response})
 
     except Exception as e:
@@ -60,6 +63,7 @@ async def handle_twilio_websocket(websocket: WebSocket):
     await websocket.accept()
     conversation_history = []
     stream_sid = None
+    audio_buffer = bytearray()  # Buffer para acumular audio
 
     try:
         # Handshake con Twilio
@@ -93,7 +97,12 @@ async def handle_twilio_websocket(websocket: WebSocket):
                 conversation_history.append({"role": "assistant", "content": greeting})
 
             elif event_type == "media" and stream_sid:
-                await process_audio_stream(data, websocket, conversation_history, stream_sid)
+                audio_payload = data.get("media", {}).get("payload", "")
+                chunk = base64.b64decode(audio_payload)
+                audio_buffer.extend(chunk)  # Acumular audio
+
+                # Procesar audio si se ha acumulado suficiente
+                await process_audio_stream(audio_buffer, websocket, conversation_history, stream_sid)
 
             elif event_type == "stop":
                 logger.info("🚫 Llamada finalizada")

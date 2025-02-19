@@ -33,11 +33,11 @@ def text_to_speech(text: str) -> bytes:
             voice_id=config("ELEVEN_LABS_VOICE_ID"),
             model_id="eleven_multilingual_v2",
             voice_settings=VoiceSettings(
-                stability=0.3,
-                similarity_boost=0.8,
-                style=0.5,
-                speed=1.5,
-                use_speaker_boost=True
+                stability=0.4,  # Menos pausas
+                similarity_boost=0.7,
+                style=0.3,
+                speed=1.3,  # Velocidad moderada
+                use_speaker_boost=False  # Desactivado para mayor velocidad
             ),
             output_format="ulaw_8000"
         )
@@ -71,8 +71,8 @@ async def speech_to_text(audio_bytes: bytes) -> str:
     Se asegura de que el audio no sea demasiado corto antes de enviarlo.
     """
     try:
-        # Validar tamaño mínimo (1600 bytes ≈ 0.1 segundos en PCM 8000Hz)
-        if len(audio_bytes) < 1600:
+        # Validar tamaño mínimo (800 bytes ≈ 0.05 segundos en PCM 8000Hz)
+        if len(audio_bytes) < 800:
             logger.warning("⚠️ Audio demasiado corto, descartando")
             return ""
 
