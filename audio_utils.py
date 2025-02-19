@@ -65,39 +65,25 @@ def convert_mulaw_to_wav(mulaw_data: bytes) -> io.BytesIO:
         logger.error(f"❌ Error al convertir mu-law a WAV: {e}")
         return io.BytesIO()
 
-async def speech_to_text(audio_bytes: bytes) -> str:
+async def speech_to_text(audio_bytes: bytes) -> tuple[str, str]:
     """
-    Convierte audio mu-law/8000 a texto usando Whisper.
-    Se asegura de que el audio no sea demasiado corto antes de enviarlo.
+    Convierte audio a texto usando Whisper y detecta el idioma.
     """
     try:
-        # Validar tamaño mínimo (800 bytes ≈ 0.05 segundos en PCM 8000Hz)
-        if len(audio_bytes) < 800:
-            logger.warning("⚠️ Audio demasiado corto, descartando")
-            return ""
-
-        wav_data = convert_mulaw_to_wav(audio_bytes)
-        if not wav_data.getbuffer().nbytes:
-            logger.error("❌ WAV result is empty, can't send to Whisper.")
-            return ""
-
         async with httpx.AsyncClient() as client:
-            files = {"file": ("audio.wav", wav_data, "audio/wav")}
+            files = {"file": ("audio.wav", convert_mulaw_to_wav(audio_bytes), "audio/wav")}
             headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
             data = {"model": "whisper-1"}
 
-            resp = await client.post(
-                "https://api.openai.com/v1/audio/transcriptions",
-                headers=headers,
-                files=files,
-                data=data
-            )
+            resp = await client.post("https://api.openai.com/v1/audio/transcriptions",
+                                     headers=headers, files=files, data=data)
 
         if resp.status_code == 200:
-            return resp.json().get("text", "").strip()
+            json_resp = resp.json()
+            return json_resp.get("text", "").strip(), json_resp.get("language", "es")
         else:
             logger.error(f"❌ Error Whisper: {resp.status_code} - {resp.text}")
-            return ""
+            return "", "es"
     except Exception as e:
         logger.error(f"❌ Error en speech_to_text: {str(e)}")
-        return ""
+        return "", "es"
