@@ -14,6 +14,11 @@ from aiagent import generate_openai_response
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+
+
+
+
 async def process_audio_stream(data: dict, websocket: WebSocket, conversation_history: list, stream_sid: str, audio_buffer: bytearray):
     try:
         audio_payload = data.get("media", {}).get("payload", "")
@@ -22,7 +27,7 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
 
         # Procesa solo cuando hay suficiente audio (1-2 segundos)
         if len(audio_buffer) >= 1600 * 10:
-            transcribed_text = await speech_to_text(audio_buffer)
+            transcribed_text = await asyncio.to_thread(speech_to_text, audio_buffer)
             audio_buffer.clear()
 
             if not transcribed_text:
@@ -48,6 +53,13 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
 
     except Exception as e:
         logger.error(f"❌ Error en process_audio_stream: {str(e)}")
+
+
+
+
+
+
+
 
 async def handle_twilio_websocket(websocket: WebSocket):
     await websocket.accept()
