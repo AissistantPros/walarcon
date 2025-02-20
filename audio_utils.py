@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 ELEVEN_LABS_API_KEY = config("ELEVEN_LABS_API_KEY")
 elevenlabs_client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
 
-def speech_to_text_direct(audio_bytes: bytes) -> str:
+def speech_to_text(audio_bytes: bytes) -> str:
     """
     Transcribe el audio directamente usando Google Cloud Speech-to-Text,
     asumiendo que el audio ya viene en formato mu-law (MULAW), 8000 Hz, mono.
@@ -45,6 +45,11 @@ def speech_to_text_direct(audio_bytes: bytes) -> str:
     except Exception as e:
         logger.error(f"❌ Error en speech_to_text_direct: {e}")
         return ""
+
+
+
+
+
 
 def text_to_speech(text: str, lang="es") -> bytes:
     """
