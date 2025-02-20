@@ -27,7 +27,7 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
 
         # Procesa solo cuando hay suficiente audio (1-2 segundos)
         if len(audio_buffer) >= 1600 * 10:
-            transcribed_text = await asyncio.to_thread(speech_to_text, audio_buffer)
+            transcribed_text = await asyncio.to_thread(speech_to_text, bytes(audio_buffer))
             audio_buffer.clear()
 
             if not transcribed_text:
