@@ -10,6 +10,7 @@ import numpy as np
 import librosa
 import noisereduce as nr
 import webrtcvad
+import wave
 from decouple import config
 from openai import OpenAI
 from elevenlabs import ElevenLabs, VoiceSettings
@@ -52,21 +53,56 @@ def convert_mulaw_to_wav(mulaw_data: bytes) -> io.BytesIO:
         logger.error(f"❌ Error al convertir mu-law a WAV: {e}")
         return io.BytesIO()
 
+def contains_voice(y, sr, frame_duration_ms=20, voice_threshold=0.5):
+    """
+    Detecta si hay voz en el audio dividiéndolo en frames de duración fija.
+    Se consideran frames de 20 ms y si la proporción de frames con voz supera
+    el umbral (por defecto 0.5), se determina que hay voz.
+    """
+    frame_length = int(sr * frame_duration_ms / 1000)
+    num_frames = len(y) // frame_length
+    voiced_frames = 0
+    for i in range(num_frames):
+        start = i * frame_length
+        end = start + frame_length
+        frame = y[start:end]
+        if len(frame) < frame_length:
+            break
+        frame_bytes = np.int16(frame * 32768).tobytes()
+        if vad.is_speech(frame_bytes, sr):
+            voiced_frames += 1
+    if num_frames == 0:
+        return False
+    return (voiced_frames / num_frames) > voice_threshold
+
+def numpy_to_wav_bytes(y, sr):
+    """Convierte un array de numpy a un archivo WAV en memoria."""
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)  # 16-bit PCM
+        wf.setframerate(sr)
+        wf.writeframes(np.int16(y * 32768).tobytes())
+    buf.seek(0)
+    return buf
+
 async def speech_to_text(audio_bytes: bytes) -> str:
     """Convierte audio a texto usando Whisper, filtrando ruido y usando VAD."""
     try:
         wav_data = convert_mulaw_to_wav(audio_bytes)
         y, sr = librosa.load(wav_data, sr=16000)
-        y = apply_noise_reduction(y, sr)  # Aplica reducción de ruido
+        y_denoised = apply_noise_reduction(y, sr)  # Aplica reducción de ruido
 
-        # Detecta si hay voz real antes de transcribir
-        frame = np.int16(y * 32768).tobytes()
-        if not vad.is_speech(frame, sr):
+        # Verifica si hay voz dividiendo el audio en frames adecuados
+        if not contains_voice(y_denoised, sr):
             logger.warning("⚠️ No se detectó voz, descartando.")
             return ""
 
+        # Convierte el audio procesado a un archivo WAV en memoria
+        processed_wav = numpy_to_wav_bytes(y_denoised, sr)
+
         async with httpx.AsyncClient() as client:
-            files = {"file": ("audio.wav", io.BytesIO(frame), "audio/wav")}
+            files = {"file": ("audio.wav", processed_wav, "audio/wav")}
             headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
             data = {"model": "whisper-1", "temperature": 0.1, "suppress_tokens": [-1]}
 
