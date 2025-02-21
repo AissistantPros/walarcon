@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Módulo de integración con Twilio - Manejo de WebSockets con buffering y detección de silencio.
-Incluye mediciones de tiempo para evaluar la latencia y ajustes para evitar que se "cuelgue" el buffer.
+Módulo de integración con Twilio - Manejo de WebSockets con buffering y chunking manual.
+Se detecta silencio de ~0.7s para separar palabras
+y un límite de 10s para no enviar audio excesivamente largo.
+Luego concatenamos las transcripciones parciales en un buffer de texto.
+Si detectamos silencio de ~2s, enviamos la frase completa a la IA.
 """
 
 import json
@@ -16,109 +19,100 @@ from aiagent import generate_openai_response
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def process_audio_buffer(websocket: WebSocket, conversation_history: list, stream_sid: str, audio_buffer: bytearray):
-    """
-    Procesa el audio acumulado en el buffer: lo transcribe y envía la respuesta.
-    Se mide el tiempo de procesamiento.
-    """
-    try:
-        start_proc = time.perf_counter()
-        # Convertir el bytearray a bytes
-        audio_bytes = bytes(audio_buffer)
-        transcribed_text = await asyncio.to_thread(speech_to_text, audio_bytes)
-        # Limpiar buffer
-        audio_buffer.clear()
-        end_proc = time.perf_counter()
-        logger.info(f"Tiempo procesamiento y transcripción del buffer: {end_proc - start_proc:.3f} s")
-        
-        if not transcribed_text:
-            return
+# Límite de chunk en segundos
+MAX_CHUNK_SECS = 10
+# Umbral para chunk en bytes (8k mu-law => 8000 bytes por segundo)
+MAX_CHUNK_BYTES = MAX_CHUNK_SECS * 8000
 
-        logger.info(f"👤 Usuario: {transcribed_text}")
-        conversation_history.append({"role": "user", "content": transcribed_text})
+# Umbral de silencio para "cerrar chunk" (ej: 0.7s)
+CHUNK_SILENCE_THRESHOLD = 0.7
 
-        # Generar respuesta de la IA
-        start_ai = time.perf_counter()
-        ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
-        end_ai = time.perf_counter()
-        logger.info(f"Tiempo generación respuesta IA: {end_ai - start_ai:.3f} s")
-        
-        # Convertir respuesta a audio
-        start_tts = time.perf_counter()
-        audio_response = await asyncio.to_thread(text_to_speech, ai_response)
-        end_tts = time.perf_counter()
-        logger.info(f"Tiempo conversión TTS: {end_tts - start_tts:.3f} s")
-        
-        if audio_response:
-            media_message = {
-                "event": "media",
-                "streamSid": stream_sid,
-                "media": {
-                    "payload": base64.b64encode(audio_response).decode("utf-8")
-                }
+# Umbral para "fin de frase" = 2.0s
+# Si pasa 2s sin audio, consideramos que el usuario terminó su turno de habla.
+END_OF_SPEECH_THRESHOLD = 2.0
+
+async def process_full_utterance(websocket: WebSocket, conversation_history: list, partial_transcript: str, stream_sid: str):
+    """
+    Envía el texto completo a la IA y envía el audio de respuesta al usuario.
+    Luego limpia partial_transcript.
+    """
+    if not partial_transcript.strip():
+        return ""
+
+    logger.info(f"[Conversation] Usuario dice: {partial_transcript}")
+    conversation_history.append({"role": "user", "content": partial_transcript})
+    # Llamamos a la IA
+    start_ai = time.perf_counter()
+    ai_response = await asyncio.to_thread(generate_openai_response, conversation_history)
+    end_ai = time.perf_counter()
+    logger.info(f"[Conversation] Tiempo IA: {end_ai - start_ai:.3f}s")
+
+    # TTS
+    start_tts = time.perf_counter()
+    audio_response = await asyncio.to_thread(text_to_speech, ai_response)
+    end_tts = time.perf_counter()
+    logger.info(f"[Conversation] Tiempo TTS: {end_tts - start_tts:.3f}s")
+
+    if audio_response:
+        media_message = {
+            "event": "media",
+            "streamSid": stream_sid,
+            "media": {
+                "payload": base64.b64encode(audio_response).decode("utf-8")
             }
-            try:
-                await websocket.send_text(json.dumps(media_message))
-            except Exception as e:
-                logger.error(f"❌ Error al enviar mensaje por websocket: {e}")
-            conversation_history.append({"role": "assistant", "content": ai_response})
-    except Exception as e:
-        logger.error(f"❌ Error en process_audio_buffer: {e}")
+        }
+        try:
+            await websocket.send_text(json.dumps(media_message))
+        except Exception as e:
+            logger.error(f"[Conversation] Error enviando respuesta por websocket: {e}")
+    conversation_history.append({"role": "assistant", "content": ai_response})
+    return ""
 
-async def check_buffer_periodically(websocket: WebSocket, conversation_history: list, stream_sid_getter: asyncio.Future, audio_buffer: bytearray, last_media_time: list):
+async def process_chunk(audio_buffer: bytearray) -> str:
     """
-    Tarea en segundo plano que revisa el buffer de audio periódicamente.
-    Si ha pasado más de 0.7 segundos desde el último dato y hay audio acumulado, procesa el buffer.
+    Procesa un chunk de audio (convierte a bytes) y lo transcribe con speech_to_text.
+    Retorna la transcripción parcial (puede ser un fragmento de frase).
     """
-    while True:
-        await asyncio.sleep(0.3)
-        current_time = time.perf_counter()
-        # Si hay audio acumulado y han pasado más de 0.7 segundos sin recibir nuevos datos
-        if audio_buffer and (current_time - last_media_time[0]) > 0.7:
-            logger.info("Detectado silencio prolongado, procesando buffer...")
-            # Se obtiene el stream_sid actual (ya que éste se actualiza en el 'start')
-            stream_sid = stream_sid_getter.result() if stream_sid_getter.done() else None
-            if stream_sid:
-                await process_audio_buffer(websocket, conversation_history, stream_sid, audio_buffer)
+    start_proc = time.perf_counter()
+    audio_bytes = bytes(audio_buffer)
+    audio_buffer.clear()
+    partial_text = await asyncio.to_thread(speech_to_text, audio_bytes)
+    end_proc = time.perf_counter()
+    logger.info(f"[Chunk] Tiempo chunk: {end_proc - start_proc:.3f}s => \"{partial_text}\"")
+    return partial_text
 
 async def handle_twilio_websocket(websocket: WebSocket):
     await websocket.accept()
     conversation_history = []
+    stream_sid = None
+
+    # El buffer de bytes se usará para cada chunk que no exceda 10s.
     audio_buffer = bytearray()
-    # Usamos un Future para almacenar el stream_sid una vez que se reciba
-    stream_sid_future = asyncio.Future()
-    last_media_time = [time.perf_counter()]
+    # El partial_transcript va concatenando resultados de chunk
+    partial_transcript = ""
 
-    # Inicia la tarea en segundo plano para revisar el buffer
-    buffer_task = asyncio.create_task(check_buffer_periodically(websocket, conversation_history, stream_sid_future, audio_buffer, last_media_time))
-
+    # Tiempos de última recepción, para chunk y para frase final
+    last_audio_time = time.perf_counter()      # actualiza con cada media
+    last_speech_time = time.perf_counter()     # sirve para detectar fin del turno (2s)
+    
+    greeting = "Hola! Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
     try:
-        start_conn = time.perf_counter()
         await websocket.send_json({"event": "connected", "protocol": "Call", "version": "1.0"})
-        end_conn = time.perf_counter()
-        logger.info(f"Tiempo envío mensaje 'connected': {end_conn - start_conn:.3f} s")
-
         while True:
-            msg_start = time.perf_counter()
-            message = await websocket.receive_text()
-            msg_end = time.perf_counter()
-            logger.info(f"Tiempo recepción de mensaje: {msg_end - msg_start:.3f} s")
-            
+            try:
+                message = await websocket.receive_text()
+            except WebSocketDisconnect:
+                logger.info("[WebSocket] Usuario colgó")
+                break
             data = json.loads(message)
             event_type = data.get("event", "")
 
             if event_type == "start":
                 stream_sid = data.get("streamSid")
-                if not stream_sid_future.done():
-                    stream_sid_future.set_result(stream_sid)
-                logger.info(f"🎤 Inicio de stream - SID: {stream_sid}")
+                logger.info(f"[WebSocket] Inicio de stream - SID: {stream_sid}")
 
-                greeting = "Hola! Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
-                start_tts = time.perf_counter()
+                # Enviamos saludo
                 audio_greeting = await asyncio.to_thread(text_to_speech, greeting)
-                end_tts = time.perf_counter()
-                logger.info(f"Tiempo TTS para saludo: {end_tts - start_tts:.3f} s")
-
                 if audio_greeting:
                     try:
                         await websocket.send_text(json.dumps({
@@ -129,28 +123,58 @@ async def handle_twilio_websocket(websocket: WebSocket):
                             }
                         }))
                     except Exception as e:
-                        logger.error(f"❌ Error al enviar saludo: {e}")
+                        logger.error(f"[WebSocket] Error enviando saludo: {e}")
                 conversation_history.append({"role": "assistant", "content": greeting})
 
             elif event_type == "media" and stream_sid:
                 audio_payload = data.get("media", {}).get("payload", "")
                 audio_chunk = base64.b64decode(audio_payload)
                 audio_buffer.extend(audio_chunk)
-                last_media_time[0] = time.perf_counter()
+                now = time.perf_counter()
+                
+                # Evaluamos si superamos chunk max (10s)
+                if len(audio_buffer) >= MAX_CHUNK_BYTES:
+                    # Procesar chunk parcial
+                    chunk_text = await process_chunk(audio_buffer)
+                    # Concatenar al partial_transcript
+                    partial_transcript += (" " + chunk_text).strip()
+                    # Actualizar last_audio_time
+                    last_audio_time = now
+                    last_speech_time = now
+
+                else:
+                    # No se ha llegado al límite, pero puede que haya silencio
+                    elapsed = now - last_audio_time
+                    if elapsed > CHUNK_SILENCE_THRESHOLD:
+                        # Significa que pasó ~0.7s sin audio => Cerrar chunk
+                        chunk_text = await process_chunk(audio_buffer)
+                        partial_transcript += (" " + chunk_text).strip()
+                        last_audio_time = now
+                        last_speech_time = now
+                    else:
+                        # Todavía no se cierra este chunk
+                        last_audio_time = now
+
+                # Checamos si hay silencio total => final de frase (2s)
+                # Ej: si en 2s no recibimos más data => procesar partial_transcript entero
+                if (now - last_speech_time) > END_OF_SPEECH_THRESHOLD and partial_transcript.strip():
+                    # El usuario completó su turno. Mandar a la IA
+                    partial_transcript = await process_full_utterance(websocket, conversation_history, partial_transcript, stream_sid)
+                    # partial_transcript se vacía dentro de la función
 
             elif event_type == "stop":
-                logger.info("🚫 Llamada finalizada")
-                if audio_buffer:
-                    await process_audio_buffer(websocket, conversation_history, stream_sid, audio_buffer)
+                logger.info("[WebSocket] Llamada finalizada.")
+                # Procesar cualquier chunk pendiente
+                if len(audio_buffer) > 0:
+                    chunk_text = await process_chunk(audio_buffer)
+                    partial_transcript += (" " + chunk_text).strip()
+                    audio_buffer.clear()
+                # Enviar lo que se tenga en partial_transcript como frase final
+                if partial_transcript.strip():
+                    partial_transcript = await process_full_utterance(websocket, conversation_history, partial_transcript, stream_sid)
                 break
 
-    except WebSocketDisconnect:
-        logger.info("🔌 Usuario colgó")
     except Exception as e:
-        logger.error(f"❌ Error en handle_twilio_websocket: {e}")
+        logger.error(f"[WebSocket] Error general: {e}")
     finally:
-        buffer_task.cancel()
-        try:
-            await websocket.close()
-        except Exception as e:
-            logger.error(f"❌ Error al cerrar websocket: {e}")
+        await websocket.close()
