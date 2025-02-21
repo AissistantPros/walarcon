@@ -86,52 +86,87 @@ def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
         logger.error(f"[convert_mulaw_to_pcm16k] Error: {e}")
         return io.BytesIO()
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def apply_noise_reduction_and_vad(audio_bytes: bytes, sr=16000) -> bytes:
     """
     Aplica reducción de ruido y filtra frames sin voz usando webrtcvad.
     Retorna un WAV 16kHz PCM con solo frames que tienen voz.
     """
-    try:
-        start_proc = time.perf_counter()
-        # Cargar audio con librosa
-        audio_data, _ = librosa.load(io.BytesIO(audio_bytes), sr=sr)
-        # noisereduce
+    import time
+    start_proc = time.perf_counter()
+
+    # 1) Cargar el audio con librosa
+    audio_data, _ = librosa.load(io.BytesIO(audio_bytes), sr=sr)
+
+    # Si el audio es muy corto (menos de ~0.1 s, por ejemplo),
+    # no vale la pena noisereduce, pues STFT de noisereduce dará problemas.
+    # Ajusta 0.1 s * sr=16000 => 1600 muestras:
+    if len(audio_data) < 1600:
+        logger.info("[apply_noise_reduction_and_vad] Audio MUY corto, se omite noisereduce.")
+        reduced = audio_data  # no tocamos la señal
+    else:
+        # Aplica reduce_noise normalmente
         reduced = nr.reduce_noise(y=audio_data, sr=sr, stationary=True)
-        # Dividir en frames de 20ms = 320 samples a 16kHz
-        frame_ms = 20
-        frame_len = int(sr * frame_ms / 1000)
 
-        voiced_frames = []
-        idx = 0
-        samples = np.int16(reduced * 32767)  # convertir a int16
+    # 2) Dividir en frames y aplicar webrtcvad
+    frame_ms = 20
+    frame_len = int(sr * frame_ms / 1000)
+    voiced_frames = []
+    idx = 0
+    samples = np.int16(reduced * 32767)  # convertir a int16
 
-        while idx + frame_len <= len(samples):
-            frame = samples[idx:idx+frame_len]
-            idx += frame_len
-            raw_frame = frame.tobytes()
-            # VAD
-            if vad.is_speech(raw_frame, sr):
-                voiced_frames.extend(frame)
+    while idx + frame_len <= len(samples):
+        frame = samples[idx:idx+frame_len]
+        idx += frame_len
+        raw_frame = frame.tobytes()
+        if vad.is_speech(raw_frame, sr):
+            voiced_frames.extend(frame)
 
-        # Si no hay frames con voz, retornar vacío
-        if not voiced_frames:
-            return b""
-
-        final_array = np.array(voiced_frames, dtype=np.int16)
-        buf_out = io.BytesIO()
-        with wave.open(buf_out, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sr)
-            wf.writeframes(final_array.tobytes())
-
-        buf_out.seek(0)
-        end_proc = time.perf_counter()
-        logger.info(f"[apply_noise_reduction_and_vad] Procesado en {end_proc - start_proc:.3f}s, frames con voz: {len(voiced_frames)}")
-        return buf_out.read()
-    except Exception as e:
-        logger.error(f"[apply_noise_reduction_and_vad] Error: {e}")
+    if not voiced_frames:
+        logger.info("[apply_noise_reduction_and_vad] No se detectó voz tras VAD.")
         return b""
+
+    final_array = np.array(voiced_frames, dtype=np.int16)
+    buf_out = io.BytesIO()
+    with wave.open(buf_out, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sr)
+        wf.writeframes(final_array.tobytes())
+
+    buf_out.seek(0)
+    end_proc = time.perf_counter()
+    logger.info(f"[apply_noise_reduction_and_vad] Procesado en {end_proc - start_proc:.3f}s, frames con voz: {len(voiced_frames)}")
+    return buf_out.read()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 def speech_to_text(mulaw_data: bytes) -> str:
     """
@@ -196,10 +231,10 @@ def text_to_speech(text: str) -> bytes:
             voice_id=config("ELEVEN_LABS_VOICE_ID"),
             model_id="eleven_multilingual_v2",
             voice_settings=VoiceSettings(
-                stability=0.4,
-                similarity_boost=0.7,
-                style=0.4,     # Menos expresivo => genera más rápido
-                speed=1.3,     # Reducir velocidad final
+                stability=0.5,
+                similarity_boost=0.8,
+                style=0.9,     # Menos expresivo => genera más rápido
+                speed=1.5,     # Reducir velocidad final
                 use_speaker_boost=False
             ),
             output_format="ulaw_8000"
