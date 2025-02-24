@@ -50,133 +50,32 @@ async def process_full_utterance(websocket: WebSocket, conversation_history: lis
     conversation_history.append({"role": "assistant", "content": ai_response})
 
     if audio_response:
-        media_message = {
-            "event": "media",
-            "streamSid": stream_sid,
-            "media": {
-                "payload": base64.b64encode(audio_response).decode("utf-8")
+        # Dividir el audio en fragmentos de 8000 bytes (1 segundo cada uno)
+        chunk_size = 8000
+        for i in range(0, len(audio_response), chunk_size):
+            chunk = audio_response[i:i+chunk_size]
+            media_message = {
+                "event": "media",
+                "streamSid": stream_sid,
+                "media": {
+                    "payload": base64.b64encode(chunk).decode("utf-8")
+                }
             }
-        }
+            try:
+                await websocket.send_text(json.dumps(media_message))
+                logger.info(f"[Audio] Enviado chunk {i//chunk_size + 1}")
+            except Exception as e:
+                logger.error(f"[Conversation] Error al enviar TTS: {e}")
+                break
+
+        # Enviar marcador de fin de audio
         try:
-            await websocket.send_text(json.dumps(media_message))
+            await websocket.send_text(json.dumps({
+                "event": "mark",
+                "streamSid": stream_sid,
+                "mark": {"name": "end_of_audio"}
+            }))
         except Exception as e:
-            logger.error(f"[Conversation] Error al enviar TTS: {e}")
+            logger.error(f"[Audio] Error enviando mark: {e}")
 
     return ""  # limpiamos partial_transcript
-
-async def process_chunk(audio_buffer: bytearray) -> str:
-    """
-    Procesa el chunk actual con speech_to_text y retorna parcial.
-    """
-    if not audio_buffer:
-        return ""
-    start_proc = time.perf_counter()
-    chunk_bytes = bytes(audio_buffer)
-    audio_buffer.clear()
-
-    partial = await asyncio.to_thread(speech_to_text, chunk_bytes)
-    end_proc = time.perf_counter()
-    logger.info(f"[Chunk] Parcial='{partial}' => {end_proc - start_proc:.3f}s")
-    return partial
-
-async def handle_twilio_websocket(websocket: WebSocket):
-    await websocket.accept()
-    conversation_history = []
-    stream_sid = None
-
-    audio_buffer = bytearray()
-    partial_transcript = ""
-
-    last_audio_time = time.perf_counter()
-    last_speech_time = time.perf_counter()
-
-    try:
-        await websocket.send_json({"event": "connected", "protocol": "Call", "version": "1.0"})
-
-        while True:
-            try:
-                message = await websocket.receive_text()
-            except WebSocketDisconnect:
-                logger.info("[WebSocket] El usuario colgó.")
-                break
-
-            data = json.loads(message)
-            event_type = data.get("event", "")
-
-            if event_type == "start":
-                stream_sid = data.get("streamSid")
-                logger.info(f"[WebSocket] Inicia stream - SID: {stream_sid}")
-
-                greeting = "Hola! Consultorio del Dr. Alarcón, ¿en qué puedo ayudarle?"
-                audio_greet = await asyncio.to_thread(text_to_speech, greeting)
-                if audio_greet:
-                    try:
-                        await websocket.send_text(json.dumps({
-                            "event": "media",
-                            "streamSid": stream_sid,
-                            "media": {
-                                "payload": base64.b64encode(audio_greet).decode("utf-8")
-                            }
-                        }))
-                    except Exception as e:
-                        logger.error(f"[WebSocket] Error enviando saludo: {e}")
-                conversation_history.append({"role": "assistant", "content": greeting})
-
-            elif event_type == "media" and stream_sid:
-                audio_payload = data.get("media", {}).get("payload", "")
-                if not audio_payload:
-                    continue
-
-                audio_chunk = base64.b64decode(audio_payload)
-                audio_buffer.extend(audio_chunk)
-                now = time.perf_counter()
-
-                # Límite de 10s
-                if len(audio_buffer) >= MAX_CHUNK_BYTES:
-                    logger.info("[Chunk] Se excedieron 10s => procesamos chunk.")
-                    chunk_text = await process_chunk(audio_buffer)
-                    if chunk_text:
-                        partial_transcript = (partial_transcript + " " + chunk_text).strip()
-                    last_audio_time = now
-                    last_speech_time = now
-
-                else:
-                    elapsed_chunk = now - last_audio_time
-                    if elapsed_chunk > CHUNK_SILENCE_THRESHOLD:
-                        # Cierra chunk
-                        chunk_text = await process_chunk(audio_buffer)
-                        if chunk_text:
-                            partial_transcript = (partial_transcript + " " + chunk_text).strip()
-                        last_audio_time = now
-                        last_speech_time = now
-                    else:
-                        last_audio_time = now
-
-                # Fin de frase
-                if (now - last_speech_time) > END_OF_SPEECH_THRESHOLD and partial_transcript.strip():
-                    logger.info("[Frase] Usuario terminó => enviamos a IA.")
-                    partial_transcript = await process_full_utterance(
-                        websocket, conversation_history, partial_transcript, stream_sid
-                    )
-
-            elif event_type == "stop":
-                logger.info("[WebSocket] Llamada finalizada.")
-                if audio_buffer:
-                    chunk_text = await process_chunk(audio_buffer)
-                    if chunk_text:
-                        partial_transcript = (partial_transcript + " " + chunk_text).strip()
-
-                if partial_transcript.strip():
-                    partial_transcript = await process_full_utterance(
-                        websocket, conversation_history, partial_transcript, stream_sid
-                    )
-                break
-
-    except Exception as e:
-        logger.error(f"[WebSocket] Error general: {e}")
-    finally:
-        # Evitar error Unexpected ASGI message ...
-        try:
-            await websocket.close()
-        except Exception as e:
-            logger.warning(f"[WebSocket] Error al cerrar: {e}")
