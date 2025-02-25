@@ -18,7 +18,8 @@ import wave
 from decouple import config
 from google.cloud import speech
 from google.oauth2.service_account import Credentials
-from elevenlabs import ElevenLabs, VoiceSettings
+from elevenlabs.client import ElevenLabs
+from elevenlabs import VoiceSettings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

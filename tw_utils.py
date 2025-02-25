@@ -79,3 +79,71 @@ async def process_full_utterance(websocket: WebSocket, conversation_history: lis
             logger.error(f"[Audio] Error enviando mark: {e}")
 
     return ""  # limpiamos partial_transcript
+
+
+
+async def process_audio_stream(data, websocket, conversation_history, stream_sid, audio_buffer):
+    media = data.get("media", {})
+    chunk = base64.b64decode(media.get("payload", ""))
+    audio_buffer.extend(chunk)
+    
+    if len(audio_buffer) >= MAX_CHUNK_BYTES:
+        await process_full_utterance(
+            websocket=websocket,
+            conversation_history=conversation_history,
+            partial_transcript=speech_to_text(bytes(audio_buffer)),
+            stream_sid=stream_sid
+        )
+        audio_buffer.clear()
+
+async def handle_twilio_websocket(websocket: WebSocket):
+    await websocket.accept()
+    conversation_history = []
+    audio_buffer = bytearray()
+    stream_sid = None
+    last_activity = time.time()
+
+    try:
+        await websocket.send_json({"event": "connected", "protocol": "Call", "version": "1.0"})
+
+        while True:
+            message = await websocket.receive_text()
+            data = json.loads(message)
+            event_type = data.get("event", "")
+
+            if event_type == "start":
+                stream_sid = data.get("streamSid")
+                logger.info(f"🎤 Inicio de stream - SID: {stream_sid}")
+
+                greeting = "Hola! Consultorio del Dr. Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+                audio_greeting = await asyncio.to_thread(text_to_speech, greeting)
+
+                if audio_greeting:
+                    await websocket.send_text(json.dumps({
+                        "event": "media",
+                        "streamSid": stream_sid,
+                        "media": {
+                            "payload": base64.b64encode(audio_greeting).decode("utf-8")
+                        }
+                    }))
+                conversation_history.append({"role": "assistant", "content": greeting})
+
+            elif event_type == "media" and stream_sid:
+                last_activity = time.time()
+                await process_audio_stream(data, websocket, conversation_history, stream_sid, audio_buffer)
+
+            elif event_type == "stop":
+                logger.info("🚫 Llamada finalizada")
+                break
+
+            # Timeout por inactividad
+            if time.time() - last_activity > 15:
+                logger.warning("🕒 Timeout por inactividad")
+                break
+
+    except WebSocketDisconnect:
+        logger.info("🔌 Usuario colgó")
+    except Exception as e:
+        logger.error(f"💥 Error crítico: {str(e)}")
+    finally:
+        await websocket.close()
