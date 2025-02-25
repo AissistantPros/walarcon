@@ -204,7 +204,7 @@ def text_to_speech(text: str) -> bytes:
                 stability=0.4,
                 similarity_boost=0.7,
                 style=0.4,
-                speed=1.3,
+                speed=1.2,
                 use_speaker_boost=False
             ),
             output_format="ulaw_8000"
