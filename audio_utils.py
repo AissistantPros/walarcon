@@ -44,7 +44,7 @@ _credentials = get_google_credentials()
 _speech_client = speech.SpeechClient(credentials=_credentials)
 
 # Aumentamos a 2 para ser más estricto con el ruido
-vad = webrtcvad.Vad(2)
+vad = webrtcvad.Vad(1)
 
 def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
     try:
