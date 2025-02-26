@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Módulo de IA con herramientas completas y manejo robusto de funciones.
+Módulo de IA con optimización de latencia.
 """
-
 import logging
 import time
 import json
@@ -19,7 +18,6 @@ from utils import search_calendar_event_by_phone
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Inicialización del cliente OpenAI
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 
 # ==================================================
@@ -174,20 +172,22 @@ def handle_tool_execution(tool_call) -> Dict:
 # ==================================================
 def generate_openai_response(conversation_history: List[Dict]) -> str:
     try:
-        # Añadir prompt del sistema si falta
+        # Mantener esta parte (NO la borres)
         if not any(msg["role"] == "system" for msg in conversation_history):
             from prompt import generate_openai_prompt
             conversation_history = generate_openai_prompt(conversation_history)
 
-        # Primera llamada a OpenAI
+        # Modificación: Modelo más rápido y timeout
         first_response = client.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
+            model="gpt-3.5-turbo-0125",
             messages=conversation_history,
             tools=TOOLS,
             tool_choice="auto",
+            max_tokens=150,
+            temperature=0.3,
+            timeout=10  # Añade solo esto
         )
 
-        # Procesar tool calls
         tool_messages = []
         for tool_call in first_response.choices[0].message.tool_calls or []:
             result = handle_tool_execution(tool_call)
@@ -200,9 +200,8 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
         if not tool_messages:
             return first_response.choices[0].message.content
 
-        # Segunda llamada con resultados
         second_response = client.chat.completions.create(
-            model="gpt-3.5-turbo-1106",
+            model="gpt-3.5-turbo-0125",
             messages=conversation_history + tool_messages,
         )
 
