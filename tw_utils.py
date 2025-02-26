@@ -164,12 +164,6 @@ async def process_audio_stream(data: dict, websocket: WebSocket, conversation_hi
         else:
             logger.info("🔇 Audio sin transcripción")
 
-
-
-
-# ==================================================
-# 💬 DESPEDIDA DE LA IA CUANDO USUARIO NO HABLA
-# ==================================================
 async def process_farewell_ai(websocket: WebSocket, conversation_history: list, stream_sid: str):
     """
     Pide a la IA generar una despedida breve y reproduce el audio resultante.
@@ -207,14 +201,6 @@ async def process_farewell_ai(websocket: WebSocket, conversation_history: list, 
     except Exception as e:
         logger.error(f"Error generando la despedida de la IA: {e}")
         await play_backup_audio(websocket, stream_sid, "error_sistema.wav")
-
-
-
-
-
-
-
-
 
 async def handle_twilio_websocket(websocket: WebSocket):
     """Maneja la conexión WebSocket."""
