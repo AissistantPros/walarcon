@@ -1,18 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Módulo para manejo de audio con filtros mejorados.
+Módulo para manejo de audio SIN filtros ni VAD (versión de prueba).
 """
 import io
 import logging
 import time
 import tempfile
 import subprocess
-import numpy as np
-import librosa
-import noisereduce as nr
-import webrtcvad
-import wave
-import scipy.signal
 from decouple import config
 from google.cloud import speech
 from google.oauth2.service_account import Credentials
@@ -43,10 +37,10 @@ elevenlabs_client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
 _credentials = get_google_credentials()
 _speech_client = speech.SpeechClient(credentials=_credentials)
 
-# Aumentamos a 2 para ser más estricto con el ruido
-vad = webrtcvad.Vad(1)
-
 def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
+    """
+    Convierte de mu-law (8k mono) a PCM 16 kHz mono sin aplicar ningún filtro.
+    """
     try:
         with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as f_in:
             f_in.write(mulaw_data)
@@ -79,81 +73,37 @@ def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
         logger.error(f"[convert_mulaw_to_pcm16k] Error: {e}")
         return io.BytesIO()
 
-def apply_noise_reduction_and_vad(audio_bytes: bytes, sr=16000) -> bytes:
-    start_proc = time.perf_counter()
-    try:
-        audio_data, _ = librosa.load(io.BytesIO(audio_bytes), sr=sr)
-
-        if len(audio_data) < 1600:
-            logger.info("[apply_noise_reduction_and_vad] Audio MUY corto, se omite noisereduce.")
-            reduced = audio_data
-        else:
-            reduced = nr.reduce_noise(y=audio_data, sr=sr, stationary=True)
-
-        # Filtro pasa-banda (300Hz - 3400Hz)
-        sos = scipy.signal.butter(4, [300, 3400], 'bandpass', fs=sr, output='sos')
-        filtered = scipy.signal.sosfilt(sos, reduced)
-
-        # VAD mejorado
-        samples = np.int16(filtered * 32767)
-        frame_ms = 10
-        frame_len = int(sr * frame_ms / 1000)
-        voiced_frames = []
-        idx = 0
-
-        while idx + frame_len <= len(samples):
-            frame = samples[idx:idx+frame_len]
-            idx += frame_len
-            if vad.is_speech(frame.tobytes(), sr):
-                voiced_frames.extend(frame)
-
-        if not voiced_frames:
-            logger.info("[apply_noise_reduction_and_vad] No se detectó voz tras VAD.")
-            return b""
-
-        final_array = np.array(voiced_frames, dtype=np.int16)
-        buf_out = io.BytesIO()
-        with wave.open(buf_out, 'wb') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(sr)
-            wf.writeframes(final_array.tobytes())
-
-        buf_out.seek(0)
-        end_proc = time.perf_counter()
-        logger.info(f"[apply_noise_reduction_and_vad] OK en {end_proc - start_proc:.3f}s")
-        return buf_out.read()
-
-    except Exception as e:
-        logger.error(f"[apply_noise_reduction_and_vad] Error: {e}")
-        return b""
-
 def speech_to_text(mulaw_data: bytes) -> str:
+    """
+    Envía audio TAL CUAL a Google STT, sin VAD ni reducciones.
+    """
     start_total = time.perf_counter()
-    # Evita procesar si el chunk es muy corto
     if len(mulaw_data) < 2400:
         logger.info(f"[speech_to_text] Chunk <300ms => skip. len={len(mulaw_data)}")
         return ""
 
     try:
+        # 1) Convertimos a PCM 16k
         wav_data = convert_mulaw_to_pcm16k(mulaw_data)
         if len(wav_data.getvalue()) < 44:
+            logger.info("[speech_to_text] WAV result is too short => skip.")
             return ""
 
-        processed_wav = apply_noise_reduction_and_vad(wav_data.getvalue())
-        if len(processed_wav) < 44:
-            return ""
-
+        # 2) Config de reconocimiento
         config_stt = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=16000,
             language_code="es-MX",
         )
-        audio_msg = speech.RecognitionAudio(content=processed_wav)
-        response = _speech_client.recognize(config=config_stt, audio=audio_msg)
+        audio_msg = speech.RecognitionAudio(content=wav_data.getvalue())
 
+        # 3) Llamamos a Google STT
+        response = _speech_client.recognize(config=config_stt, audio=audio_msg)
         if not response.results:
+            logger.info("[speech_to_text] STT sin resultados => ''")
             return ""
+
+        # Tomamos la primera hipótesis
         transcript = response.results[0].alternatives[0].transcript.strip()
         end_total = time.perf_counter()
         logger.info(f"[speech_to_text] Texto='{transcript}' total={end_total - start_total:.3f}s")
@@ -164,6 +114,9 @@ def speech_to_text(mulaw_data: bytes) -> str:
         return ""
 
 def text_to_speech(text: str) -> bytes:
+    """
+    Envía el texto a ElevenLabs sin cambios, genera audio ulaw_8000.
+    """
     start_total = time.perf_counter()
     try:
         audio_stream = elevenlabs_client.text_to_speech.convert(
