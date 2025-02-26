@@ -42,6 +42,8 @@ elevenlabs_client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
 
 _credentials = get_google_credentials()
 _speech_client = speech.SpeechClient(credentials=_credentials)
+
+# Aumentamos a 2 para ser más estricto con el ruido
 vad = webrtcvad.Vad(2)
 
 def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
@@ -128,6 +130,7 @@ def apply_noise_reduction_and_vad(audio_bytes: bytes, sr=16000) -> bytes:
 
 def speech_to_text(mulaw_data: bytes) -> str:
     start_total = time.perf_counter()
+    # Evita procesar si el chunk es muy corto
     if len(mulaw_data) < 2400:
         logger.info(f"[speech_to_text] Chunk <300ms => skip. len={len(mulaw_data)}")
         return ""

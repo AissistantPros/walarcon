@@ -10,6 +10,8 @@ Maneja la comunicación con Twilio, WebSockets y las operaciones del asistente v
 from fastapi import FastAPI, Response, WebSocket
 import logging
 from tw_utils import handle_twilio_websocket  # Función para manejar WebSockets de Twilio
+from fastapi.staticfiles import StaticFiles
+import os
 
 # Configuración del sistema de logs
 logging.basicConfig(level=logging.INFO)
@@ -19,6 +21,12 @@ logger = logging.getLogger(__name__)
 # 📌 Inicialización de FastAPI
 # ==================================================
 app = FastAPI()
+
+# Asegurar que la carpeta "audio" existe
+os.makedirs("audio", exist_ok=True)
+
+# Servir archivos de la carpeta "audio"
+app.mount("/audio", StaticFiles(directory="audio"), name="audio")
 
 # ==================================================
 # 🔹 Endpoint para responder a Twilio con TwiML (inicia WebSockets)
