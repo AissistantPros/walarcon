@@ -1,9 +1,9 @@
 FROM python:3.9-slim
 
-# 1. Instalar FFmpeg y dependencias del sistema
-RUN apt-get update && apt-get install -y ffmpeg
+# 1. Instalar FFmpeg y dependencias críticas
+RUN apt-get update && apt-get install -y ffmpeg build-essential
 
-# 2. Copiar SOLO requirements.txt primero (para cachear dependencias)
+# 2. Copiar SOLO requirements.txt primero (optimización clave)
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
