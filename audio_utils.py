@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Módulo para manejo de audio SIN filtros ni VAD (versión de prueba).
+Se convierte de mu-law (8k mono) a PCM 8 kHz mono sin aplicar reducción de ruido,
+filtros ni VAD.
 """
 import io
 import logging
@@ -37,9 +39,9 @@ elevenlabs_client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
 _credentials = get_google_credentials()
 _speech_client = speech.SpeechClient(credentials=_credentials)
 
-def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
+def convert_mulaw_to_pcm8k(mulaw_data: bytes) -> io.BytesIO:
     """
-    Convierte de mu-law (8k mono) a PCM 16 kHz mono sin aplicar ningún filtro.
+    Convierte de mu-law (8k mono) a PCM 8 kHz mono sin aplicar ningún filtro.
     """
     try:
         with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as f_in:
@@ -51,10 +53,10 @@ def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
         cmd = [
             "ffmpeg", "-y",
             "-f", "mulaw",
-            "-ar", "8000",
+            "-ar", "8000",  # tasa de muestreo de entrada
             "-ac", "1",
             "-i", input_path,
-            "-ar", "16000",
+            "-ar", "8000",  # mantener 8000 Hz en salida
             "-ac", "1",
             output_path
         ]
@@ -70,12 +72,13 @@ def convert_mulaw_to_pcm16k(mulaw_data: bytes) -> io.BytesIO:
         wav_data.seek(0)
         return wav_data
     except Exception as e:
-        logger.error(f"[convert_mulaw_to_pcm16k] Error: {e}")
+        logger.error(f"[convert_mulaw_to_pcm8k] Error: {e}")
         return io.BytesIO()
 
 def speech_to_text(mulaw_data: bytes) -> str:
     """
-    Envía audio TAL CUAL a Google STT, sin VAD ni reducciones.
+    Envía el audio TAL CUAL a Google STT, sin aplicar VAD ni reducción de ruido.
+    El audio se procesa a 8 kHz.
     """
     start_total = time.perf_counter()
     if len(mulaw_data) < 2400:
@@ -83,27 +86,25 @@ def speech_to_text(mulaw_data: bytes) -> str:
         return ""
 
     try:
-        # 1) Convertimos a PCM 16k
-        wav_data = convert_mulaw_to_pcm16k(mulaw_data)
+        # Convertimos a PCM 8k sin ningún filtro
+        wav_data = convert_mulaw_to_pcm8k(mulaw_data)
         if len(wav_data.getvalue()) < 44:
             logger.info("[speech_to_text] WAV result is too short => skip.")
             return ""
 
-        # 2) Config de reconocimiento
+        # Configuración de reconocimiento a 8k Hz
         config_stt = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            sample_rate_hertz=16000,
+            sample_rate_hertz=8000,
             language_code="es-MX",
         )
         audio_msg = speech.RecognitionAudio(content=wav_data.getvalue())
 
-        # 3) Llamamos a Google STT
         response = _speech_client.recognize(config=config_stt, audio=audio_msg)
         if not response.results:
             logger.info("[speech_to_text] STT sin resultados => ''")
             return ""
 
-        # Tomamos la primera hipótesis
         transcript = response.results[0].alternatives[0].transcript.strip()
         end_total = time.perf_counter()
         logger.info(f"[speech_to_text] Texto='{transcript}' total={end_total - start_total:.3f}s")
@@ -115,7 +116,7 @@ def speech_to_text(mulaw_data: bytes) -> str:
 
 def text_to_speech(text: str) -> bytes:
     """
-    Envía el texto a ElevenLabs sin cambios, genera audio ulaw_8000.
+    Envía el texto a ElevenLabs sin cambios y genera audio en formato ulaw_8000.
     """
     start_total = time.perf_counter()
     try:
