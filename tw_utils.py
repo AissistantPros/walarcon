@@ -3,6 +3,7 @@
 Módulo de integración Twilio con manejo de audios locales, tiempos de espera
 del usuario y tiempos de espera del sistema (IA/ELabs).
 """
+from datetime import datetime
 import json
 import logging
 import base64
@@ -21,27 +22,26 @@ logger = logging.getLogger(__name__)
 # 🔧 CONFIGURACIÓN PRINCIPAL
 # ==================================================
 AUDIO_DIR = Path(__file__).parent / "audio"
+DEBUG_DIR = Path(__file__).parent / "audio_debug"
+DEBUG_DIR.mkdir(exist_ok=True)
 
-# (A) Tiempos de INACTIVIDAD DEL USUARIO
-USER_SILENCE_1 = 15   # Reproducir noescucho_1.wav
-USER_SILENCE_2 = 25   # Reproducir noescucho_1.wav de nuevo
-USER_SILENCE_3 = 30   # Pedir a IA que se despida y colgamos
+# Tiempos de inactividad
+USER_SILENCE_1 = 15
+USER_SILENCE_2 = 25
+USER_SILENCE_3 = 30
 
-# (B) Tiempos de RETARDO DEL SISTEMA (IA/ELabs)
-SYS_WAIT_1  =  3  # espera_1.wav
-SYS_WAIT_2  =  7  # espera_2.wav
-SYS_WAIT_3  = 12  # espera_3.wav
-SYS_WAIT_4  = 16  # espera_4.wav
-SYS_ERR     = 20  # error_sistema.wav
-SYS_ENDCALL = 25  # forzar colgado
+# Tiempos de retardo del sistema
+SYS_WAIT_1 = 3
+SYS_WAIT_2 = 7
+SYS_WAIT_3 = 12
+SYS_WAIT_4 = 16
+SYS_ERR = 20
+SYS_ENDCALL = 25
 
-# ==================================================
-# 🔊 FUNCIÓN GENÉRICA PARA ENVIAR AUDIOS (WAV) EN BASE64
-# ==================================================
 async def play_backup_audio(websocket: WebSocket, stream_sid: str, filename: str):
     """Envía un archivo de audio WAV en Base64 para Twilio."""
     if not stream_sid:
-        logger.warning(f"No se puede reproducir '{filename}' porque stream_sid es None (aún no llegó 'start').")
+        logger.warning(f"Audio '{filename}' no se reproduce: stream_sid es None")
         return
 
     try:
@@ -50,40 +50,24 @@ async def play_backup_audio(websocket: WebSocket, stream_sid: str, filename: str
         await websocket.send_text(json.dumps({
             "event": "media",
             "streamSid": stream_sid,
-            "media": {
-                "payload": base64.b64encode(audio_data).decode("utf-8")
-            }
+            "media": {"payload": base64.b64encode(audio_data).decode("utf-8")}
         }))
         logger.info(f"Reproduciendo: {filename}")
     except Exception as e:
-        logger.error(f"Error al cargar {filename}: {str(e)}")
+        logger.error(f"Error cargando {filename}: {str(e)}")
 
-# ==================================================
-# 🔀 TAREA PARA CONTROLAR RETARDO DEL SISTEMA
-# ==================================================
 async def system_wait_tracker(start_time: float, websocket: WebSocket, stream_sid: str, stop_event: asyncio.Event):
-    """
-    Espera en segundo plano mientras la IA procesa.
-    Se reproducen audios de espera a los 3, 7, 12, 16s.
-    A los 20s => error_sistema.wav
-    A los 25s => forzar cierre de la llamada.
-
-    - Se detiene si la IA termina antes (stop_event.set() desde otro lado).
-    - Se maneja con un loop asíncrono que comprueba cada 1s.
-    """
+    """Controla los tiempos de espera del sistema."""
     played_stages = set()
-
     while True:
         await asyncio.sleep(1)
         if stop_event.is_set():
-            # La IA terminó, cancelamos la espera
             return
 
         elapsed = time.time() - start_time
 
         if elapsed >= SYS_ENDCALL:
-            # 25s => forzamos colgado
-            logger.error("El sistema tardó 25s. Se forzará la terminación de la llamada.")
+            logger.error("Forzando terminación por demora (25s)")
             await play_backup_audio(websocket, stream_sid, "error_sistema.wav")
             await asyncio.sleep(1)
             await websocket.close()
@@ -91,9 +75,8 @@ async def system_wait_tracker(start_time: float, websocket: WebSocket, stream_si
 
         elif elapsed >= SYS_ERR and "SYS_ERR" not in played_stages:
             played_stages.add("SYS_ERR")
-            logger.error("El sistema tardó 20s => error_sistema.wav")
+            logger.error("Reproduciendo error (20s)")
             await play_backup_audio(websocket, stream_sid, "error_sistema.wav")
-            # Seguimos hasta 25s, sin colgar de inmediato.
 
         elif elapsed >= SYS_WAIT_4 and 4 not in played_stages:
             played_stages.add(4)
@@ -111,45 +94,15 @@ async def system_wait_tracker(start_time: float, websocket: WebSocket, stream_si
             played_stages.add(1)
             await play_backup_audio(websocket, stream_sid, "espera_1.wav")
 
+async def process_full_utterance(websocket: WebSocket, conversation_history: list, partial_transcript: str, stream_sid: str):
+    """Procesa la respuesta de la IA."""
+    logger.info(f"[Conversación] Usuario: {partial_transcript}")
 
-# ==================================================
-# 🧠 PROCESA LA IA Y DEVUELVE AUDIO
-# ==================================================
-async def process_full_utterance(
-    websocket: WebSocket,
-    conversation_history: list, 
-    partial_transcript: str,
-    stream_sid: str
-):
-    """
-    1. Lanza en paralelo:
-       - La llamada a la IA y TTS.
-       - Un tracker que reproduce audios de espera cada cierto tiempo.
-
-    2. Si la IA termina antes de 20s:
-       - Cancelamos el tracker y enviamos la respuesta.
-
-    3. Si llega a 20s sin terminar:
-       - Reproducimos error_sistema.wav
-       - A 25s forzamos colgado.
-
-    Lógica:
-      - Creamos una Event "stop_event"
-      - Iniciamos system_wait_tracker() como task.
-      - Hacemos la llamada IA (con timeout).
-      - Ponemos stop_event.set() cuando termine la IA normal.
-    """
-
-    logger.info(f"[Conversación] Usuario dice: {partial_transcript}")
-
-    # (1) Preparamos la tarea de "progreso" (audios de espera)
     stop_event = asyncio.Event()
     start_time = time.time()
     tracker_task = asyncio.create_task(system_wait_tracker(start_time, websocket, stream_sid, stop_event))
 
     try:
-        # (2) Llamar a la IA con timeout de 28s (por ejemplo),
-        #     para que no choque con los 25s de colgado.
         ai_response = await asyncio.wait_for(
             asyncio.to_thread(
                 generate_openai_response,
@@ -157,72 +110,62 @@ async def process_full_utterance(
             ),
             timeout=28
         )
-
-        # (3) Marcamos que el sistema terminó => paramos audios de espera.
         stop_event.set()
+        logger.info(f"IA respondió: {ai_response}")
 
-        logger.info(f"IA respondió => {ai_response}")
-
-        # Generamos TTS
         audio_response = await asyncio.to_thread(text_to_speech, ai_response)
         
-        # Enviamos audio en chunks ~1 segundo
+        # Enviar audio en chunks
         chunk_size = 8000
         for i in range(0, len(audio_response), chunk_size):
             await websocket.send_text(json.dumps({
                 "event": "media",
                 "streamSid": stream_sid,
-                "media": {
-                    "payload": base64.b64encode(audio_response[i:i+chunk_size]).decode("utf-8")
-                }
+                "media": {"payload": base64.b64encode(audio_response[i:i+chunk_size]).decode("utf-8")}
             }))
 
-        # Actualizar historial
         conversation_history.extend([
             {"role": "user", "content": partial_transcript},
             {"role": "assistant", "content": ai_response}
         ])
 
     except asyncio.TimeoutError:
-        logger.error("La IA tardó demasiado. error_sistema.wav y colgamos.")
-        stop_event.set()  # Cancelamos la tarea de espera
+        logger.error("Timeout IA")
+        stop_event.set()
         await play_backup_audio(websocket, stream_sid, "error_sistema.wav")
-        await asyncio.sleep(1)
         await websocket.close()
-
     finally:
-        # Aseguramos cancelar el tracker en cualquier caso
         if not tracker_task.done():
             tracker_task.cancel()
 
-# ==================================================
-# 🎤 PROCESO DE AUDIO ENTRANTE
-# ==================================================
-async def process_audio_stream(
-    data: dict,
-    websocket: WebSocket,
-    conversation_history: list, 
-    stream_sid: str,
-    audio_buffer: bytearray
-):
-    """Procesa el audio entrante desde Twilio (Base64 -> muLaw -> PCM -> STT)."""
+async def process_audio_stream(data: dict, websocket: WebSocket, conversation_history: list, stream_sid: str, audio_buffer: bytearray, last_user_activity: list):
+    """Procesa el audio entrante con depuración."""
     media = data.get("media", {})
     chunk = base64.b64decode(media.get("payload", ""))
+    
+    # Guardar audio crudo
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    debug_path = DEBUG_DIR / f"twilio_raw_{timestamp}.ulaw"
+    with open(debug_path, "wb") as f:
+        f.write(chunk)
+    logger.info(f"🔧 Audio guardado: {debug_path}")
+
     audio_buffer.extend(chunk)
     
-    # Procesamos el audio cada ~0.3s
     if len(audio_buffer) >= 2400:
         transcript = speech_to_text(bytes(audio_buffer))
         audio_buffer.clear()
 
         if transcript:
-            # Cuando el usuario termina su frase, lanzamos IA
-            await process_full_utterance(
-                websocket=websocket,
-                conversation_history=conversation_history,
-                partial_transcript=transcript,
-                stream_sid=stream_sid
-            )
+            # Actualizar actividad SOLO si hay transcripción
+            last_user_activity[0] = time.time()
+            logger.info(f"🛎️ Actividad detectada: {transcript}")
+            await process_full_utterance(websocket, conversation_history, transcript, stream_sid)
+        else:
+            logger.info("🔇 Audio sin transcripción")
+
+
+
 
 # ==================================================
 # 💬 DESPEDIDA DE LA IA CUANDO USUARIO NO HABLA
@@ -265,78 +208,59 @@ async def process_farewell_ai(websocket: WebSocket, conversation_history: list, 
         logger.error(f"Error generando la despedida de la IA: {e}")
         await play_backup_audio(websocket, stream_sid, "error_sistema.wav")
 
-# ==================================================
-# 📞 MANEJO PRINCIPAL DE WEBSOCKETS (INACTIVIDAD DEL USUARIO)
-# ==================================================
+
+
+
+
+
+
+
+
 async def handle_twilio_websocket(websocket: WebSocket):
-    """
-    1. Acepta la conexión (websocket.accept()).
-    2. Espera a que Twilio envíe 'start' => ahí asignamos stream_sid.
-       - Solo entonces reproducimos 'saludo.wav'.
-    3. Escuchamos event:'media' => pasamos audio a STT + IA.
-    4. Inactividad del usuario: 15s y 25s => noescucho_1.wav,
-       a 30s => IA se despide.
-    5. Retardo del sistema (IA) se maneja en process_full_utterance
-       con system_wait_tracker.
-    """
+    """Maneja la conexión WebSocket."""
     await websocket.accept()
     conversation_history = []
     audio_buffer = bytearray()
     stream_sid = None
-
-    last_user_activity = time.time()
+    last_user_activity = [time.time()]  # Usar lista para modificación por referencia
     user_warn_stage = 0
 
     try:
         while True:
-            # Damos 35s de margen para cualquier mensaje:
             message = await asyncio.wait_for(websocket.receive_text(), timeout=35)
             data = json.loads(message)
             event_type = data.get("event", "")
 
             if event_type == "start":
-                # Twilio nos envía el streamSid válido
                 stream_sid = data.get("streamSid")
                 logger.info(f"🔄 Nuevo stream: {stream_sid}")
-                # Recién ahora podemos mandar audios
                 await play_backup_audio(websocket, stream_sid, "saludo.wav")
 
             elif event_type == "media":
-                last_user_activity = time.time()
-                # Llamada real: guardamos su audio
-                await process_audio_stream(data, websocket, conversation_history, stream_sid, audio_buffer)
+                await process_audio_stream(data, websocket, conversation_history, stream_sid, audio_buffer, last_user_activity)
 
-            # Revisamos inactividad del usuario
-            elapsed_silence = time.time() - last_user_activity
+            # Verificar inactividad
+            elapsed_silence = time.time() - last_user_activity[0]
 
-            # 15s => noescucho_1.wav (una sola vez)
             if elapsed_silence >= USER_SILENCE_1 and user_warn_stage == 0:
                 user_warn_stage = 1
                 await play_backup_audio(websocket, stream_sid, "noescucho_1.wav")
 
-            # 25s => noescucho_1.wav (segunda vez)
             elif elapsed_silence >= USER_SILENCE_2 and user_warn_stage == 1:
                 user_warn_stage = 2
                 await play_backup_audio(websocket, stream_sid, "noescucho_1.wav")
 
-            # 30s => IA se despide
             elif elapsed_silence >= USER_SILENCE_3:
-                logger.info("⏰ 30s de silencio => la IA se despide.")
+                logger.info("⏰ 30s de silencio")
                 await process_farewell_ai(websocket, conversation_history, stream_sid)
-                await asyncio.sleep(2)
                 await websocket.close()
                 break
 
-    except WebSocketDisconnect:
-        logger.info("❌ Usuario colgó.")
-    except asyncio.TimeoutError:
-        logger.warning("⏰ Exceso de tiempo sin recibir datos => forzamos despedida IA.")
-        await process_farewell_ai(websocket, conversation_history, stream_sid)
-        await asyncio.sleep(2)
+    except (WebSocketDisconnect, asyncio.TimeoutError):
+        logger.info("❌ Conexión cerrada")
     except Exception as e:
-        logger.error(f"💥 Error crítico: {str(e)}")
+        logger.error(f"💥 Error: {str(e)}")
         if stream_sid:
             await play_backup_audio(websocket, stream_sid, "error_sistema.wav")
-        await asyncio.sleep(2)
     finally:
         await websocket.close()

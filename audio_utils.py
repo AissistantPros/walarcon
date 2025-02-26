@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Módulo para manejo de audio SIN filtros ni VAD (versión de prueba).
-Se convierte de mu-law (8k mono) a PCM 8 kHz mono sin aplicar reducción de ruido,
-filtros ni VAD.
+Módulo para manejo de audio con depuración mejorada.
 """
 import io
 import logging
 import time
 import tempfile
 import subprocess
+from pathlib import Path
 from decouple import config
 from google.cloud import speech
 from google.oauth2.service_account import Credentials
@@ -17,6 +16,9 @@ from elevenlabs import VoiceSettings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+DEBUG_DIR = Path(__file__).parent / "audio_debug"
+DEBUG_DIR.mkdir(exist_ok=True)
 
 def get_google_credentials():
     credentials_info = {
@@ -35,64 +37,56 @@ def get_google_credentials():
 
 ELEVEN_LABS_API_KEY = config("ELEVEN_LABS_API_KEY")
 elevenlabs_client = ElevenLabs(api_key=ELEVEN_LABS_API_KEY)
-
-_credentials = get_google_credentials()
-_speech_client = speech.SpeechClient(credentials=_credentials)
+_speech_client = speech.SpeechClient(credentials=get_google_credentials())
 
 def convert_mulaw_to_pcm8k(mulaw_data: bytes) -> io.BytesIO:
-    """
-    Convierte de mu-law (8k mono) a PCM 8 kHz mono sin aplicar ningún filtro.
-    """
+    """Convierte audio mu-law a PCM con logging mejorado."""
     try:
-        with tempfile.NamedTemporaryFile(suffix=".raw", delete=False) as f_in:
+        with tempfile.NamedTemporaryFile(suffix=".raw") as f_in:
             f_in.write(mulaw_data)
             input_path = f_in.name
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f_out:
-            output_path = f_out.name
 
+        output_path = tempfile.mktemp(suffix=".wav")
         cmd = [
             "ffmpeg", "-y",
-            "-f", "mulaw",
-            "-ar", "8000",  # tasa de muestreo de entrada
-            "-ac", "1",
+            "-f", "mulaw", "-ar", "8000", "-ac", "1",
             "-i", input_path,
-            "-ar", "8000",  # mantener 8000 Hz en salida
-            "-ac", "1",
-            output_path
+            "-ar", "8000", "-ac", "1", output_path
         ]
-        subprocess.run(cmd, check=True)
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         with open(output_path, "rb") as f:
             wav_data = io.BytesIO(f.read())
 
-        import os
-        os.remove(input_path)
-        os.remove(output_path)
-
-        wav_data.seek(0)
+        Path(input_path).unlink(missing_ok=True)
+        Path(output_path).unlink(missing_ok=True)
         return wav_data
     except Exception as e:
-        logger.error(f"[convert_mulaw_to_pcm8k] Error: {e}")
+        logger.error(f"[CONVERSIÓN] Error: {e}")
         return io.BytesIO()
 
 def speech_to_text(mulaw_data: bytes) -> str:
-    """
-    Envía el audio TAL CUAL a Google STT, sin aplicar VAD ni reducción de ruido.
-    El audio se procesa a 8 kHz.
-    """
+    """Procesa STT con logging detallado."""
     start_total = time.perf_counter()
+    logger.info(f"[STT] Inicio | Tamaño: {len(mulaw_data)} bytes")
+
+    # Guardar audio original
+    debug_path = DEBUG_DIR / f"stt_input_{time.time()}.ulaw"
+    with open(debug_path, "wb") as f:
+        f.write(mulaw_data)
+    logger.info(f"[STT] Audio guardado: {debug_path}")
+
     if len(mulaw_data) < 2400:
-        logger.info(f"[speech_to_text] Chunk <300ms => skip. len={len(mulaw_data)}")
+        logger.info("[STT] Chunk demasiado corto (<300ms)")
         return ""
 
     try:
-        # Convertimos a PCM 8k sin ningún filtro
         wav_data = convert_mulaw_to_pcm8k(mulaw_data)
         if len(wav_data.getvalue()) < 44:
-            logger.info("[speech_to_text] WAV result is too short => skip.")
+            logger.error("[STT] WAV inválido (encabezado faltante)")
             return ""
 
-        # Configuración de reconocimiento a 8k Hz
+        # Configurar STT
         config_stt = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
@@ -100,24 +94,22 @@ def speech_to_text(mulaw_data: bytes) -> str:
         )
         audio_msg = speech.RecognitionAudio(content=wav_data.getvalue())
 
+        # Llamar a Google
         response = _speech_client.recognize(config=config_stt, audio=audio_msg)
         if not response.results:
-            logger.info("[speech_to_text] STT sin resultados => ''")
+            logger.info("[STT] Sin resultados")
             return ""
 
         transcript = response.results[0].alternatives[0].transcript.strip()
-        end_total = time.perf_counter()
-        logger.info(f"[speech_to_text] Texto='{transcript}' total={end_total - start_total:.3f}s")
+        logger.info(f"[STT] Transcripción: '{transcript}' | Tiempo: {time.perf_counter() - start_total:.2f}s")
         return transcript
 
     except Exception as e:
-        logger.error(f"[speech_to_text] Error: {e}")
+        logger.error(f"[STT] Error crítico: {str(e)}")
         return ""
 
 def text_to_speech(text: str) -> bytes:
-    """
-    Envía el texto a ElevenLabs sin cambios y genera audio en formato ulaw_8000.
-    """
+    """Genera TTS con formato ulaw_8000."""
     start_total = time.perf_counter()
     try:
         audio_stream = elevenlabs_client.text_to_speech.convert(
@@ -134,9 +126,8 @@ def text_to_speech(text: str) -> bytes:
             output_format="ulaw_8000"
         )
         result = b"".join(audio_stream)
-        end_total = time.perf_counter()
-        logger.info(f"[TTS] Final => {end_total - start_total:.3f}s. Bytes={len(result)}")
+        logger.info(f"[TTS] Audio generado | Tiempo: {time.perf_counter() - start_total:.2f}s")
         return result
     except Exception as e:
-        logger.error(f"[TTS] Error: {e}")
+        logger.error(f"[TTS] Error: {str(e)}")
         return b""
