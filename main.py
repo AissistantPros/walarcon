@@ -18,7 +18,7 @@ async def twilio_voice():
     twiml_response = """<?xml version="1.0" encoding="UTF-8"?>
     <Response>
         <Connect>
-            <Stream name="AudioStream" url="wss://tudominio.onrender.com/twilio-websocket" />
+            <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" />
         </Connect>
     </Response>
     """
