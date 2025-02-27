@@ -62,35 +62,37 @@ class AudioBuffer:
 
         # Si no se ha cumplido ninguna condición, seguimos
         return None
-
-
-
-
-
-
-
-
-
-
-
-def _has_voice(self, data: bytes) -> bool:
-    """
-    Analiza el chunk de audio y determina si hay voz basada en la energía promedio.
-    Ignora ruidos bajos y solo considera voz si la energía supera el umbral definido.
-    """
-    total_energy = 0
-    for b in data:
-        sample_val = b - 128  # Ajuste de escala para energía
-        total_energy += abs(sample_val)
+    
+    
+    def _has_voice(self, data: bytes) -> bool:
+        """
+        Analiza el chunk de audio y determina si hay voz basada en la energía promedio.
+        Ignora ruidos bajos y solo considera voz si la energía supera el umbral definido.
+        """
+        total_energy = 0
+        for b in data:
+            sample_val = b - 128  # Ajuste de escala para energía
+            total_energy += abs(sample_val)
 
     # Calcular energía promedio evitando división por 0
-    avg_energy = total_energy / (len(data) if len(data) > 0 else 1)
+        avg_energy = total_energy / (len(data) if len(data) > 0 else 1)
 
     # Log opcional para depuración (puedes comentarlo después de probar)
-    logger.info(f"🔍 avg_energy detectada: {avg_energy}")
+        logger.info(f"🔍 avg_energy detectada: {avg_energy}")
 
     # Considerar voz solo si supera el threshold configurado en self.silence_threshold
-    return avg_energy >= self.silence_threshold
+        return avg_energy >= self.silence_threshold
+
+
+
+
+
+
+
+
+
+
+
 
 
 
