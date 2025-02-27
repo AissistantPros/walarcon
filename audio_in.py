@@ -82,7 +82,7 @@ class AudioBuffer:
         logger.info(f"🔍 avg_energy detectada: {avg_energy}")
 
         # Considerar voz solo si supera el threshold configurado en self.silence_threshold
-        return avg_energy >= self.silence_threshold
+        return 40 <= avg_energy <= 99
 
 
 # ============================================================================
