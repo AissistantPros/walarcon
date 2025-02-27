@@ -1,5 +1,4 @@
 # google_stt_streamer.py
-
 import os
 import asyncio
 import audioop  # type: ignore
@@ -7,51 +6,32 @@ from google.cloud import speech
 from google.oauth2 import service_account
 
 class GoogleSTTStreamer:
-    """
-    Maneja la conexión en streaming con Google Speech-to-Text
-    usando el modelo "medical_conversation" (u otro).
-    """
-
     def __init__(self):
-        # 1) Lee variables STT_... del entorno
-        stt_type = os.getenv("STT_TYPE", "service_account")
-        stt_project_id = os.getenv("STT_PROJECT_ID", "")
-        stt_private_key_id = os.getenv("STT_PRIVATE_KEY_ID", "")
-        stt_private_key = os.getenv("STT_PRIVATE_KEY", "").replace("\\n", "\n")
-        stt_client_email = os.getenv("STT_CLIENT_EMAIL", "")
-        stt_client_id = os.getenv("STT_CLIENT_ID", "")
-        stt_auth_uri = os.getenv("STT_AUTH_URI", "https://accounts.google.com/o/oauth2/auth")
-        stt_token_uri = os.getenv("STT_TOKEN_URI", "https://oauth2.googleapis.com/token")
-        stt_auth_provider_x509_cert_url = os.getenv("STT_AUTH_PROVIDER_X509_CERT_URL", "")
-        stt_client_x509_cert_url = os.getenv("STT_CLIENT_X509_CERT_URL", "")
-
-        # 2) Armamos el dict con formato JSON de service account
+        # Configuración de credenciales desde variables de entorno (como ya hicimos antes)
         credentials_info = {
-            "type": stt_type,
-            "project_id": stt_project_id,
-            "private_key_id": stt_private_key_id,
-            "private_key": stt_private_key,
-            "client_email": stt_client_email,
-            "client_id": stt_client_id,
-            "auth_uri": stt_auth_uri,
-            "token_uri": stt_token_uri,
-            "auth_provider_x509_cert_url": stt_auth_provider_x509_cert_url,
-            "client_x509_cert_url": stt_client_x509_cert_url
+            "type": "service_account",
+            "project_id": os.getenv("STT_PROJECT_ID", ""),
+            "private_key_id": os.getenv("STT_PRIVATE_KEY_ID", ""),
+            "private_key": os.getenv("STT_PRIVATE_KEY", "").replace("\\n", "\n"),
+            "client_email": os.getenv("STT_CLIENT_EMAIL", ""),
+            "client_id": os.getenv("STT_CLIENT_ID", ""),
+            "auth_uri": os.getenv("STT_AUTH_URI", ""),
+            "token_uri": os.getenv("STT_TOKEN_URI", ""),
+            "auth_provider_x509_cert_url": os.getenv("STT_AUTH_PROVIDER_X509_CERT_URL", ""),
+            "client_x509_cert_url": os.getenv("STT_CLIENT_X509_CERT_URL", "")
         }
 
-        # 3) Creamos el objeto Credentials
         credentials = service_account.Credentials.from_service_account_info(credentials_info)
 
-        # 4) Iniciamos speech client con esas credenciales
         self.client = speech.SpeechClient(credentials=credentials)
         self.closed = False
+        self.audio_queue = asyncio.Queue()
 
-        # Config reconocimiento
         self.config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
             language_code="es-MX",
-            model="medical_conversation",  # Usa el modelo médico
+            model="medical_conversation",
             enable_automatic_punctuation=True
         )
 
@@ -60,40 +40,34 @@ class GoogleSTTStreamer:
             interim_results=True
         )
 
-        # Cola asíncrona donde meteremos chunks de audio
-        self.audio_queue = asyncio.Queue()
+    def _sync_request_generator(self):
+        """Convierte la cola async en un generador síncrono para gRPC."""
+        while not self.closed:
+            chunk = asyncio.run(self.audio_queue.get())  # Espera un chunk de la cola
+            if chunk is None:
+                break
+            yield speech.StreamingRecognizeRequest(audio_content=chunk)
 
     async def recognize_stream(self):
-        async def request_generator():
-            while not self.closed:
-                chunk = await self.audio_queue.get()
-                if chunk is None:
-                    break
-                yield speech.StreamingRecognizeRequest(audio_content=chunk)
-
-        requests = request_generator()
+        """Stream de audio a Google STT, enviando y recibiendo transcripciones."""
+        requests = self._sync_request_generator()  # ⚡ Ahora es síncrono
         responses = self.client.streaming_recognize(
             config=self.streaming_config,
             requests=requests
         )
-        async for response in self._handle_responses(responses):
-            yield response
-        self.closed = True
 
-    async def _handle_responses(self, responses_generator):
-        loop = asyncio.get_event_loop()
-        def sync_generator():
-            for r in responses_generator:
-                yield r
-        async_gen = loop.run_in_executor(None, lambda: sync_generator())
-        async for resp in async_gen:
-            for result in resp.results:
+        # Procesar respuestas en un hilo separado para evitar bloqueos
+        loop = asyncio.get_running_loop()
+        for response in await loop.run_in_executor(None, lambda: list(responses)):
+            for result in response.results:
                 yield result
 
     def add_audio_chunk(self, mulaw_data: bytes):
+        """Convierte mu-law a PCM16 y lo envía a la cola."""
         pcm16 = audioop.ulaw2lin(mulaw_data, 2)
         asyncio.create_task(self.audio_queue.put(pcm16))
 
     async def close(self):
+        """Cierra la transmisión enviando None a la cola."""
         self.closed = True
         await self.audio_queue.put(None)
