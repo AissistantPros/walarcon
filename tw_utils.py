@@ -4,6 +4,7 @@ import time
 import asyncio
 import logging
 from fastapi import WebSocket
+from starlette.websockets import WebSocketState
 from google_stt_streamer import GoogleSTTStreamer
 
 logger = logging.getLogger(__name__)
@@ -20,8 +21,8 @@ class TwilioWebSocketManager:
     def __init__(self):
         self.call_ended = False
         self.stream_sid = None
-        self.stt_streamer = GoogleSTTStreamer()  # Nuestro objeto de streaming STT
-        self.google_task = None  # Tarea asíncrona que escuchará resultados
+        self.stt_streamer = GoogleSTTStreamer()  # Streaming con Google STT
+        self.google_task = None  # Tarea asíncrona para manejar transcripción
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         await websocket.accept()
@@ -99,7 +100,7 @@ class TwilioWebSocketManager:
 
         # Verificamos que el WebSocket sigue abierto antes de cerrarlo
         try:
-            if not websocket.client_state == WebSocket.CLOSED:
+            if websocket.client_state not in (WebSocketState.DISCONNECTED, WebSocketState.CLOSING):
                 await websocket.close()
                 logger.info("WebSocket cerrado correctamente.")
         except Exception as e:
