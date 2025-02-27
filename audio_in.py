@@ -83,6 +83,12 @@ class AudioBuffer:
         else:
             avg_energy = 0
 
+
+        # Agrega este log temporal
+        print(f"avg_energy = {avg_energy}")
+
+
+        
         # Si la energía promedio supera el threshold, consideramos que hay voz
         return avg_energy > self.silence_threshold
 

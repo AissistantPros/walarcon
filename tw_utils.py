@@ -36,6 +36,11 @@ class TwilioWebSocketManager:
         self.call_ended = False
         self.stream_sid = None
 
+
+
+
+
+
     async def handle_twilio_websocket(self, websocket: WebSocket):
         await websocket.accept()
         logger.info("Conexión WebSocket aceptada con Twilio.")
@@ -79,6 +84,12 @@ class TwilioWebSocketManager:
             silence_task.cancel()
             logger.info("WebSocket con Twilio cerrado.")
 
+
+
+
+
+
+
     async def _process_audio_chunk(self, chunk: bytes):
         block = self.audio_buffer.process_chunk(chunk)
         if block is not None or self.audio_buffer._has_voice(chunk):
@@ -87,6 +98,13 @@ class TwilioWebSocketManager:
         if block:
             logger.info(f"Bloque de audio completo (size {len(block)} bytes).")
             # Próximamente: Enviar a STT
+
+
+
+
+
+
+
 
     async def _check_silence(self, websocket: WebSocket):
         """
@@ -112,6 +130,14 @@ class TwilioWebSocketManager:
                 logger.info("15s de silencio. Reproduciendo noescucho_1.wav (1a vez).")
                 await self._play_audio_file(websocket, "noescucho_1.wav")
 
+
+
+
+
+
+
+
+
     async def _hangup_call(self, websocket: WebSocket):
         if not self.call_ended:
             self.call_ended = True
@@ -120,6 +146,12 @@ class TwilioWebSocketManager:
                 await websocket.close()
             except:
                 pass
+
+
+
+
+
+
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
         """
