@@ -62,15 +62,22 @@ class GoogleSTTStreamer:
 
     def _request_generator(self):
         """
-        Generador sincrónico que extrae datos de self.audio_queue (async)
-        usando asyncio.run(...) de forma bloqueante.
+        Generador síncrono que envía los chunks de audio a Google STT.
+        Si no se recibe audio en 100ms, envía un request con audio vacío para
+        mantener la conexión activa.
         """
         while not self.closed:
-            # Bloquea hasta que llegue un chunk o 'None'
-            chunk = asyncio.run(self.audio_queue.get())
+            try:
+                # Espera hasta 100ms para obtener un chunk de audio
+                chunk = asyncio.run(asyncio.wait_for(self.audio_queue.get(), timeout=0.1))
+            except asyncio.TimeoutError:
+                # Si se agota el tiempo sin audio, envía un request vacío.
+                yield speech.StreamingRecognizeRequest(audio_content=b"")
+                continue
             if chunk is None:
                 break
             yield speech.StreamingRecognizeRequest(audio_content=chunk)
+
 
     async def recognize_stream(self):
         """
