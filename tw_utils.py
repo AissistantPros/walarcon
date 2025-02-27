@@ -1,5 +1,3 @@
-# tw_utils.py
-
 import json
 import base64
 import time
@@ -60,67 +58,55 @@ class TwilioWebSocketManager:
             logger.error(f"Error en handle_twilio_websocket: {e}")
             await self._hangup_call(websocket)
         finally:
-            # Si no se había colgado, colgamos
             if not self.call_ended:
                 await self._hangup_call(websocket)
-            logger.info("WebSocket con Twilio cerrado.")
-            await websocket.close()
 
     async def _listen_google_results(self):
-        """
-        Tarea que recibe los resultados de Google STT en tiempo real.
-        Por cada 'result':
-         - if result.is_final => mandar a GPT => TTS => reproducir
-         - else => log parcial
-        """
+        """Tarea que recibe los resultados de Google STT en tiempo real."""
         async for result in self.stt_streamer.recognize_stream():
             transcript = result.alternatives[0].transcript
             if result.is_final:
                 logger.info(f"USUARIO (final): {transcript}")
-                # Aquí llamas a GPT
                 await self._process_final_transcript(transcript)
             else:
                 logger.info(f"(parcial) => {transcript}")
 
     async def _process_final_transcript(self, transcript: str):
-        """
-        Aquí llamamos a GPT, luego a TTS, luego reproducimos en Twilio.
-        Lo dejo como ejemplo. Personalízalo a tu gusto.
-        """
+        """Aquí llamamos a GPT, luego a TTS, luego reproducimos en Twilio."""
         logger.info(f"Procesando la transcripción final: {transcript}")
 
         # 1. Llama a GPT
-        #    response = <TU CÓDIGO GPT> 
         response = "Ejemplo de respuesta de GPT"
 
         # 2. Convierte a TTS (ElevenLabs o tu preferido)
-        #    tts_audio = <TU CÓDIGO TTS> (retorna bytes PCM/WAV)
         tts_audio = b""  # Aquí pones la lógica real
 
-        # 3. Envía a Twilio
-        #    Debería ser algo como: await self._play_audio_data(websocket, tts_audio)
-        #    pero ojo, necesitarás la referencia a 'websocket'. Ver diseño final.
-        #    Por simplicidad, muestro un log:
+        # 3. Envía a Twilio (falta implementación)
         logger.info(f"(TTS) Respuesta IA: {response}")
 
     async def _hangup_call(self, websocket: WebSocket):
-        if not self.call_ended:
-            self.call_ended = True
-            logger.info("Terminando la llamada.")
-            # Cerramos Google STT
-            await self.stt_streamer.close()
-            if self.google_task:
-                self.google_task.cancel()
-            try:
+        """Maneja la desconexión y asegura que todo se cierra correctamente."""
+        if self.call_ended:
+            return  # 🚨 Si ya se colgó, no hacer nada más.
+
+        self.call_ended = True
+        logger.info("Terminando la llamada.")
+
+        # Cerrar Google STT correctamente
+        await self.stt_streamer.close()
+        if self.google_task:
+            self.google_task.cancel()
+
+        # Verificamos que el WebSocket sigue abierto antes de cerrarlo
+        try:
+            if not websocket.client_state == WebSocket.CLOSED:
                 await websocket.close()
-            except:
-                pass
+                logger.info("WebSocket cerrado correctamente.")
+        except Exception as e:
+            logger.error(f"Error al cerrar WebSocket: {e}")
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
-        """
-        Envía un WAV pregrabado a Twilio. 
-        Debe ser mono 8kHz, 16 bits. 
-        """
+        """Envía un archivo de audio a Twilio."""
         if not self.stream_sid:
             return
         try:
@@ -128,7 +114,6 @@ class TwilioWebSocketManager:
             with open(filepath, "rb") as f:
                 wav_data = f.read()
 
-            import base64
             encoded = base64.b64encode(wav_data).decode("utf-8")
 
             await websocket.send_text(json.dumps({
