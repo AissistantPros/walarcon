@@ -28,7 +28,7 @@ class GoogleSTTStreamer:
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
             language_code="es-MX",
-            model="medical_conversation",  # o "default"
+            model="default",  # o "default"
             enable_automatic_punctuation=True
         )
 
