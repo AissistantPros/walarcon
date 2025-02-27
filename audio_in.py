@@ -2,6 +2,8 @@
 
 import time
 
+from fastapi import logger
+
 class AudioBuffer:
     """
     Esta clase maneja la lógica de:
@@ -61,36 +63,48 @@ class AudioBuffer:
         # Si no se ha cumplido ninguna condición, seguimos
         return None
 
-    def _has_voice(self, data: bytes) -> bool:
-        """
-        Estima si hay 'voz' en el chunk basándose en un cálculo muy simple 
-        de 'energía' en formato MULAW.
-
-        *Nota:* Esto es muy rudimentario y puede mejorarse con librerías 
-        como webrtcvad, pero nos sirve de ejemplo.
-        """
-
-        total_energy = 0
-        for b in data:
-            # MuLaw offset: el rango es de 0 a 255
-            # Normalizamos en [-128, 127]
-            sample_val = b - 128
-            total_energy += abs(sample_val)
-
-        # Energía promedio de este chunk
-        if len(data) > 0:
-            avg_energy = total_energy / len(data)
-        else:
-            avg_energy = 0
 
 
-        # Agrega este log temporal
-        print(f"avg_energy = {avg_energy}")
 
 
-        
-        # Si la energía promedio supera el threshold, consideramos que hay voz
-        return avg_energy > self.silence_threshold
+
+
+
+
+
+
+def _has_voice(self, data: bytes) -> bool:
+    """
+    Analiza el chunk de audio y determina si hay voz basada en la energía promedio.
+    Ignora ruidos bajos y solo considera voz si la energía supera el umbral definido.
+    """
+    total_energy = 0
+    for b in data:
+        sample_val = b - 128  # Ajuste de escala para energía
+        total_energy += abs(sample_val)
+
+    # Calcular energía promedio evitando división por 0
+    avg_energy = total_energy / (len(data) if len(data) > 0 else 1)
+
+    # Log opcional para depuración (puedes comentarlo después de probar)
+    logger.info(f"🔍 avg_energy detectada: {avg_energy}")
+
+    # Considerar voz solo si supera el threshold configurado en self.silence_threshold
+    return avg_energy >= self.silence_threshold
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ============================================================================

@@ -28,7 +28,7 @@ class TwilioWebSocketManager:
     def __init__(self):
         # Ajusta el threshold si quieres mayor sensibilidad
         # (por ejemplo, 30 en lugar de 50)
-        self.audio_buffer = AudioBuffer(silence_threshold=1)
+        self.audio_buffer = AudioBuffer(silence_threshold=60)
 
         self.last_user_activity = time.time()
         self.warned_once = False
