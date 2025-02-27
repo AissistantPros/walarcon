@@ -11,9 +11,9 @@ from fastapi import WebSocket
 AUDIO_DIR = "audio"
 
 # Tiempos de silencio
-SILENCE_WARNING_1 = 15  # 15s
-SILENCE_WARNING_2 = 25  # 25s
-SILENCE_HANGUP = 30      # 30s
+SILENCE_WARNING_1 = 15
+SILENCE_WARNING_2 = 25
+SILENCE_HANGUP    = 30
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -26,47 +26,37 @@ class TwilioWebSocketManager:
     """
 
     def __init__(self):
-        # Creamos la instancia de AudioBuffer con threshold simple
+        # Ajusta el threshold si quieres mayor sensibilidad
+        # (por ejemplo, 30 en lugar de 50)
         self.audio_buffer = AudioBuffer(silence_threshold=50)
 
-        # Control de inactividad total (para disparar "noescucho" y colgar)
         self.last_user_activity = time.time()
-
-        # Para controlar que solo reproduzcamos "noescucho" 2 veces
         self.warned_once = False
         self.warned_twice = False
-
-        # Para marcar si ya colgamos la llamada
         self.call_ended = False
-
-        # Guardar el stream SID para enviar audio a Twilio
         self.stream_sid = None
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
-        """
-        Entrada principal de la conexión con Twilio.
-        Recibe los eventos 'start', 'media', 'stop', etc.
-        """
         await websocket.accept()
         logger.info("Conexión WebSocket aceptada con Twilio.")
 
-        # Iniciamos la tarea que verificará el silencio prolongado
         silence_task = asyncio.create_task(self._check_silence(websocket))
 
         try:
             while True:
-                # Esperamos un mensaje de Twilio
                 message = await websocket.receive_text()
                 data = json.loads(message)
 
                 event_type = data.get("event")
                 if event_type == "start":
-                    # Twilio inicia un nuevo stream
+                    # Guardamos el stream SID
                     self.stream_sid = data.get("streamSid")
                     logger.info(f"Nuevo stream SID: {self.stream_sid}")
+                    # Reproducir saludo de inmediato
+                    await self._play_audio_file(websocket, "saludo.wav")
 
                 elif event_type == "media":
-                    # Llega un chunk de audio base64
+                    # Llega chunk de audio base64
                     payload_base64 = data["media"]["payload"]
                     chunk = base64.b64decode(payload_base64)
                     await self._process_audio_chunk(chunk)
@@ -74,48 +64,40 @@ class TwilioWebSocketManager:
                 elif event_type == "stop":
                     logger.info("Twilio envió evento 'stop'. Cerrando websocket.")
                     await self._hangup_call(websocket)
+                    # Salimos del loop
                     break
 
         except asyncio.exceptions.CancelledError:
-            # Ocurre cuando cancelamos la tarea
             pass
         except Exception as e:
             logger.error(f"Error en handle_twilio_websocket: {e}")
             await self._hangup_call(websocket)
         finally:
-            # Cancelamos la tarea de silencio si sigue viva
+            # Si ya colgamos en _hangup_call, no lo cerramos de nuevo
+            if not self.call_ended:
+                await websocket.close()
             silence_task.cancel()
-            await websocket.close()
             logger.info("WebSocket con Twilio cerrado.")
 
     async def _process_audio_chunk(self, chunk: bytes):
-        """
-        Recibe un chunk de audio, lo pasa al AudioBuffer.
-        Si se completa un bloque (2s de silencio o 10s totales),
-        lo logueamos por ahora (luego lo mandaremos a STT).
-        """
         block = self.audio_buffer.process_chunk(chunk)
-
-        # Si hay "voz" en este chunk, reiniciamos el contador de inactividad
         if block is not None or self.audio_buffer._has_voice(chunk):
             self.last_user_activity = time.time()
 
-        # Si se formó un bloque completo
         if block:
             logger.info(f"Bloque de audio completo (size {len(block)} bytes).")
-            # Más adelante, aquí llamaremos a STT.
+            # Próximamente: Enviar a STT
 
     async def _check_silence(self, websocket: WebSocket):
         """
-        Tarea en segundo plano que verifica si el usuario 
-        lleva 15/25/30s sin hablar.
+        Verifica cada segundo si han pasado 15s, 25s o 30s sin 
+        detección de voz.
         """
         while not self.call_ended:
             await asyncio.sleep(1)
             elapsed = time.time() - self.last_user_activity
 
             if elapsed >= SILENCE_HANGUP:
-                # 30s sin hablar => colgamos
                 logger.info("30s de silencio. Colgando la llamada.")
                 await self._hangup_call(websocket)
                 break
@@ -131,13 +113,13 @@ class TwilioWebSocketManager:
                 await self._play_audio_file(websocket, "noescucho_1.wav")
 
     async def _hangup_call(self, websocket: WebSocket):
-        """
-        Marca la llamada como finalizada y cierra la conexión WS.
-        """
         if not self.call_ended:
             self.call_ended = True
             logger.info("Terminando la llamada.")
-            await websocket.close()
+            try:
+                await websocket.close()
+            except:
+                pass
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
         """
