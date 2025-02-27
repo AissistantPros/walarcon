@@ -1,6 +1,5 @@
 import asyncio
 import os
-import json
 import audioop  # type: ignore
 from google.cloud import speech
 from google.oauth2.service_account import Credentials
@@ -20,101 +19,100 @@ class GoogleSTTStreamer:
     def __init__(self):
         self.closed = False
 
-        # 📌 Autenticación con variables de entorno
+        # Autenticación
         self.credentials = self._get_google_credentials()
         self.client = speech.SpeechClient(credentials=self.credentials)
 
-        # Configuración de STT
+        # Config STT
         self.config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
             language_code="es-MX",
-            model="default",  # Puedes probar "medical_conversation" si es necesario
+            model="medical_conversation",  # o "default"
             enable_automatic_punctuation=True
         )
 
         self.streaming_config = speech.StreamingRecognitionConfig(
             config=self.config,
-            interim_results=True  # Para recibir transcripción parcial
+            interim_results=True
         )
 
         # Cola de audio
         self.audio_queue = asyncio.Queue()
 
     def _get_google_credentials(self):
-        """
-        Carga las credenciales de Google desde variables de entorno.
-        """
+        """Carga las credenciales desde variables de entorno."""
         try:
-            google_creds = {
+            creds_info = {
                 "type": "service_account",
                 "project_id": os.getenv("GOOGLE_PROJECT_ID"),
                 "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-                "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace("\\n", "\n"),
+                "private_key": os.getenv("GOOGLE_PRIVATE_KEY", "").replace("\\n", "\n"),
                 "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
                 "client_id": os.getenv("GOOGLE_CLIENT_ID"),
                 "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
                 "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
                 "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_CERT_URL"),
-                "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
+                "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL"),
             }
-            return Credentials.from_service_account_info(google_creds)
+            return Credentials.from_service_account_info(creds_info)
         except Exception as e:
-            logger.error(f"⚠️ Error cargando credenciales de Google: {str(e)}")
+            logger.error(f"Error al cargar credenciales de Google: {e}")
             return None
 
     def _request_generator(self):
         """
-        Generador síncrono que envía los chunks de audio a Google STT.
+        Generador sincrónico que extrae datos de self.audio_queue (async)
+        usando asyncio.run(...) de forma bloqueante.
         """
         while not self.closed:
-            chunk = self.audio_queue.get_nowait()
+            # Bloquea hasta que llegue un chunk o 'None'
+            chunk = asyncio.run(self.audio_queue.get())
             if chunk is None:
                 break
             yield speech.StreamingRecognizeRequest(audio_content=chunk)
 
     async def recognize_stream(self):
         """
-        Envía audio a Google STT en streaming y recibe respuestas en tiempo real.
+        Envía audio a Google STT y recibe respuestas en tiempo real.
         """
         try:
             responses = self.client.streaming_recognize(
                 config=self.streaming_config,
-                requests=self._request_generator()  # ¡Aquí está la corrección!
+                requests=self._request_generator()
             )
 
+            # Manejar las respuestas
             async for response in self._handle_responses(responses):
                 yield response
 
         except Exception as e:
-            logger.error(f"❌ Error en el streaming con Google STT: {str(e)}")
-
+            logger.error(f"❌ Error en el streaming con Google STT: {e}")
         self.closed = True
 
     async def _handle_responses(self, responses):
-        """
-        Maneja las respuestas de Google STT en tiempo real.
-        """
+        """Procesa las respuestas de Google en tiempo real."""
         for response in responses:
             for result in response.results:
                 transcript = result.alternatives[0].transcript
                 if result.is_final:
-                    logger.info(f"🗣️ [USUARIO] (Final): {transcript}")
+                    logger.info(f"[USUARIO Final] => {transcript}")
                 else:
-                    logger.info(f"🗣️ [USUARIO] (Parcial): {transcript}")
+                    logger.info(f"[USUARIO Parcial] => {transcript}")
                 yield result
 
     def add_audio_chunk(self, mulaw_data: bytes):
         """
-        Convierte audio mu-law a PCM16 y lo envía a la cola para Google STT.
+        Convierte mu-law → PCM16 y lo mete en la cola.
         """
         try:
-            pcm16 = audioop.ulaw2lin(mulaw_data, 2)  # Convierte mu-law → PCM16
-            self.audio_queue.put_nowait(pcm16)
+            pcm16 = audioop.ulaw2lin(mulaw_data, 2)
+            # Agrega chunk sin bloquear
+            asyncio.create_task(self.audio_queue.put(pcm16))
         except Exception as e:
-            logger.error(f"⚠️ [Google STT] Error al convertir audio: {str(e)}")
+            logger.error(f"Error al convertir audio: {e}")
 
     async def close(self):
-        """Cierra la conexión y vacía la cola de audio."""
+        """Indica fin de audio y cierra el stream."""
         self.closed = True
         await self.audio_queue.put(None)
