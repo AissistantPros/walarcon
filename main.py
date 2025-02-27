@@ -9,7 +9,7 @@ Maneja la comunicación con Twilio, WebSockets y las operaciones del asistente v
 # ==================================================
 from fastapi import FastAPI, Response, WebSocket
 import logging
-from tw_utils import handle_twilio_websocket  # Función para manejar WebSockets de Twilio
+from tw_utils import TwilioWebSocketManager  # Función para manejar WebSockets de Twilio
 from fastapi.staticfiles import StaticFiles
 import os
 
@@ -50,9 +50,11 @@ async def twilio_voice():
 async def twilio_websocket(websocket: WebSocket):
     """
     Maneja la conexión WebSocket con Twilio para recibir audio en tiempo real
-    y enviar respuestas generadas por la IA en formato de audio.
+    y detectar silencios prolongados.
     """
-    await handle_twilio_websocket(websocket)
+    # Crear una instancia del manager para cada llamada
+    manager = TwilioWebSocketManager()
+    await manager.handle_twilio_websocket(websocket)
 
 # ==================================================
 # 📌 Mensaje de bienvenida en la raíz del backend
