@@ -12,7 +12,7 @@ logger.setLevel(logging.INFO)
 class GoogleSTTStreamer:
     """
     Conecta con Google Speech-to-Text en tiempo real.
-    - Convierte audio mulaw (Twilio) a PCM16.
+    - Convierte audio mu-law (Twilio) a PCM16.
     - Usa autenticación con credenciales en variables de entorno.
     - Procesa la transcripción en vivo.
     """
@@ -29,7 +29,7 @@ class GoogleSTTStreamer:
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
             language_code="es-MX",
-            model="medical_conversation",  # Cambia a "default" si no quieres modo médico
+            model="default",  # Puedes probar "medical_conversation" si es necesario
             enable_automatic_punctuation=True
         )
 
@@ -63,27 +63,26 @@ class GoogleSTTStreamer:
             logger.error(f"⚠️ Error cargando credenciales de Google: {str(e)}")
             return None
 
+    def _request_generator(self):
+        """
+        Generador síncrono que envía los chunks de audio a Google STT.
+        """
+        while not self.closed:
+            chunk = self.audio_queue.get_nowait()
+            if chunk is None:
+                break
+            yield speech.StreamingRecognizeRequest(audio_content=chunk)
+
     async def recognize_stream(self):
         """
         Envía audio a Google STT en streaming y recibe respuestas en tiempo real.
         """
-
-        async def request_generator():
-            """Generador asíncrono que envía los chunks de audio a Google STT."""
-            while not self.closed:
-                chunk = await self.audio_queue.get()
-                if chunk is None:
-                    break
-                yield speech.StreamingRecognizeRequest(audio_content=chunk)
-
-        # Conexión con Google STT en tiempo real
         try:
             responses = self.client.streaming_recognize(
                 config=self.streaming_config,
-                requests=request_generator()
+                requests=self._request_generator()  # ¡Aquí está la corrección!
             )
 
-            # Procesar respuestas en tiempo real
             async for response in self._handle_responses(responses):
                 yield response
 
@@ -96,7 +95,7 @@ class GoogleSTTStreamer:
         """
         Maneja las respuestas de Google STT en tiempo real.
         """
-        async for response in responses:
+        for response in responses:
             for result in response.results:
                 transcript = result.alternatives[0].transcript
                 if result.is_final:
@@ -110,8 +109,8 @@ class GoogleSTTStreamer:
         Convierte audio mu-law a PCM16 y lo envía a la cola para Google STT.
         """
         try:
-            pcm16 = audioop.ulaw2lin(mulaw_data, 2)  # Convierte mulaw → PCM16
-            asyncio.create_task(self.audio_queue.put(pcm16))
+            pcm16 = audioop.ulaw2lin(mulaw_data, 2)  # Convierte mu-law → PCM16
+            self.audio_queue.put_nowait(pcm16)
         except Exception as e:
             logger.error(f"⚠️ [Google STT] Error al convertir audio: {str(e)}")
 
