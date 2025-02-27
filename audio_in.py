@@ -1,8 +1,10 @@
 # audio_in.py
 
 import time
+import logging  # ✅ Corrección del error con fastapi.logger
 
-from fastapi import logger
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class AudioBuffer:
     """
@@ -12,7 +14,7 @@ class AudioBuffer:
     3. Forzar corte a los ~10 segundos de audio continuo (bloque máximo).
     """
 
-    def __init__(self, silence_threshold: int = 500):
+    def __init__(self, silence_threshold: int = 50):
         """
         :param silence_threshold: Umbral de 'energía' o 'volumen' para decidir si es silencio.
         """
@@ -62,8 +64,7 @@ class AudioBuffer:
 
         # Si no se ha cumplido ninguna condición, seguimos
         return None
-    
-    
+
     def _has_voice(self, data: bytes) -> bool:
         """
         Analiza el chunk de audio y determina si hay voz basada en la energía promedio.
@@ -74,39 +75,14 @@ class AudioBuffer:
             sample_val = b - 128  # Ajuste de escala para energía
             total_energy += abs(sample_val)
 
-    # Calcular energía promedio evitando división por 0
+        # Calcular energía promedio evitando división por 0
         avg_energy = total_energy / (len(data) if len(data) > 0 else 1)
 
-    # Log opcional para depuración (puedes comentarlo después de probar)
+        # Log opcional para depuración (puedes comentarlo después de probar)
         logger.info(f"🔍 avg_energy detectada: {avg_energy}")
 
-    # Considerar voz solo si supera el threshold configurado en self.silence_threshold
+        # Considerar voz solo si supera el threshold configurado en self.silence_threshold
         return avg_energy >= self.silence_threshold
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # ============================================================================
