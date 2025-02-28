@@ -16,12 +16,12 @@ async def root():
 async def twilio_voice():
     logger.info("📞 Nueva llamada entrante desde Twilio.")
     twiml_response = """<?xml version="1.0" encoding="UTF-8"?>
-    <Response>
-        <Connect>
-            <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" />
-        </Connect>
-    </Response>
-    """
+<Response>
+    <Connect>
+        <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" />
+    </Connect>
+</Response>
+"""
     return Response(content=twiml_response, media_type="application/xml")
 
 @app.websocket("/twilio-websocket")
