@@ -5,6 +5,7 @@ import audioop  # type: ignore
 from google.cloud import speech
 from google.oauth2.service_account import Credentials
 import logging
+import statistics
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -69,15 +70,24 @@ class GoogleSTTStreamer:
             try:
                 future = asyncio.run_coroutine_threadsafe(self.audio_queue.get(), self.loop)
                 chunk = future.result(timeout=0.1)
-                logger.debug("Chunk obtenido del audio_queue.")
+                logger.debug(f"Chunk obtenido de la cola, tamaño PCM16: {len(chunk)} bytes." if chunk else "Recibido chunk None.")
             except Exception as e:
-                logger.debug(f"No se obtuvo chunk en 0.1 s: {e}. Enviando request vacío.")
+                logger.debug(f"No se obtuvo chunk en 0.1 s ({e}). Enviando request vacío.")
                 yield speech.StreamingRecognizeRequest(audio_content=b"")
                 continue
 
             if chunk is None:
                 logger.info("Chunk None detectado, finalizando generador.")
                 break
+
+            # Opcional: calcular energía promedio para verificar la conversión
+            try:
+                # Dividir en bytes individuales y calcular valor promedio
+                samples = [b - 128 for b in chunk]
+                avg_energy = statistics.mean([abs(s) for s in samples])
+                logger.debug(f"Energía promedio del chunk: {avg_energy:.2f}")
+            except Exception as ex:
+                logger.debug(f"No se pudo calcular energía: {ex}")
 
             logger.debug(f"Enviando request con chunk de tamaño: {len(chunk)} bytes.")
             yield speech.StreamingRecognizeRequest(audio_content=chunk)
@@ -89,7 +99,7 @@ class GoogleSTTStreamer:
         """
         try:
             logger.info("Iniciando streaming de reconocimiento a Google STT.")
-            # Ejecutar la llamada en un thread separado:
+            # Ejecuta la llamada en un thread separado
             loop = asyncio.get_event_loop()
             def get_responses():
                 return list(self.client.streaming_recognize(
@@ -100,7 +110,7 @@ class GoogleSTTStreamer:
             logger.info(f"Se recibieron {len(responses)} respuestas de Google STT.")
             for response in responses:
                 for result in response.results:
-                    logger.debug("Respuesta procesada por Google STT.")
+                    logger.debug("Respuesta recibida de Google STT.")
                     yield result
         except Exception as e:
             if "Exceeded maximum allowed stream duration" not in str(e):
@@ -112,11 +122,13 @@ class GoogleSTTStreamer:
     def add_audio_chunk(self, mulaw_data: bytes):
         """
         Convierte audio mu-law a PCM16 y lo añade a la cola para Google STT.
+        Registra el tamaño del chunk original y convertido.
         """
         try:
+            logger.debug(f"Chunk mulaw recibido de tamaño: {len(mulaw_data)} bytes.")
             pcm16 = audioop.ulaw2lin(mulaw_data, 2)
+            logger.debug(f"Chunk convertido a PCM16, tamaño: {len(pcm16)} bytes.")
             asyncio.run_coroutine_threadsafe(self.audio_queue.put(pcm16), self.loop)
-            logger.debug(f"Chunk agregado a la cola (tamaño PCM16: {len(pcm16)} bytes).")
         except Exception as e:
             logger.error(f"Error al convertir audio: {e}")
 
@@ -126,7 +138,6 @@ class GoogleSTTStreamer:
         """
         self.closed = True
         logger.info("Cerrando GoogleSTTStreamer. Vaciando cola de audio.")
-        # Vaciar la cola de forma asíncrona
         while not self.audio_queue.empty():
             try:
                 await self.audio_queue.get()

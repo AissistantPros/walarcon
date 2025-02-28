@@ -34,7 +34,6 @@ class TwilioWebSocketManager:
         self.google_task = asyncio.create_task(self._listen_google_results())
         try:
             while True:
-                # Reiniciar el stream STT automáticamente cada 290 segundos
                 elapsed = time.time() - self.stream_start_time
                 if elapsed >= 290:
                     logger.info("Reiniciando stream STT por límite de duración.")
@@ -58,7 +57,7 @@ class TwilioWebSocketManager:
                 elif event_type == "media":
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
-                    logger.debug(f"Chunk de audio recibido de Twilio (tamaño: {len(mulaw_chunk)} bytes).")
+                    logger.debug(f"Chunk de audio recibido de Twilio, tamaño: {len(mulaw_chunk)} bytes.")
                     self.stt_streamer.add_audio_chunk(mulaw_chunk)
                 elif event_type == "stop":
                     logger.info("Twilio envió evento 'stop'. Colgando.")
@@ -87,7 +86,6 @@ class TwilioWebSocketManager:
         # Aquí se integraría la llamada a GPT y la conversión a TTS.
         response = "Ejemplo de respuesta de GPT"
         logger.info(f"(TTS) Respuesta IA: {response}")
-        # Ejemplo: podrías llamar a tts_utils.text_to_speech(response) y enviar el audio a Twilio.
 
     async def _restart_stt_stream(self):
         logger.info("Reiniciando el stream STT...")
