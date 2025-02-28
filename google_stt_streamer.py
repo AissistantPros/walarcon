@@ -19,29 +19,32 @@ class GoogleSTTStreamer:
     def __init__(self):
         self.closed = False
 
-        # Autenticación
+        # Guarda el event loop actual para usarlo en el generador síncrono.
+        self.loop = asyncio.get_event_loop()
+
+        # Cargar credenciales desde variables de entorno
         self.credentials = self._get_google_credentials()
         self.client = speech.SpeechClient(credentials=self.credentials)
 
-        # Config STT
+        # Configuración de STT
         self.config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
             language_code="es-MX",
-            model="default",  # o "default"
+            # Usamos el modelo por defecto para español
             enable_automatic_punctuation=True
         )
 
         self.streaming_config = speech.StreamingRecognitionConfig(
             config=self.config,
-            interim_results=True
+            interim_results=True  # Para recibir transcripción parcial
         )
 
-        # Cola de audio
+        # Cola asíncrona para recibir audio
         self.audio_queue = asyncio.Queue()
 
     def _get_google_credentials(self):
-        """Carga las credenciales desde variables de entorno."""
+        """Carga las credenciales de Google desde variables de entorno."""
         try:
             creds_info = {
                 "type": "service_account",
@@ -63,25 +66,29 @@ class GoogleSTTStreamer:
     def _request_generator(self):
         """
         Generador síncrono que envía los chunks de audio a Google STT.
-        Si no se recibe audio en 100ms, envía un request con audio vacío para
-        mantener la conexión activa.
+        Utiliza asyncio.run_coroutine_threadsafe() para acceder a la cola
+        usando el event loop correcto.
+        Si no hay audio en 0.1 segundos, envía un request vacío para mantener
+        la conexión activa.
         """
         while not self.closed:
             try:
-                # Espera hasta 100ms para obtener un chunk de audio
-                chunk = asyncio.run(asyncio.wait_for(self.audio_queue.get(), timeout=0.1))
-            except asyncio.TimeoutError:
-                # Si se agota el tiempo sin audio, envía un request vacío.
+                # Usa el event loop almacenado para obtener el chunk de audio
+                future = asyncio.run_coroutine_threadsafe(self.audio_queue.get(), self.loop)
+                chunk = future.result(timeout=0.1)
+            except Exception:
+                # Timeout o error: envía un request vacío
                 yield speech.StreamingRecognizeRequest(audio_content=b"")
                 continue
+
             if chunk is None:
                 break
-            yield speech.StreamingRecognizeRequest(audio_content=chunk)
 
+            yield speech.StreamingRecognizeRequest(audio_content=chunk)
 
     async def recognize_stream(self):
         """
-        Envía audio a Google STT y recibe respuestas en tiempo real.
+        Envía audio a Google STT en streaming y recibe respuestas en tiempo real.
         """
         try:
             responses = self.client.streaming_recognize(
@@ -89,37 +96,28 @@ class GoogleSTTStreamer:
                 requests=self._request_generator()
             )
 
-            # Manejar las respuestas
-            async for response in self._handle_responses(responses):
-                yield response
+            # Procesar las respuestas de forma síncrona (ya que responses es un iterable síncrono)
+            for response in responses:
+                for result in response.results:
+                    yield result
 
         except Exception as e:
             logger.error(f"❌ Error en el streaming con Google STT: {e}")
-        self.closed = True
 
-    async def _handle_responses(self, responses):
-        """Procesa las respuestas de Google en tiempo real."""
-        for response in responses:
-            for result in response.results:
-                transcript = result.alternatives[0].transcript
-                if result.is_final:
-                    logger.info(f"[USUARIO Final] => {transcript}")
-                else:
-                    logger.info(f"[USUARIO Parcial] => {transcript}")
-                yield result
+        self.closed = True
 
     def add_audio_chunk(self, mulaw_data: bytes):
         """
-        Convierte mu-law → PCM16 y lo mete en la cola.
+        Convierte audio mu-law a PCM16 y lo añade a la cola para Google STT.
         """
         try:
             pcm16 = audioop.ulaw2lin(mulaw_data, 2)
-            # Agrega chunk sin bloquear
-            asyncio.create_task(self.audio_queue.put(pcm16))
+            # Añade el chunk sin bloquear; se ejecuta en el event loop correcto.
+            asyncio.run_coroutine_threadsafe(self.audio_queue.put(pcm16), self.loop)
         except Exception as e:
             logger.error(f"Error al convertir audio: {e}")
 
     async def close(self):
-        """Indica fin de audio y cierra el stream."""
+        """Cierra la conexión y vacía la cola de audio."""
         self.closed = True
         await self.audio_queue.put(None)
