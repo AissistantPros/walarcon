@@ -4,21 +4,22 @@ import base64
 import time
 import asyncio
 import logging
+import os
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from google_stt_streamer import GoogleSTTStreamer
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Para ver todos los logs
+logger.setLevel(logging.DEBUG)
 
 AUDIO_DIR = "audio"
 
 class TwilioWebSocketManager:
     """
-    Maneja la conexión WebSocket con Twilio utilizando Google STT en streaming.
-    - Reinicia automáticamente el stream STT cada 290 segundos.
-    - Transfiere los chunks pendientes del stream anterior al nuevo.
-    - Maneja el cierre robusto del WebSocket.
+    Maneja la conexión WebSocket con Twilio y el streaming con Google STT.
+    - Reinicia el stream cada 290s si hace falta.
+    - Guarda el audio mu-law en un archivo local (raw_audio.ulaw).
+    - Cierra robustamente la llamada.
     """
     def __init__(self):
         self.call_ended = False
@@ -30,17 +31,20 @@ class TwilioWebSocketManager:
     async def handle_twilio_websocket(self, websocket: WebSocket):
         await websocket.accept()
         logger.info("Conexión WebSocket aceptada con Twilio.")
-        self.stream_start_time = time.time()
-        self.google_task = asyncio.create_task(self._listen_google_results())
+
+        # Iniciamos la tarea asíncrona para Google STT (no hacemos `async for` aquí)
+        self.google_task = asyncio.create_task(self.stt_streamer.recognize_stream())
+
         try:
             while True:
-                # Reiniciar el stream STT si ha pasado 290 segundos
+                # Chequeo para reiniciar STT si han pasado 290 seg
                 elapsed = time.time() - self.stream_start_time
                 if elapsed >= 290:
                     logger.info("Reiniciando stream STT por límite de duración.")
                     await self._restart_stt_stream()
                     self.stream_start_time = time.time()
 
+                # Espera mensaje de Twilio hasta 60s
                 try:
                     message = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
                     logger.debug("Mensaje recibido de Twilio.")
@@ -51,16 +55,24 @@ class TwilioWebSocketManager:
 
                 data = json.loads(message)
                 event_type = data.get("event")
+
                 if event_type == "start":
                     self.stream_sid = data["streamSid"]
                     logger.info(f"Nuevo stream SID: {self.stream_sid}")
+                    # Reproducimos el saludo pregrabado
                     await self._play_audio_file(websocket, "saludo.wav")
+
                 elif event_type == "media":
+                    # Twilio envía audio mu-law base64
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
+
                     logger.info(f"📢 Chunk de audio recibido de Twilio, tamaño: {len(mulaw_chunk)} bytes.")
-                    self._save_mulaw_chunk(mulaw_chunk)  # Guarda el chunk en formato mulaw para análisis.
+                    self._save_mulaw_chunk(mulaw_chunk)
+
+                    # Añadimos el chunk al GoogleSTTStreamer
                     await self.stt_streamer.add_audio_chunk(mulaw_chunk)
+
                 elif event_type == "stop":
                     logger.info("Twilio envió evento 'stop'. Colgando.")
                     await self._hangup_call(websocket)
@@ -70,70 +82,79 @@ class TwilioWebSocketManager:
             logger.error(f"Error en handle_twilio_websocket: {e}", exc_info=True)
             await self._hangup_call(websocket)
         finally:
+            # Cierre robusto
             if not self.call_ended:
                 await self._hangup_call(websocket)
             logger.info("WebSocket con Twilio cerrado.")
 
     def _save_mulaw_chunk(self, chunk: bytes, filename: str = "raw_audio.ulaw"):
         """
-        Guarda el chunk de audio en formato mulaw en un archivo para análisis.
+        Guarda el audio mu-law en un archivo local, para verificar lo que Twilio envía.
         """
         try:
             with open(filename, "ab") as f:
                 f.write(chunk)
-            logger.debug(f"Chunk mulaw guardado en {filename}, tamaño: {len(chunk)} bytes.")
+            logger.debug(f"Chunk mu-law guardado en {filename}, tamaño: {len(chunk)} bytes.")
         except Exception as e:
-            logger.error(f"Error al guardar chunk mulaw: {e}")
-
-    async def _listen_google_results(self):
-        async for result in self.stt_streamer.recognize_stream():
-            transcript = result.alternatives[0].transcript
-            if result.is_final:
-                logger.info(f"USUARIO (final): {transcript}")
-                await self._process_final_transcript(transcript)
-            else:
-                logger.info(f"(parcial) => {transcript}")
-
-    async def _process_final_transcript(self, transcript: str):
-        logger.info(f"Procesando la transcripción final: {transcript}")
-        # Aquí se integraría la llamada a GPT y la conversión a TTS.
-        response = "Ejemplo de respuesta de GPT"
-        logger.info(f"(TTS) Respuesta IA: {response}")
+            logger.error(f"Error al guardar chunk mu-law: {e}")
 
     async def _restart_stt_stream(self):
+        """
+        Reinicia el STT: cierra el streamer viejo y crea uno nuevo,
+        transfiriendo los chunks pendientes de la cola.
+        """
         logger.info("Reiniciando el stream STT...")
         old_queue = self.stt_streamer.audio_queue
+
+        # Cierra el streamer actual
         await self.stt_streamer.close()
+
+        # Cancela la tarea de google
         if self.google_task:
             self.google_task.cancel()
             try:
                 await self.google_task
             except asyncio.CancelledError:
                 logger.debug("Tarea Google STT cancelada correctamente.")
+
+        # Nuevo streamer
         self.stt_streamer = GoogleSTTStreamer()
+
+        # Transfiere los chunks pendientes al nuevo streamer
         while not old_queue.empty():
             try:
                 chunk = await old_queue.get()
-                if chunk is not None:
+                if chunk:
                     await self.stt_streamer.audio_queue.put(chunk)
                     logger.debug(f"Chunk transferido al nuevo stream, tamaño: {len(chunk)} bytes.")
             except Exception as e:
                 logger.error(f"Error al transferir chunk pendiente: {e}")
-        self.google_task = asyncio.create_task(self._listen_google_results())
+
+        # Lanzamos la nueva tarea
+        self.google_task = asyncio.create_task(self.stt_streamer.recognize_stream())
         logger.info("Nuevo stream STT iniciado.")
 
     async def _hangup_call(self, websocket: WebSocket):
+        """
+        Corta la llamada, cierra Google STT y el WebSocket
+        """
         if self.call_ended:
             return
         self.call_ended = True
         logger.info("Terminando la llamada.")
+
+        # Cerrar Google STT
         await self.stt_streamer.close()
+
+        # Cancelar la tarea
         if self.google_task:
             self.google_task.cancel()
             try:
                 await self.google_task
             except asyncio.CancelledError:
                 logger.debug("Tarea Google STT cancelada correctamente.")
+
+        # Cerrar WebSocket
         try:
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.close(code=1000)
@@ -143,12 +164,20 @@ class TwilioWebSocketManager:
                 logger.error(f"Error al cerrar WebSocket: {e}")
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
+        """
+        Envía un archivo WAV pregrabado (8k, mono, 16bit) a Twilio.
+        """
         if not self.stream_sid:
             return
         try:
-            filepath = f"{AUDIO_DIR}/{filename}"
+            filepath = os.path.join(AUDIO_DIR, filename)
+            if not os.path.exists(filepath):
+                logger.error(f"No se encontró el archivo WAV: {filepath}")
+                return
+
             with open(filepath, "rb") as f:
                 wav_data = f.read()
+
             encoded = base64.b64encode(wav_data).decode("utf-8")
             await websocket.send_text(json.dumps({
                 "event": "media",
@@ -156,7 +185,5 @@ class TwilioWebSocketManager:
                 "media": {"payload": encoded}
             }))
             logger.info(f"Reproduciendo: {filename}")
-        except FileNotFoundError:
-            logger.error(f"No se encontró el archivo: {filepath}")
         except Exception as e:
             logger.error(f"Error reproduciendo {filename}: {e}")

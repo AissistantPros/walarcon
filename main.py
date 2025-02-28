@@ -31,10 +31,23 @@ async def twilio_websocket(websocket: WebSocket):
     manager = TwilioWebSocketManager()
     await manager.handle_twilio_websocket(websocket)
 
-
 @app.get("/download-audio")
 async def download_audio():
-    file_path = "/opt/render/project/src/raw_audio.ulaw"
+    """
+    Descarga el archivo raw_audio.ulaw (mu-law) para verificar lo que envía Twilio.
+    Ajusta la ruta si guardas en otro lado.
+    """
+    file_path = os.path.abspath("raw_audio.ulaw")
     if os.path.exists(file_path):
         return FileResponse(file_path, media_type="audio/basic", filename="raw_audio.ulaw")
+    return {"error": "Archivo no encontrado"}
+
+@app.get("/download-linear16")
+async def download_linear16():
+    """
+    Descarga el archivo con el audio LINEAR16 que se envía a Google STT.
+    """
+    file_path = os.path.abspath("audio_debug/converted_8k.raw")
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="application/octet-stream", filename="converted_8k.raw")
     return {"error": "Archivo no encontrado"}
