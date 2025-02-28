@@ -32,19 +32,19 @@ class TwilioWebSocketManager:
         await websocket.accept()
         logger.info("Conexión WebSocket aceptada con Twilio.")
 
-        # Iniciamos la tarea asíncrona para Google STT (no hacemos `async for` aquí)
+        # Iniciamos la tarea asíncrona para Google STT
         self.google_task = asyncio.create_task(self.stt_streamer.recognize_stream())
 
         try:
             while True:
-                # Chequeo para reiniciar STT si han pasado 290 seg
+                # Verificar si han pasado 290 seg para reiniciar
                 elapsed = time.time() - self.stream_start_time
                 if elapsed >= 290:
                     logger.info("Reiniciando stream STT por límite de duración.")
                     await self._restart_stt_stream()
                     self.stream_start_time = time.time()
 
-                # Espera mensaje de Twilio hasta 60s
+                # Esperar mensaje de Twilio (máx 60s)
                 try:
                     message = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
                     logger.debug("Mensaje recibido de Twilio.")
@@ -59,11 +59,10 @@ class TwilioWebSocketManager:
                 if event_type == "start":
                     self.stream_sid = data["streamSid"]
                     logger.info(f"Nuevo stream SID: {self.stream_sid}")
-                    # Reproducimos el saludo pregrabado
                     await self._play_audio_file(websocket, "saludo.wav")
 
                 elif event_type == "media":
-                    # Twilio envía audio mu-law base64
+                    # Twilio envía audio mu-law 8k base64
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
 
@@ -82,19 +81,18 @@ class TwilioWebSocketManager:
             logger.error(f"Error en handle_twilio_websocket: {e}", exc_info=True)
             await self._hangup_call(websocket)
         finally:
-            # Cierre robusto
             if not self.call_ended:
                 await self._hangup_call(websocket)
             logger.info("WebSocket con Twilio cerrado.")
 
     def _save_mulaw_chunk(self, chunk: bytes, filename: str = "raw_audio.ulaw"):
         """
-        Guarda el audio mu-law en un archivo local, para verificar lo que Twilio envía.
+        Guarda el audio mu-law en un archivo local
         """
         try:
             with open(filename, "ab") as f:
                 f.write(chunk)
-            logger.debug(f"Chunk mu-law guardado en {filename}, tamaño: {len(chunk)} bytes.")
+            logger.debug(f"Guardado chunk mu-law en {filename}, tamaño: {len(chunk)} bytes.")
         except Exception as e:
             logger.error(f"Error al guardar chunk mu-law: {e}")
 
@@ -106,10 +104,10 @@ class TwilioWebSocketManager:
         logger.info("Reiniciando el stream STT...")
         old_queue = self.stt_streamer.audio_queue
 
-        # Cierra el streamer actual
+        # Cerrar el streamer actual
         await self.stt_streamer.close()
 
-        # Cancela la tarea de google
+        # Cancelar la tarea previa
         if self.google_task:
             self.google_task.cancel()
             try:
@@ -117,10 +115,10 @@ class TwilioWebSocketManager:
             except asyncio.CancelledError:
                 logger.debug("Tarea Google STT cancelada correctamente.")
 
-        # Nuevo streamer
+        # Crear un nuevo streamer
         self.stt_streamer = GoogleSTTStreamer()
 
-        # Transfiere los chunks pendientes al nuevo streamer
+        # Pasar los chunks restantes a la nueva cola
         while not old_queue.empty():
             try:
                 chunk = await old_queue.get()
@@ -130,7 +128,7 @@ class TwilioWebSocketManager:
             except Exception as e:
                 logger.error(f"Error al transferir chunk pendiente: {e}")
 
-        # Lanzamos la nueva tarea
+        # Lanzar la nueva tarea
         self.google_task = asyncio.create_task(self.stt_streamer.recognize_stream())
         logger.info("Nuevo stream STT iniciado.")
 
@@ -146,7 +144,7 @@ class TwilioWebSocketManager:
         # Cerrar Google STT
         await self.stt_streamer.close()
 
-        # Cancelar la tarea
+        # Cancelar la tarea asíncrona
         if self.google_task:
             self.google_task.cancel()
             try:
@@ -154,7 +152,7 @@ class TwilioWebSocketManager:
             except asyncio.CancelledError:
                 logger.debug("Tarea Google STT cancelada correctamente.")
 
-        # Cerrar WebSocket
+        # Cerrar WebSocket si sigue conectado
         try:
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.close(code=1000)
