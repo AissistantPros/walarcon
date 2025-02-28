@@ -9,7 +9,7 @@ from starlette.websockets import WebSocketState
 from google_stt_streamer import GoogleSTTStreamer
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Nivel DEBUG para ver todos los detalles
+logger.setLevel(logging.DEBUG)  # Para ver todos los logs
 
 AUDIO_DIR = "audio"
 
@@ -58,6 +58,7 @@ class TwilioWebSocketManager:
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
                     logger.info(f"📢 Chunk de audio recibido de Twilio, tamaño: {len(mulaw_chunk)} bytes.")
+                    self._save_mulaw_chunk(mulaw_chunk)  # Guarda el chunk en formato mulaw
                     self.stt_streamer.add_audio_chunk(mulaw_chunk)
                 elif event_type == "stop":
                     logger.info("Twilio envió evento 'stop'. Colgando.")
@@ -71,6 +72,17 @@ class TwilioWebSocketManager:
             if not self.call_ended:
                 await self._hangup_call(websocket)
             logger.info("WebSocket con Twilio cerrado.")
+
+    def _save_mulaw_chunk(self, chunk: bytes, filename: str = "raw_audio.ulaw"):
+        """
+        Guarda el chunk de audio en formato mulaw en un archivo para análisis.
+        """
+        try:
+            with open(filename, "ab") as f:
+                f.write(chunk)
+            logger.debug(f"Chunk mulaw guardado en {filename}, tamaño: {len(chunk)} bytes.")
+        except Exception as e:
+            logger.error(f"Error al guardar chunk mulaw: {e}")
 
     async def _listen_google_results(self):
         async for result in self.stt_streamer.recognize_stream():
@@ -97,9 +109,7 @@ class TwilioWebSocketManager:
                 await self.google_task
             except asyncio.CancelledError:
                 logger.debug("Tarea Google STT cancelada correctamente.")
-        # Reinicia el STT streamer
         self.stt_streamer = GoogleSTTStreamer()
-        # Transfiere los chunks pendientes de forma asíncrona
         while not old_queue.empty():
             try:
                 chunk = await old_queue.get()
