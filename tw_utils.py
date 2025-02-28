@@ -43,6 +43,7 @@ class TwilioWebSocketManager:
 
                 try:
                     message = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                    logger.debug("Mensaje recibido de Twilio.")
                 except asyncio.TimeoutError:
                     logger.warning("Timeout de inactividad, cerrando conexión.")
                     await self._hangup_call(websocket)
@@ -57,6 +58,7 @@ class TwilioWebSocketManager:
                 elif event_type == "media":
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
+                    logger.debug(f"Chunk de audio recibido de Twilio (tamaño: {len(mulaw_chunk)} bytes).")
                     self.stt_streamer.add_audio_chunk(mulaw_chunk)
                 elif event_type == "stop":
                     logger.info("Twilio envió evento 'stop'. Colgando.")
@@ -82,7 +84,7 @@ class TwilioWebSocketManager:
 
     async def _process_final_transcript(self, transcript: str):
         logger.info(f"Procesando la transcripción final: {transcript}")
-        # Aquí se integraría la llamada a GPT y conversión a TTS.
+        # Aquí se integraría la llamada a GPT y la conversión a TTS.
         response = "Ejemplo de respuesta de GPT"
         logger.info(f"(TTS) Respuesta IA: {response}")
         # Ejemplo: podrías llamar a tts_utils.text_to_speech(response) y enviar el audio a Twilio.
@@ -101,9 +103,13 @@ class TwilioWebSocketManager:
         self.stt_streamer = GoogleSTTStreamer()
         # Transfiere los chunks pendientes de forma asíncrona
         while not old_queue.empty():
-            chunk = await old_queue.get()
-            if chunk is not None:
-                await self.stt_streamer.audio_queue.put(chunk)
+            try:
+                chunk = await old_queue.get()
+                if chunk is not None:
+                    await self.stt_streamer.audio_queue.put(chunk)
+                    logger.debug(f"Chunk transferido al nuevo stream (tamaño: {len(chunk)} bytes).")
+            except Exception as e:
+                logger.error(f"Error al transferir chunk pendiente: {e}")
         self.google_task = asyncio.create_task(self._listen_google_results())
         logger.info("Nuevo stream STT iniciado.")
 
