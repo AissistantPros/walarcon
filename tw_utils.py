@@ -34,6 +34,7 @@ class TwilioWebSocketManager:
         self.google_task = asyncio.create_task(self._listen_google_results())
         try:
             while True:
+                # Reiniciar el stream STT si ha pasado 290 segundos
                 elapsed = time.time() - self.stream_start_time
                 if elapsed >= 290:
                     logger.info("Reiniciando stream STT por límite de duración.")
@@ -58,8 +59,8 @@ class TwilioWebSocketManager:
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
                     logger.info(f"📢 Chunk de audio recibido de Twilio, tamaño: {len(mulaw_chunk)} bytes.")
-                    self._save_mulaw_chunk(mulaw_chunk)  # Guarda el chunk en formato mulaw
-                    self.stt_streamer.add_audio_chunk(mulaw_chunk)
+                    self._save_mulaw_chunk(mulaw_chunk)  # Guarda el chunk en formato mulaw para análisis.
+                    await self.stt_streamer.add_audio_chunk(mulaw_chunk)
                 elif event_type == "stop":
                     logger.info("Twilio envió evento 'stop'. Colgando.")
                     await self._hangup_call(websocket)

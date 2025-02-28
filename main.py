@@ -2,6 +2,8 @@
 from fastapi import FastAPI, Response, WebSocket
 import logging
 from tw_utils import TwilioWebSocketManager
+from fastapi.responses import FileResponse
+import os
 
 logging.basicConfig(level=logging.DEBUG)  # Para ver todos los logs
 logger = logging.getLogger(__name__)
@@ -28,3 +30,11 @@ async def twilio_voice():
 async def twilio_websocket(websocket: WebSocket):
     manager = TwilioWebSocketManager()
     await manager.handle_twilio_websocket(websocket)
+
+
+@app.get("/download-audio")
+async def download_audio():
+    file_path = "/opt/render/project/src/raw_audio.ulaw"
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="audio/basic", filename="raw_audio.ulaw")
+    return {"error": "Archivo no encontrado"}
