@@ -9,7 +9,7 @@ from starlette.websockets import WebSocketState
 from google_stt_streamer import GoogleSTTStreamer
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)  # Nivel DEBUG para ver todos los detalles
 
 AUDIO_DIR = "audio"
 
@@ -57,7 +57,7 @@ class TwilioWebSocketManager:
                 elif event_type == "media":
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
-                    logger.debug(f"Chunk de audio recibido de Twilio, tamaño: {len(mulaw_chunk)} bytes.")
+                    logger.info(f"📢 Chunk de audio recibido de Twilio, tamaño: {len(mulaw_chunk)} bytes.")
                     self.stt_streamer.add_audio_chunk(mulaw_chunk)
                 elif event_type == "stop":
                     logger.info("Twilio envió evento 'stop'. Colgando.")
@@ -105,7 +105,7 @@ class TwilioWebSocketManager:
                 chunk = await old_queue.get()
                 if chunk is not None:
                     await self.stt_streamer.audio_queue.put(chunk)
-                    logger.debug(f"Chunk transferido al nuevo stream (tamaño: {len(chunk)} bytes).")
+                    logger.debug(f"Chunk transferido al nuevo stream, tamaño: {len(chunk)} bytes.")
             except Exception as e:
                 logger.error(f"Error al transferir chunk pendiente: {e}")
         self.google_task = asyncio.create_task(self._listen_google_results())

@@ -3,7 +3,7 @@ from fastapi import FastAPI, Response, WebSocket
 import logging
 from tw_utils import TwilioWebSocketManager
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.DEBUG)  # Para ver todos los logs
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
