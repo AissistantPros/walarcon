@@ -15,8 +15,9 @@ AUDIO_DIR = "audio"
 
 class TwilioWebSocketManager:
     """
-    Maneja la conexión WebSocket con Twilio usando Google STT en streaming.
-    - Implementa reinicio automático del stream STT antes de 240 s.
+    Maneja la conexión WebSocket con Twilio utilizando Google STT en streaming.
+    - Reinicia automáticamente el stream STT cada 290 segundos.
+    - Transfiere los chunks pendientes del stream anterior al nuevo.
     - Maneja el cierre robusto del WebSocket.
     """
     def __init__(self):
@@ -33,15 +34,15 @@ class TwilioWebSocketManager:
         self.google_task = asyncio.create_task(self._listen_google_results())
         try:
             while True:
-                # Reiniciar el stream STT automáticamente cada 240 segundos
+                # Reiniciar el stream STT automáticamente cada 290 segundos
                 elapsed = time.time() - self.stream_start_time
-                if elapsed >= 240:
+                if elapsed >= 290:
                     logger.info("Reiniciando stream STT por límite de duración.")
                     await self._restart_stt_stream()
                     self.stream_start_time = time.time()
 
                 try:
-                    message = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                    message = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
                 except asyncio.TimeoutError:
                     logger.warning("Timeout de inactividad, cerrando conexión.")
                     await self._hangup_call(websocket)
@@ -69,7 +70,6 @@ class TwilioWebSocketManager:
             if not self.call_ended:
                 await self._hangup_call(websocket)
             logger.info("WebSocket con Twilio cerrado.")
-            await websocket.close()
 
     async def _listen_google_results(self):
         async for result in self.stt_streamer.recognize_stream():
@@ -82,13 +82,14 @@ class TwilioWebSocketManager:
 
     async def _process_final_transcript(self, transcript: str):
         logger.info(f"Procesando la transcripción final: {transcript}")
-        # Aquí se llamaría a GPT y luego a TTS.
+        # Aquí se integraría la llamada a GPT y conversión a TTS.
         response = "Ejemplo de respuesta de GPT"
-        # Placeholder para la lógica de TTS.
         logger.info(f"(TTS) Respuesta IA: {response}")
+        # Ejemplo: podrías llamar a tts_utils.text_to_speech(response) y enviar el audio a Twilio.
 
     async def _restart_stt_stream(self):
         logger.info("Reiniciando el stream STT...")
+        old_queue = self.stt_streamer.audio_queue
         await self.stt_streamer.close()
         if self.google_task:
             self.google_task.cancel()
@@ -96,8 +97,13 @@ class TwilioWebSocketManager:
                 await self.google_task
             except asyncio.CancelledError:
                 logger.debug("Tarea Google STT cancelada correctamente.")
-        # Reinicia el STT streamer y la tarea
+        # Reinicia el STT streamer
         self.stt_streamer = GoogleSTTStreamer()
+        # Transfiere los chunks pendientes de forma asíncrona
+        while not old_queue.empty():
+            chunk = await old_queue.get()
+            if chunk is not None:
+                await self.stt_streamer.audio_queue.put(chunk)
         self.google_task = asyncio.create_task(self._listen_google_results())
         logger.info("Nuevo stream STT iniciado.")
 
@@ -115,10 +121,11 @@ class TwilioWebSocketManager:
                 logger.debug("Tarea Google STT cancelada correctamente.")
         try:
             if websocket.client_state == WebSocketState.CONNECTED:
-                await websocket.close()
+                await websocket.close(code=1000)
                 logger.info("WebSocket cerrado correctamente.")
         except Exception as e:
-            logger.error(f"Error al cerrar WebSocket: {e}")
+            if "close message has been sent" not in str(e):
+                logger.error(f"Error al cerrar WebSocket: {e}")
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
         if not self.stream_sid:

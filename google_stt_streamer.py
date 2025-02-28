@@ -1,7 +1,6 @@
 # google_stt_streamer.py
 import asyncio
 import os
-import time
 import audioop  # type: ignore
 from google.cloud import speech
 from google.oauth2.service_account import Credentials
@@ -14,14 +13,12 @@ class GoogleSTTStreamer:
     """
     Conecta con Google Speech-to-Text en tiempo real.
     - Convierte audio mu-law (Twilio) a PCM16.
-    - Usa autenticación con credenciales en variables de entorno.
-    - Procesa la transcripción en vivo.
-    - Mantiene un timer para reinicios (se reinicia desde TwilioWebSocketManager).
+    - Se autentica usando credenciales desde variables de entorno.
+    - Envía audio en streaming y retorna respuestas (parciales y finales).
     """
 
     def __init__(self):
         self.closed = False
-        self.stream_start_time = None  # Se asignará al iniciar el streaming.
         self.loop = asyncio.get_event_loop()
         self.credentials = self._get_google_credentials()
         self.client = speech.SpeechClient(credentials=self.credentials)
@@ -30,13 +27,12 @@ class GoogleSTTStreamer:
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
             language_code="es-MX",
-            # Usamos el modelo por defecto para español.
             enable_automatic_punctuation=True
         )
 
         self.streaming_config = speech.StreamingRecognitionConfig(
             config=self.config,
-            interim_results=True  # Para recibir transcripción parcial.
+            interim_results=True
         )
 
         self.audio_queue = asyncio.Queue()
@@ -65,7 +61,7 @@ class GoogleSTTStreamer:
         """
         Generador síncrono que envía los chunks de audio a Google STT.
         Usa asyncio.run_coroutine_threadsafe() para obtener el siguiente chunk
-        desde el event loop correcto. Si no hay audio en 0.1 s, envía un request vacío.
+        desde el event loop correcto. Si no llega audio en 0.1 s, envía un request vacío.
         """
         while not self.closed:
             try:
@@ -76,27 +72,33 @@ class GoogleSTTStreamer:
             except Exception:
                 yield speech.StreamingRecognizeRequest(audio_content=b"")
                 continue
-
             if chunk is None:
                 break
             yield speech.StreamingRecognizeRequest(audio_content=chunk)
 
     async def recognize_stream(self):
         """
-        Envía audio a Google STT en streaming y recibe respuestas en tiempo real.
-        Asigna el tiempo de inicio del stream.
+        Envía audio a Google STT en streaming y retorna respuestas en tiempo real.
+        Para evitar bloquear el event loop, se ejecuta la iteración en un executor.
         """
-        self.stream_start_time = time.time()
         try:
-            responses = self.client.streaming_recognize(
-                config=self.streaming_config,
-                requests=self._request_generator()
-            )
+            # Ejecuta la llamada en un hilo separado para obtener un iterable síncrono.
+            loop = asyncio.get_event_loop()
+            def get_responses():
+                return list(self.client.streaming_recognize(
+                    config=self.streaming_config,
+                    requests=self._request_generator()
+                ))
+            responses = await loop.run_in_executor(None, get_responses)
+            # Itera sobre las respuestas de forma asíncrona.
             for response in responses:
                 for result in response.results:
                     yield result
         except Exception as e:
-            logger.error(f"❌ Error en el streaming con Google STT: {e}")
+            if "Exceeded maximum allowed stream duration" not in str(e):
+                logger.error(f"❌ Error en el streaming con Google STT: {e}")
+            else:
+                logger.info("Stream STT cerrado por límite de duración.")
         self.closed = True
 
     def add_audio_chunk(self, mulaw_data: bytes):
@@ -111,14 +113,13 @@ class GoogleSTTStreamer:
 
     async def close(self):
         """
-        Cierra la conexión y vacía la cola de audio.
+        Cierra el stream y vacía la cola de audio.
         """
         self.closed = True
-        # Vaciar la cola
+        # Vaciar la cola de forma asíncrona:
         while not self.audio_queue.empty():
             try:
-                self.audio_queue.get_nowait()
-                self.audio_queue.task_done()
+                await self.audio_queue.get()
             except asyncio.QueueEmpty:
                 break
         await self.audio_queue.put(None)
