@@ -136,16 +136,21 @@ class GoogleSTTStreamer:
         except Exception as e:
             logger.error(f"🔥 Error en add_audio_chunk: {e}", exc_info=True)
 
-    async def close(self):
+async def close(self):
         """
         Cierra el stream y vacía la cola de audio.
         """
         self.closed = True
         logger.info("Cerrando GoogleSTTStreamer. Vaciando cola de audio.")
+        # Vaciar la cola de forma asíncrona y marcar las tareas como completadas
         while not self.audio_queue.empty():
             try:
                 await self.audio_queue.get()
+                self.audio_queue.task_done()
             except asyncio.QueueEmpty:
                 break
+        # Señal de cierre para el generador
         await self.audio_queue.put(None)
+        # Pequeño delay para permitir que las tareas pendientes finalicen
+        await asyncio.sleep(0.1)
         logger.info("GoogleSTTStreamer cerrado.")
