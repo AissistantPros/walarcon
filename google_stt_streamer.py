@@ -191,7 +191,7 @@ class GoogleSTTStreamer:
             os.makedirs("audio_debug", exist_ok=True)
             with open("audio_debug/converted_8k.raw", "ab") as f:
                 f.write(chunk)
-            logger.debug(f"[GoogleSTTStreamer] 🎵 Guardado chunk PCM16 ({len(chunk)} bytes) en audio_debug/converted_8k.raw")
+            #logger.debug(f"[GoogleSTTStreamer] 🎵 Guardado chunk PCM16 ({len(chunk)} bytes) en audio_debug/converted_8k.raw")
         except Exception as e:
             logger.error(f"[GoogleSTTStreamer] Error guardando PCM16 debug: {e}")
 

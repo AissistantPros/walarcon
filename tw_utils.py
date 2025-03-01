@@ -82,7 +82,7 @@ class TwilioWebSocketManager:
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
 
-                    logger.info(f"📢 Chunk de audio (mu-law) recibido, {len(mulaw_chunk)} bytes.")
+                   # logger.info(f"📢 Chunk de audio (mu-law) recibido, {len(mulaw_chunk)} bytes.")
                     self._save_mulaw_chunk(mulaw_chunk)
 
                     # Enviarlo a STT
@@ -137,7 +137,7 @@ class TwilioWebSocketManager:
         try:
             with open(filename, "ab") as f:
                 f.write(chunk)
-            logger.debug(f"Guardado chunk mu-law en {filename}, tamaño: {len(chunk)} bytes.")
+            # logger.debug(f"Guardado chunk mu-law en {filename}, tamaño: {len(chunk)} bytes.")
         except Exception as e:
             logger.error(f"Error guardando mu-law: {e}")
 
