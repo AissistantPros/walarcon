@@ -24,8 +24,8 @@ def default_callback(result):
     transcript = result.alternatives[0].transcript
     if result.is_final:
         logger.info(f"USUARIO (final): {transcript}")
-    else:
-        logger.debug(f"(parcial) => {transcript}")
+    #else:
+        #logger.debug(f"(parcial) => {transcript}")
 
 class TwilioWebSocketManager:
     """
