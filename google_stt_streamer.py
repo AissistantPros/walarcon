@@ -13,7 +13,7 @@ from decouple import config  # O python-dotenv, o la librería que uses para tus
 
 logger = logging.getLogger("google_stt_streamer")
 logger.setLevel(logging.DEBUG)
-
+#test
 class GoogleSTTStreamer:
     """
     Maneja la conexión con Google Speech-to-Text en un hilo secundario.
