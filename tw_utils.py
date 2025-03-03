@@ -1,4 +1,5 @@
 # tw_utils.py
+
 import json
 import base64
 import time
@@ -9,7 +10,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from google_stt_streamer import GoogleSTTStreamer
 
-# Importamos la IA y TTS
+# IA y TTS
 from aiagent import generate_openai_response
 from tts_utils import text_to_speech
 
@@ -20,34 +21,40 @@ AUDIO_DIR = "audio"
 
 def stt_callback_factory(manager, websocket):
     """
-    Retorna un callback para GoogleSTTStreamer que, al recibir texto final,
-    llama a GPT y reproduce respuesta con ElevenLabs.
+    Retorna un callback (sin async) para GoogleSTTStreamer.
+    Cuando llega texto final, llama a la IA y reproduce audio.
+    Sin embargo, en lugar de ensure_future, usamos run_coroutine_threadsafe
+    y manager.main_loop.
     """
     def stt_callback(result):
         if result.is_final:
             transcript = result.alternatives[0].transcript
             logger.info(f"USUARIO (final): {transcript}")
-            # Llamamos la función asíncrona process_gpt_response sin bloquear
-            asyncio.ensure_future(manager.process_gpt_response(transcript, websocket))
-        # else:
-        #   logger.debug(f"(parcial) => {result.alternatives[0].transcript}")
+            # // CAMBIO AQUÍ: en lugar de ensure_future, programamos la coroutine
+            if manager.main_loop:
+                asyncio.run_coroutine_threadsafe(
+                    manager.process_gpt_response(transcript, websocket),
+                    manager.main_loop
+                )
+            else:
+                logger.error("No main_loop en manager; no se puede procesar GPT.")
     return stt_callback
 
 class TwilioWebSocketManager:
-    """
-    Maneja la conexión WebSocket con Twilio.
-    - Inicia GoogleSTTStreamer en hilo secundario
-    - Reinicia cada ~290s
-    - Cierra robustamente
-    """
     def __init__(self):
         self.call_ended = False
         self.stream_sid = None
         self.stt_streamer = None
-        self.google_task = None
         self.stream_start_time = time.time()
+        self.main_loop = None  # // CAMBIO AQUÍ: almacenaremos aquí el loop principal
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
+        """
+        Punto de entrada del WebSocket de Twilio.
+        """
+        # // CAMBIO AQUÍ: Tomar el loop actual (el de FastAPI) para luego usarlo en el callback.
+        self.main_loop = asyncio.get_running_loop()
+
         await websocket.accept()
         logger.info("Conexión WebSocket aceptada con Twilio.")
 
@@ -59,7 +66,7 @@ class TwilioWebSocketManager:
             await websocket.close(code=1011)
             return
 
-        # Creamos un callback que tiene acceso a manager (self) y websocket
+        # Callback con referencia a manager y websocket
         stt_callback = stt_callback_factory(self, websocket)
 
         # Iniciar streaming en hilo
@@ -85,14 +92,12 @@ class TwilioWebSocketManager:
                 if event_type == "start":
                     self.stream_sid = data.get("streamSid")
                     logger.info(f"Nuevo stream SID: {self.stream_sid}")
-                    # Reproducir saludo inicial
                     await self._play_audio_file(websocket, "saludo.wav")
 
                 elif event_type == "media":
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
                     self._save_mulaw_chunk(mulaw_chunk)
-
                     # Enviarlo a STT
                     await self.stt_streamer.add_audio_chunk(mulaw_chunk)
 
@@ -118,22 +123,18 @@ class TwilioWebSocketManager:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
                 return
 
-            # Construimos un mini-historial de 1 turno (puedes mejorar esto)
-            conversation_history = [
-                {"role": "user", "content": user_text}
-            ]
+            # Aquí puedes mantener historial completo
+            conversation_history = [{"role": "user", "content": user_text}]
 
             gpt_response = generate_openai_response(conversation_history)
             if not gpt_response:
                 gpt_response = "Lo siento, no comprendí. Repita por favor."
 
-            # Generar audio con ElevenLabs
             audio_file = text_to_speech(gpt_response, "respuesta_audio.wav")
             if not audio_file:
                 logger.error("No se pudo crear el archivo de audio.")
                 return
 
-            # Reproducir en Twilio
             await self._play_audio_file(websocket, audio_file)
 
         except Exception as e:
@@ -145,11 +146,9 @@ class TwilioWebSocketManager:
         self.call_ended = True
         logger.info("Terminando la llamada.")
 
-        # Cerrar STT
         if self.stt_streamer:
             self.stt_streamer.close()
 
-        # Cerrar WebSocket
         try:
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.close(code=1000)
@@ -158,21 +157,19 @@ class TwilioWebSocketManager:
             logger.error(f"Error al cerrar WebSocket: {e}", exc_info=True)
 
     async def _restart_stt_stream(self):
-        """
-        Reinicia el streamer actual para evitar el límite ~5min de Google.
-        Descarta lo que quede en la cola antigua para evitar latencia.
-        """
         if self.stt_streamer:
             self.stt_streamer.close()
         self.stt_streamer = GoogleSTTStreamer()
-        self.stt_streamer.start_streaming(stt_callback_factory(self, None))
+        # Al reiniciar, pasamos un nuevo callback. 
+        # Nota: No tenemos un WebSocket nuevo aquí, 
+        #       si deseas que en ese callback se use el websocket, 
+        #       necesitarías guardarlo en una variable de clase.
+        stt_callback = stt_callback_factory(self, None)
+        self.stt_streamer.start_streaming(stt_callback)
         self.stream_start_time = time.time()
         logger.info("Nuevo STT streamer iniciado tras reinicio.")
 
     def _save_mulaw_chunk(self, chunk: bytes, filename="raw_audio.ulaw"):
-        """
-        Guarda el chunk mu-law para análisis.
-        """
         try:
             with open(filename, "ab") as f:
                 f.write(chunk)
