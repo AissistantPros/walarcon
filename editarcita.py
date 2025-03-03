@@ -1,3 +1,4 @@
+#editarcita.py
 # -*- coding: utf-8 -*-
 """
 Módulo para edición segura de citas con validación de horarios.
@@ -87,7 +88,7 @@ async def api_edit_calendar_event(phone: str, new_start: str, new_end: str):
         if not new_start or not new_end:
             raise HTTPException(status_code=400, detail="Se requieren nuevos horarios")
 
-        result = edit_calendar_event(phone, new_start, new_end)
+        result = edit_calendar_event(phone, None, new_start, new_end)
         if "error" in result:
             raise HTTPException(status_code=400, detail=result["error"])
 

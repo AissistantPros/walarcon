@@ -1,7 +1,11 @@
+#aiagent.py
+
 # -*- coding: utf-8 -*-
+
 """
 Módulo de IA con optimización de latencia.
 """
+
 import logging
 import time
 import json
@@ -171,13 +175,18 @@ def handle_tool_execution(tool_call) -> Dict:
 # 🔹 Generación de Respuestas (Versión Final)
 # ==================================================
 def generate_openai_response(conversation_history: List[Dict]) -> str:
+    """
+    conversation_history: lista de dict con mensajes, 
+      p.ej [{role: "system", content: "..."}, {role: "user", content: "..."}, ...]
+    """
+    from prompt import generate_openai_prompt
+
     try:
-        # Mantener esta parte (NO la borres)
+        # Agregar system prompt si no está presente
         if not any(msg["role"] == "system" for msg in conversation_history):
-            from prompt import generate_openai_prompt
             conversation_history = generate_openai_prompt(conversation_history)
 
-        # Modificación: Modelo más rápido y timeout
+        # Primer request a GPT (posible invocación de herramientas)
         first_response = client.chat.completions.create(
             model="gpt-3.5-turbo-0125",
             messages=conversation_history,
@@ -197,14 +206,15 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
                 "tool_call_id": tool_call.id
             })
 
+        # Si GPT no pidió herramientas, retornamos su texto
         if not tool_messages:
             return first_response.choices[0].message.content
 
+        # GPT pidió herramientas, hacemos segundo request para la respuesta final
         second_response = client.chat.completions.create(
             model="gpt-3.5-turbo-0125",
             messages=conversation_history + tool_messages,
         )
-
         return second_response.choices[0].message.content
 
     except Exception as e:

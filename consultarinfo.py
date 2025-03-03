@@ -1,3 +1,4 @@
+#consultarinfo.py
 # -*- coding: utf-8 -*-
 """
 Módulo para leer datos de Google Sheets.
@@ -67,3 +68,4 @@ async def get_consultorio_info():
     except Exception as e:
         logger.error(f"❌ Error en el endpoint de información del consultorio: {str(e)}")
         raise HTTPException(status_code=500, detail="Error interno del servidor")
+

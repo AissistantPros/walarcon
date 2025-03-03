@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+#eliminarcita.py
+#  -*- coding: utf-8 -*-
 """
 Módulo para la eliminación de citas en Google Calendar.
 Permite buscar y eliminar eventos en la agenda del consultorio del Dr. Wilfrido Alarcón.
@@ -89,3 +90,4 @@ async def api_delete_calendar_event(phone: str, patient_name: str = None):
     except Exception as e:
         logger.error(f"❌ Error en el endpoint de eliminación de cita: {str(e)}")
         raise HTTPException(status_code=500, detail="Error interno del servidor.")
+

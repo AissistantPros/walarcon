@@ -139,7 +139,17 @@ def search_calendar_event_by_phone(phone: str):
             singleEvents=True,
             orderBy="startTime"
         ).execute()
-        return events_result.get("items", [])
+        items = events_result.get("items", [])
+        # OJO: items no siempre tiene 'name' => con la API devuelta
+        # Podrías parsear 'summary' y 'description'.
+        # Asumimos que "summary" es el nombre y "description" cont. el phone
+        # Tu lógica actual no filtra. Ajustar según tu necesidad:
+        for evt in items:
+            if "summary" not in evt:
+                evt["name"] = "Desconocido"
+            else:
+                evt["name"] = evt["summary"]
+        return items
     except Exception as e:
         logger.error(f"❌ Error buscando citas: {str(e)}")
         return []
@@ -148,9 +158,10 @@ def get_cancun_time():
     """Obtiene la hora actual en Cancún."""
     return datetime.now(pytz.timezone("America/Cancun"))
 
-def is_slot_available(start_dt: datetime, end_dt: datetime):
-    """Verifica si un slot está disponible."""
-    busy_slots = get_cached_availability()
+def is_slot_available(start_dt: datetime, end_dt: datetime, busy_slots=None):
+    """Verifica si un slot está disponible (sin solaparse con 'busy_slots')."""
+    if busy_slots is None:
+        busy_slots = get_cached_availability()
     for slot in busy_slots:
         slot_start = parse(slot["start"]).astimezone(pytz.UTC)
         slot_end = parse(slot["end"]).astimezone(pytz.UTC)

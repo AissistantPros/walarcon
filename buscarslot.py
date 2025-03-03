@@ -68,15 +68,12 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
         if target_hour:
             target_hour = adjust_to_valid_slot(target_hour, SLOT_TIMES)
 
-        # Obtenemos los busy_slots de la caché
-        busy_slots = get_cached_availability()
-
         # Buscar hasta 6 meses en adelante
         MAX_DAYS_LOOKAHEAD = 180
         for offset in range(MAX_DAYS_LOOKAHEAD):
             day_to_check = search_start + timedelta(days=offset)
 
-            # Evitar domingos
+            # Evitar domingos (weekday() == 6)
             if day_to_check.weekday() == 6:
                 continue
 
@@ -102,7 +99,7 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                     continue
 
                 # Verificamos que no haya overlap con busy_slots
-                if is_slot_available(start_dt, end_dt, busy_slots):
+                if is_slot_available(start_dt, end_dt):
                     return {
                         "start_time": start_dt.isoformat(),
                         "end_time": end_dt.isoformat()
@@ -140,7 +137,7 @@ async def get_next_available_slot(target_date: str = None, target_hour: str = No
     - urgent (bool, opcional): Si True, omite las próximas 4 horas.
 
     Retorna:
-    - Un diccionario con el horario disponible o un mensaje de error.
+    - Un dict con el horario disponible o un mensaje de error.
     """
     slot = find_next_available_slot(target_date, target_hour, urgent)
     if "error" in slot:

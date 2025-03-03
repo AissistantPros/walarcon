@@ -29,7 +29,7 @@ def text_to_speech(text: str, output_path: str = "respuesta_audio.wav") -> str:
         output_path (str, opcional): Ruta donde se guardará el archivo de audio.
 
     Returns:
-        str: Ruta del archivo generado.
+        str: Ruta del archivo generado (o "" si falla).
     """
     start_total = time.perf_counter()
     try:

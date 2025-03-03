@@ -1,5 +1,4 @@
 # tw_utils.py
-
 import json
 import base64
 import time
@@ -10,22 +9,29 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from google_stt_streamer import GoogleSTTStreamer
 
+# Importamos la IA y TTS
+from aiagent import generate_openai_response
+from tts_utils import text_to_speech
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 AUDIO_DIR = "audio"
 
-def default_callback(result):
+def stt_callback_factory(manager, websocket):
     """
-    Ejemplo de callback que se llama cuando hay un result de STT.
-    - result.is_final => transcripción final
-    - result.alternatives[0].transcript => texto
+    Retorna un callback para GoogleSTTStreamer que, al recibir texto final,
+    llama a GPT y reproduce respuesta con ElevenLabs.
     """
-    transcript = result.alternatives[0].transcript
-    if result.is_final:
-        logger.info(f"USUARIO (final): {transcript}")
-    #else:
-        #logger.debug(f"(parcial) => {transcript}")
+    def stt_callback(result):
+        if result.is_final:
+            transcript = result.alternatives[0].transcript
+            logger.info(f"USUARIO (final): {transcript}")
+            # Llamamos la función asíncrona process_gpt_response sin bloquear
+            asyncio.ensure_future(manager.process_gpt_response(transcript, websocket))
+        # else:
+        #   logger.debug(f"(parcial) => {result.alternatives[0].transcript}")
+    return stt_callback
 
 class TwilioWebSocketManager:
     """
@@ -50,12 +56,14 @@ class TwilioWebSocketManager:
             self.stt_streamer = GoogleSTTStreamer()
         except Exception as e:
             logger.error(f"Error inicializando Google STT: {e}", exc_info=True)
-            # Opcional: notificar al usuario
             await websocket.close(code=1011)
             return
 
+        # Creamos un callback que tiene acceso a manager (self) y websocket
+        stt_callback = stt_callback_factory(self, websocket)
+
         # Iniciar streaming en hilo
-        self.stt_streamer.start_streaming(default_callback)
+        self.stt_streamer.start_streaming(stt_callback)
 
         self.stream_start_time = time.time()
         try:
@@ -77,12 +85,12 @@ class TwilioWebSocketManager:
                 if event_type == "start":
                     self.stream_sid = data.get("streamSid")
                     logger.info(f"Nuevo stream SID: {self.stream_sid}")
+                    # Reproducir saludo inicial
                     await self._play_audio_file(websocket, "saludo.wav")
+
                 elif event_type == "media":
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
-
-                   # logger.info(f"📢 Chunk de audio (mu-law) recibido, {len(mulaw_chunk)} bytes.")
                     self._save_mulaw_chunk(mulaw_chunk)
 
                     # Enviarlo a STT
@@ -92,6 +100,7 @@ class TwilioWebSocketManager:
                     logger.info("Twilio envió evento 'stop'.")
                     await self._hangup_call(websocket)
                     break
+
         except Exception as e:
             logger.error(f"Error en handle_twilio_websocket: {e}", exc_info=True)
             await self._hangup_call(websocket)
@@ -99,6 +108,36 @@ class TwilioWebSocketManager:
             if not self.call_ended:
                 await self._hangup_call(websocket)
             logger.info("WebSocket con Twilio cerrado.")
+
+    async def process_gpt_response(self, user_text: str, websocket: WebSocket):
+        """
+        Llama a GPT con el texto del usuario, obtiene respuesta,
+        lo manda a ElevenLabs y reproduce el audio resultante.
+        """
+        try:
+            if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
+                return
+
+            # Construimos un mini-historial de 1 turno (puedes mejorar esto)
+            conversation_history = [
+                {"role": "user", "content": user_text}
+            ]
+
+            gpt_response = generate_openai_response(conversation_history)
+            if not gpt_response:
+                gpt_response = "Lo siento, no comprendí. Repita por favor."
+
+            # Generar audio con ElevenLabs
+            audio_file = text_to_speech(gpt_response, "respuesta_audio.wav")
+            if not audio_file:
+                logger.error("No se pudo crear el archivo de audio.")
+                return
+
+            # Reproducir en Twilio
+            await self._play_audio_file(websocket, audio_file)
+
+        except Exception as e:
+            logger.error(f"Error en process_gpt_response: {e}", exc_info=True)
 
     async def _hangup_call(self, websocket: WebSocket):
         if self.call_ended:
@@ -126,7 +165,7 @@ class TwilioWebSocketManager:
         if self.stt_streamer:
             self.stt_streamer.close()
         self.stt_streamer = GoogleSTTStreamer()
-        self.stt_streamer.start_streaming(default_callback)
+        self.stt_streamer.start_streaming(stt_callback_factory(self, None))
         self.stream_start_time = time.time()
         logger.info("Nuevo STT streamer iniciado tras reinicio.")
 
@@ -137,16 +176,21 @@ class TwilioWebSocketManager:
         try:
             with open(filename, "ab") as f:
                 f.write(chunk)
-            # logger.debug(f"Guardado chunk mu-law en {filename}, tamaño: {len(chunk)} bytes.")
         except Exception as e:
             logger.error(f"Error guardando mu-law: {e}")
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
-        if not self.stream_sid:
+        if not self.stream_sid or self.call_ended:
+            return
+        if websocket.client_state != WebSocketState.CONNECTED:
             return
         try:
             os.makedirs(AUDIO_DIR, exist_ok=True)
             filepath = os.path.join(AUDIO_DIR, filename)
+            if not os.path.exists(filepath):
+                logger.error(f"No se encontró el archivo: {filepath}")
+                return
+
             with open(filepath, "rb") as f:
                 wav_data = f.read()
 
@@ -157,7 +201,5 @@ class TwilioWebSocketManager:
                 "media": {"payload": encoded}
             }))
             logger.info(f"Reproduciendo: {filename}")
-        except FileNotFoundError:
-            logger.error(f"No se encontró el archivo: {filepath}")
         except Exception as e:
-            logger.error(f"Error reproduciendo {filename}: {e}")
+            logger.error(f"Error reproduciendo {filename}: {e}", exc_info=True)
