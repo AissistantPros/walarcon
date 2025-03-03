@@ -13,7 +13,7 @@ from decouple import config  # O python-dotenv, o la librería que uses para tus
 
 logger = logging.getLogger("google_stt_streamer")
 logger.setLevel(logging.DEBUG)
-#test
+
 class GoogleSTTStreamer:
     """
     Maneja la conexión con Google Speech-to-Text en un hilo secundario.
@@ -204,10 +204,9 @@ class GoogleSTTStreamer:
         self.closed = True
         self._stop_event.set()
 
-        # Vaciar la cola asíncrona
+        # Vaciar la cola
         try:
-            loop = asyncio.get_event_loop()
-            loop.run_until_complete(self._clear_queue())
+            self._clear_queue()
         except:
             pass
 
@@ -216,7 +215,7 @@ class GoogleSTTStreamer:
 
         logger.info("[GoogleSTTStreamer] ✅ GoogleSTTStreamer cerrado.")
 
-    async def _clear_queue(self):
+    def _clear_queue(self):
         while not self.audio_queue.empty():
-            await self.audio_queue.get()
+            self.audio_queue.get()
             self.audio_queue.task_done()
