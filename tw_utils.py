@@ -9,12 +9,12 @@ from starlette.websockets import WebSocketState
 
 from google_stt_streamer import GoogleSTTStreamer
 from aiagent import generate_openai_response
-from tts_utils import text_to_speech  # Ahora devuelve audio en bytes usando BytesIO
+from tts_utils import text_to_speech  # Ahora devuelve audio en formato mu-law (bytes)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-AUDIO_DIR = "audio"  # Se usa para reproducir archivos como "saludo.wav"
+AUDIO_DIR = "audio"  # Se usa para reproducir archivos pregrabados (por ejemplo, saludo.wav)
 
 def stt_callback_factory(manager):
     """
@@ -45,16 +45,16 @@ class TwilioWebSocketManager:
         self.stt_streamer = None
         self.stream_start_time = time.time()
 
-        # Variables para detección de silencio
-        self.current_partial = ""
-        self.last_partial_time = 0.0
-        self.silence_threshold = 1.5  # Segundos de silencio para considerar fin de frase
+        # Variables para la detección de silencio
+        self.current_partial = ""       # Última transcripción parcial recibida
+        self.last_partial_time = 0.0      # Timestamp del último parcial
+        self.silence_threshold = 1.5      # Segundos de silencio para considerar fin de frase
 
         self._silence_task = None
         self.main_loop = None
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
-        # Guardamos el loop principal
+        # Guarda el loop principal
         self.main_loop = asyncio.get_running_loop()
         await websocket.accept()
         logger.info("Conexión WebSocket aceptada con Twilio.")
@@ -71,7 +71,7 @@ class TwilioWebSocketManager:
         stt_callback = stt_callback_factory(self)
         self.stt_streamer.start_streaming(stt_callback)
 
-        # Iniciar tarea para detectar silencio
+        # Iniciar tarea asíncrona para detectar silencio
         self._silence_task = asyncio.create_task(self._silence_watcher(websocket))
 
         self.stream_start_time = time.time()
@@ -112,8 +112,8 @@ class TwilioWebSocketManager:
 
     async def _silence_watcher(self, websocket: WebSocket):
         """
-        Revisa cada 0.2 segundos si han pasado más de 'silence_threshold' segundos sin nuevos parciales.
-        Si es así, considera que el usuario terminó de hablar y dispara la respuesta.
+        Revisa cada 0.2 seg si han pasado más de 'silence_threshold' seg sin nuevos parciales.
+        Si es así, considera que el usuario terminó de hablar y dispara process_gpt_response.
         """
         check_interval = 0.2
         while not self.call_ended and websocket.client_state == WebSocketState.CONNECTED:
@@ -125,7 +125,7 @@ class TwilioWebSocketManager:
 
     async def process_gpt_response(self, user_text: str, websocket: WebSocket):
         """
-        Llama a GPT con el texto final del usuario, obtiene la respuesta y la envía a Twilio.
+        Llama a GPT con la transcripción final y reproduce la respuesta a través de TTS.
         """
         try:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
@@ -135,7 +135,7 @@ class TwilioWebSocketManager:
             gpt_response = generate_openai_response(conversation_history)
             if not gpt_response:
                 gpt_response = "Lo siento, no comprendí. ¿Podría repetir, por favor?"
-            # Llama a TTS: ahora text_to_speech devuelve audio en bytes (BytesIO)
+            # Convertir texto a audio usando TTS (devuelve audio en formato mu-law, bytes)
             audio_bytes = text_to_speech(gpt_response)
             if not audio_bytes:
                 logger.error("No se pudo generar audio TTS.")
@@ -178,7 +178,7 @@ class TwilioWebSocketManager:
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
         """
-        Reproduce un archivo (por ejemplo, saludo.wav) que está en disco.
+        Reproduce un archivo de audio (por ejemplo, saludo.wav) que está en disco.
         """
         if not self.stream_sid or self.call_ended:
             return
@@ -196,7 +196,11 @@ class TwilioWebSocketManager:
             await websocket.send_text(json.dumps({
                 "event": "media",
                 "streamSid": self.stream_sid,
-                "media": {"payload": encoded}
+                "media": {
+                    "payload": encoded,
+                    "codec": "audio/x-mulaw",
+                    "sampleRate": 8000
+                }
             }))
             logger.info(f"Reproduciendo: {filename}")
         except Exception as e:
@@ -204,7 +208,7 @@ class TwilioWebSocketManager:
 
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         """
-        Envía el audio generado por TTS (en bytes) directamente a Twilio.
+        Envía el audio generado por TTS (en bytes, en formato mu-law) directamente a Twilio.
         """
         if not self.stream_sid or self.call_ended:
             return
@@ -215,7 +219,11 @@ class TwilioWebSocketManager:
             await websocket.send_text(json.dumps({
                 "event": "media",
                 "streamSid": self.stream_sid,
-                "media": {"payload": encoded}
+                "media": {
+                    "payload": encoded,
+                    "codec": "audio/x-mulaw",
+                    "sampleRate": 8000
+                }
             }))
             logger.info("Reproduciendo audio TTS desde memoria")
         except Exception as e:
