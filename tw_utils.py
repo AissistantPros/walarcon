@@ -45,7 +45,7 @@ class TwilioWebSocketManager:
         self.stt_streamer = None
         self.stream_start_time = time.time()
 
-        # Variables para la detección de silencio
+        # Variables para detección de silencio
         self.current_partial = ""       # Última transcripción parcial recibida
         self.last_partial_time = 0.0      # Timestamp del último parcial
         self.silence_threshold = 1.5      # Segundos de silencio para considerar fin de frase
@@ -135,7 +135,7 @@ class TwilioWebSocketManager:
             gpt_response = generate_openai_response(conversation_history)
             if not gpt_response:
                 gpt_response = "Lo siento, no comprendí. ¿Podría repetir, por favor?"
-            # Convertir texto a audio usando TTS (devuelve audio en formato mu-law, bytes)
+            # Convertir texto a audio usando TTS (que devuelve audio en formato mu-law, bytes)
             audio_bytes = text_to_speech(gpt_response)
             if not audio_bytes:
                 logger.error("No se pudo generar audio TTS.")
@@ -179,6 +179,7 @@ class TwilioWebSocketManager:
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
         """
         Reproduce un archivo de audio (por ejemplo, saludo.wav) que está en disco.
+        En esta versión se envía solo el payload (sin campos extra) para probar.
         """
         if not self.stream_sid or self.call_ended:
             return
@@ -197,9 +198,9 @@ class TwilioWebSocketManager:
                 "event": "media",
                 "streamSid": self.stream_sid,
                 "media": {
-                    "payload": encoded,
-                    "codec": "audio/x-mulaw",
-                    "sampleRate": 8000
+                    "payload": encoded
+                    # Para pruebas, no enviamos codec y sampleRate.
+                    # Si es necesario, podemos agregarlos luego.
                 }
             }))
             logger.info(f"Reproduciendo: {filename}")
@@ -208,7 +209,8 @@ class TwilioWebSocketManager:
 
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         """
-        Envía el audio generado por TTS (en bytes, en formato mu-law) directamente a Twilio.
+        Envía el audio generado por TTS (en bytes, formato mu-law) directamente a Twilio.
+        En esta versión se envía solo el payload (sin campos extra).
         """
         if not self.stream_sid or self.call_ended:
             return
@@ -220,9 +222,8 @@ class TwilioWebSocketManager:
                 "event": "media",
                 "streamSid": self.stream_sid,
                 "media": {
-                    "payload": encoded,
-                    "codec": "audio/x-mulaw",
-                    "sampleRate": 8000
+                    "payload": encoded
+                    # Para pruebas, no agregamos codec ni sampleRate.
                 }
             }))
             logger.info("Reproduciendo audio TTS desde memoria")
