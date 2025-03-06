@@ -29,7 +29,7 @@ def text_to_speech(text: str, output_path: str = "respuesta_audio.wav") -> str:
         output_path (str, opcional): Ruta donde se guardará el archivo de audio.
 
     Returns:
-        str: Ruta del archivo generado (o "" si falla).
+        str: Ruta del archivo generado.
     """
     start_total = time.perf_counter()
     try:
@@ -44,7 +44,7 @@ def text_to_speech(text: str, output_path: str = "respuesta_audio.wav") -> str:
                 speed=1.2,
                 use_speaker_boost=False
             ),
-            output_format="pcm_16"
+            output_format="pcm_8000"  # Cambiado de "pcm_16" a "pcm_8000"
         )
         audio_data = b"".join(audio_stream)
 
