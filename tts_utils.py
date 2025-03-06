@@ -21,7 +21,7 @@ def text_to_speech(text: str) -> bytes:
         text (str): Texto a convertir.
         
     Returns:
-        bytes: Audio WAV (mono, 16-bit, 8000 Hz) o b"" en caso de error.
+        bytes: Audio WAV (mono, 16-bit, 16000 Hz) o b"" en caso de error.
     """
     start_total = time.perf_counter()
     try:
@@ -36,16 +36,16 @@ def text_to_speech(text: str) -> bytes:
                 speed=1.2,
                 use_speaker_boost=False
             ),
-            output_format="pcm_8000"  # Formato compatible
+            output_format="pcm_16000"  # Cambiado a 16 kHz
         )
         audio_data = b"".join(audio_stream)
         
-        # Escribir el audio PCM a WAV en memoria usando BytesIO
+        # Convertir PCM a WAV en memoria usando BytesIO
         wav_io = io.BytesIO()
         with wave.open(wav_io, "wb") as wav_file:
-            wav_file.setnchannels(1)     # Mono
-            wav_file.setsampwidth(2)       # 16-bit
-            wav_file.setframerate(8000)    # 8000 Hz
+            wav_file.setnchannels(1)      # Mono
+            wav_file.setsampwidth(2)        # 16-bit
+            wav_file.setframerate(16000)    # 16000 Hz
             wav_file.writeframes(audio_data)
         wav_bytes = wav_io.getvalue()
         logger.info(f"[TTS] Audio generado en memoria | Tiempo: {time.perf_counter() - start_total:.2f}s")
