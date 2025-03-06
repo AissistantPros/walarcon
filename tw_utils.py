@@ -9,26 +9,28 @@ from starlette.websockets import WebSocketState
 
 from google_stt_streamer import GoogleSTTStreamer
 from aiagent import generate_openai_response
-from tts_utils import text_to_speech  # Ahora devuelve audio en formato mu-law (bytes)
+from tts_utils import text_to_speech  # Esta versión devuelve audio en formato mu-law (bytes)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-AUDIO_DIR = "audio"  # Se usa para reproducir archivos pregrabados (por ejemplo, saludo.wav)
+AUDIO_DIR = "audio"  # Carpeta para archivos pregrabados (por ejemplo, saludo.wav)
 
 def stt_callback_factory(manager):
     """
     Genera un callback para STT que actualiza 'current_partial' y 'last_partial_time'
-    con cada resultado parcial o final.
+    con cada resultado parcial o final. Se minimizan los logs de parciales.
     """
     def stt_callback(result):
         transcript = result.alternatives[0].transcript
         if transcript:
+            # Actualizar la transcripción parcial en manager sin loguear cada actualización
             manager.current_partial = transcript
             manager.last_partial_time = time.time()
-            logger.debug(f"(parcial) => {transcript}")
+            # Se podría dejar un log debug opcional, comentado:
+            # logger.debug(f"(parcial) => {transcript}")
             if result.is_final:
-                logger.debug("Google marcó is_final=True. (Pero no cerramos stream)")
+                logger.debug("Google marcó is_final=True.")
                 manager.current_partial = transcript
                 manager.last_partial_time = time.time()
     return stt_callback
@@ -36,8 +38,9 @@ def stt_callback_factory(manager):
 class TwilioWebSocketManager:
     """
     Maneja la conexión WebSocket con Twilio.
-    - Integra GoogleSTTStreamer en modo multi-turn (single_utterance=False).
+    - Usa GoogleSTTStreamer en modo multi-turn (single_utterance=False).
     - Implementa detección local de silencio para disparar la respuesta.
+    - Mide latencias de GSTT, GPT, ElevenLabs y del sistema completo.
     """
     def __init__(self):
         self.call_ended = False
@@ -48,13 +51,13 @@ class TwilioWebSocketManager:
         # Variables para detección de silencio
         self.current_partial = ""       # Última transcripción parcial recibida
         self.last_partial_time = 0.0      # Timestamp del último parcial
-        self.silence_threshold = 1.5      # Segundos de silencio para considerar fin de frase
+        self.silence_threshold = 1.5      # Segundos de silencio para considerar que el usuario terminó de hablar
 
         self._silence_task = None
         self.main_loop = None
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
-        # Guarda el loop principal
+        # Guarda el event loop principal
         self.main_loop = asyncio.get_running_loop()
         await websocket.accept()
         logger.info("Conexión WebSocket aceptada con Twilio.")
@@ -113,33 +116,53 @@ class TwilioWebSocketManager:
     async def _silence_watcher(self, websocket: WebSocket):
         """
         Revisa cada 0.2 seg si han pasado más de 'silence_threshold' seg sin nuevos parciales.
-        Si es así, considera que el usuario terminó de hablar y dispara process_gpt_response.
+        Si es así, considera que el usuario terminó de hablar, mide la latencia del STT,
+        y dispara process_gpt_response.
         """
         check_interval = 0.2
         while not self.call_ended and websocket.client_state == WebSocketState.CONNECTED:
             await asyncio.sleep(check_interval)
             if self.current_partial and (time.time() - self.last_partial_time > self.silence_threshold):
                 final_text = self.current_partial.strip()
+                gstt_latency = time.time() - self.last_partial_time
+                logger.info(f"GSTT latency (silence detection): {gstt_latency*1000:.0f} ms")
                 self.current_partial = ""  # Limpiar para evitar disparos repetidos
                 asyncio.create_task(self.process_gpt_response(final_text, websocket))
 
     async def process_gpt_response(self, user_text: str, websocket: WebSocket):
         """
-        Llama a GPT con la transcripción final y reproduce la respuesta a través de TTS.
+        Llama a GPT con el texto final del usuario, mide latencias de GPT y TTS,
+        y envía el audio resultante a Twilio.
         """
         try:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
                 return
+
+            final_detection_time = time.time()
             logger.info(f"USUARIO (FINAL_LOCAL): {user_text}")
+
+            # Medir latencia de GPT
+            gpt_start = time.time()
             conversation_history = [{"role": "user", "content": user_text}]
             gpt_response = generate_openai_response(conversation_history)
+            gpt_latency = time.time() - gpt_start
+            logger.info(f"GPT latency: {gpt_latency*1000:.0f} ms")
             if not gpt_response:
                 gpt_response = "Lo siento, no comprendí. ¿Podría repetir, por favor?"
-            # Convertir texto a audio usando TTS (que devuelve audio en formato mu-law, bytes)
+
+            # Medir latencia de ElevenLabs TTS
+            tts_start = time.time()
             audio_bytes = text_to_speech(gpt_response)
+            tts_latency = time.time() - tts_start
+            logger.info(f"ElevenLabs latency: {tts_latency*1000:.0f} ms")
+            
+            total_latency = time.time() - final_detection_time
+            logger.info(f"Total system latency (from final detection to audio ready): {total_latency*1000:.0f} ms")
+
             if not audio_bytes:
                 logger.error("No se pudo generar audio TTS.")
                 return
+
             await self._play_audio_bytes(websocket, audio_bytes)
         except Exception as e:
             logger.error(f"Error en process_gpt_response: {e}", exc_info=True)
@@ -179,7 +202,7 @@ class TwilioWebSocketManager:
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
         """
         Reproduce un archivo de audio (por ejemplo, saludo.wav) que está en disco.
-        En esta versión se envía solo el payload (sin campos extra) para probar.
+        En esta versión para pruebas se envía solo el payload (sin campos extra).
         """
         if not self.stream_sid or self.call_ended:
             return
@@ -199,8 +222,6 @@ class TwilioWebSocketManager:
                 "streamSid": self.stream_sid,
                 "media": {
                     "payload": encoded
-                    # Para pruebas, no enviamos codec y sampleRate.
-                    # Si es necesario, podemos agregarlos luego.
                 }
             }))
             logger.info(f"Reproduciendo: {filename}")
@@ -223,7 +244,6 @@ class TwilioWebSocketManager:
                 "streamSid": self.stream_sid,
                 "media": {
                     "payload": encoded
-                    # Para pruebas, no agregamos codec ni sampleRate.
                 }
             }))
             logger.info("Reproduciendo audio TTS desde memoria")
