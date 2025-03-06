@@ -18,6 +18,9 @@ logger.setLevel(logging.DEBUG)
 
 AUDIO_DIR = "audio"
 
+
+
+
 def stt_callback_factory(manager):
     """
     Genera un callback para STT que maneja resultados parciales y finales.
@@ -38,6 +41,10 @@ def stt_callback_factory(manager):
                 manager.last_partial_time = time.time()
     return stt_callback
 
+
+
+
+
 class TwilioWebSocketManager:
     """
     Maneja la conexión WebSocket con Twilio.
@@ -57,6 +64,11 @@ class TwilioWebSocketManager:
 
         self._silence_task = None
         self.main_loop = None
+
+
+
+
+
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         # Guardamos el event loop principal (del servidor)
@@ -120,6 +132,12 @@ class TwilioWebSocketManager:
                 await self._hangup_call(websocket)
             logger.info("WebSocket con Twilio cerrado.")
 
+
+
+
+
+
+
     async def _silence_watcher(self, websocket: WebSocket):
         """
         Revisa periódicamente si ha pasado suficiente tiempo sin nuevos parciales.
@@ -133,6 +151,12 @@ class TwilioWebSocketManager:
                 final_text = self.current_partial.strip()
                 self.current_partial = ""  # Limpiar para evitar repeticiones
                 asyncio.create_task(self.process_gpt_response(final_text, websocket))
+
+
+
+
+
+
 
     async def process_gpt_response(self, user_text: str, websocket: WebSocket):
         """
@@ -161,6 +185,12 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"Error en process_gpt_response: {e}", exc_info=True)
 
+
+
+
+
+
+
     async def _hangup_call(self, websocket: WebSocket):
         if self.call_ended:
             return
@@ -180,6 +210,12 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"Error al cerrar WebSocket: {e}", exc_info=True)
 
+
+
+
+
+
+
     async def _restart_stt_stream(self):
         if self.stt_streamer:
             self.stt_streamer.close()
@@ -189,12 +225,24 @@ class TwilioWebSocketManager:
         self.stream_start_time = time.time()
         logger.info("Nuevo STT streamer iniciado tras reinicio.")
 
+
+
+
+
+
     def _save_mulaw_chunk(self, chunk: bytes, filename="raw_audio.ulaw"):
         try:
             with open(filename, "ab") as f:
                 f.write(chunk)
         except Exception as e:
             logger.error(f"Error guardando mu-law: {e}")
+
+
+
+
+
+
+
 
     async def _play_audio_file(self, websocket: WebSocket, filename: str):
         """
@@ -223,6 +271,11 @@ class TwilioWebSocketManager:
             logger.info(f"Reproduciendo: {filename}")
         except Exception as e:
             logger.error(f"Error reproduciendo {filename}: {e}", exc_info=True)
+
+
+
+
+
 
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         """
