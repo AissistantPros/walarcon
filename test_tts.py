@@ -1,5 +1,6 @@
 import os
 from tts_utils import text_to_speech
+from decouple import config
 
 def main():
     # Texto de prueba para TTS

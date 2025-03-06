@@ -1,15 +1,12 @@
-# google_stt_streamer.py
-
 import os
 import time
-import queue
 import threading
 import logging
 import asyncio
 import audioop  # type: ignore
 from google.cloud import speech
 from google.cloud.speech_v1 import StreamingRecognitionConfig, StreamingRecognizeRequest
-from decouple import config  # O python-dotenv, o la librería que uses para tus env
+from decouple import config  # O python-dotenv, según uses
 
 logger = logging.getLogger("google_stt_streamer")
 logger.setLevel(logging.DEBUG)
@@ -17,18 +14,13 @@ logger.setLevel(logging.DEBUG)
 class GoogleSTTStreamer:
     """
     Maneja la conexión con Google Speech-to-Text en un hilo secundario.
-    - Recibe chunks PCM16 8kHz
-    - Agrupa ~100ms (1600 bytes) antes de enviar
-    - single_utterance=False => no cierra al primer silencio
-    - interim_results=True => manda resultados parciales
+    Recibe audio en chunks (PCM16 8kHz), agrupa ~100ms (1600 bytes) y lo envía a Google.
+    Usa single_utterance=False e interim_results=True para mantener el stream abierto.
     """
-
     REQUIRED_BYTES_100MS = 1600
 
     def __init__(self):
-        """
-        Carga credenciales desde variables de entorno y crea el cliente de STT.
-        """
+        # Cargar credenciales desde variables de entorno
         project_id = config("GOOGLE_PROJECT_ID", default="")
         private_key_id = config("GOOGLE_PRIVATE_KEY_ID", default="")
         private_key = config("GOOGLE_PRIVATE_KEY", default="").replace("\\n", "\n")
@@ -57,7 +49,7 @@ class GoogleSTTStreamer:
 
         logger.info("[GoogleSTTStreamer] Credenciales cargadas correctamente desde variables de entorno.")
 
-        # Config de reconocimiento
+        # Configuración del reconocimiento
         recognition_config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
@@ -66,14 +58,13 @@ class GoogleSTTStreamer:
         )
         self.streaming_config = StreamingRecognitionConfig(
             config=recognition_config,
-            interim_results=True,      # <--- Resultados parciales
-            single_utterance=False     # <--- No cerrar al primer silencio
+            interim_results=True,      # Recibe parciales
+            single_utterance=False     # No cierra al primer silencio
         )
-        logger.info("[GoogleSTTStreamer] Instanciado con config 8k LINEAR16, single_utterance=False, interim=True.")
+        logger.info("[GoogleSTTStreamer] Instanciado con config 8k LINEAR16, single_utterance=False, interim_results=True.")
 
-        # Cola donde se ponen los chunks PCM16
+        # Cola para los chunks de audio
         self.audio_queue = asyncio.Queue()
-
         self.closed = False
         self._buffer = bytearray()
         self._stop_event = threading.Event()
@@ -81,8 +72,8 @@ class GoogleSTTStreamer:
 
     def start_streaming(self, callback):
         """
-        Inicia el hilo que hará streaming_recognize con Google.
-        :param callback: función(result) con la transcripción parcial/final
+        Inicia el hilo que ejecuta streaming_recognize con Google.
+        callback: función que se llama con cada resultado (parcial o final).
         """
         if self._thread and self._thread.is_alive():
             logger.warning("[GoogleSTTStreamer] Ya existe un stream activo.")
@@ -98,9 +89,6 @@ class GoogleSTTStreamer:
         self._thread.start()
 
     def _run_streaming_recognize(self, callback):
-        """
-        Corre en un hilo. Produce 'resp.results' que llama callback(result).
-        """
         try:
             requests = self._request_generator()
             responses = self.client.streaming_recognize(
@@ -119,7 +107,6 @@ class GoogleSTTStreamer:
     def _request_generator(self):
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
         try:
             while not self._stop_event.is_set() and not self.closed:
                 try:
@@ -128,9 +115,8 @@ class GoogleSTTStreamer:
                     )
                     if chunk:
                         self._buffer.extend(chunk)
-
                     while len(self._buffer) >= self.REQUIRED_BYTES_100MS:
-                        send_chunk = self._buffer[: self.REQUIRED_BYTES_100MS]
+                        send_chunk = self._buffer[:self.REQUIRED_BYTES_100MS]
                         self._buffer = self._buffer[self.REQUIRED_BYTES_100MS:]
                         yield StreamingRecognizeRequest(audio_content=bytes(send_chunk))
                 except asyncio.TimeoutError:
@@ -138,8 +124,6 @@ class GoogleSTTStreamer:
                 except Exception as e:
                     logger.debug(f"[GoogleSTTStreamer] _request_generator error: {e}")
                     break
-
-            # Al terminar
             if self._buffer:
                 yield StreamingRecognizeRequest(audio_content=bytes(self._buffer))
                 self._buffer.clear()
@@ -148,7 +132,7 @@ class GoogleSTTStreamer:
 
     async def add_audio_chunk(self, mulaw_data: bytes):
         """
-        Convierte mu-law a PCM16 y lo pone en la cola.
+        Convierte audio mu-law a PCM16 y lo añade a la cola.
         """
         try:
             pcm16 = audioop.ulaw2lin(mulaw_data, 2)
@@ -161,20 +145,17 @@ class GoogleSTTStreamer:
 
     def close(self):
         """
-        Cierra la transmisión con Google.
+        Cierra la transmisión y vacía la cola.
         """
         logger.info("[GoogleSTTStreamer] 🛑 Cerrando GoogleSTTStreamer. Vaciando cola de audio.")
         self.closed = True
         self._stop_event.set()
-
         try:
             self._clear_queue()
         except:
             pass
-
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
-
         logger.info("[GoogleSTTStreamer] ✅ GoogleSTTStreamer cerrado.")
 
     def _clear_queue(self):
