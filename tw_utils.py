@@ -8,9 +8,8 @@ import logging
 import os
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
-from google_stt_streamer import GoogleSTTStreamer
 
-# IA y TTS
+from google_stt_streamer import GoogleSTTStreamer
 from aiagent import generate_openai_response
 from tts_utils import text_to_speech
 
@@ -19,40 +18,49 @@ logger.setLevel(logging.DEBUG)
 
 AUDIO_DIR = "audio"
 
-def stt_callback_factory(manager, websocket):
+def stt_callback_factory(manager):
     """
-    Retorna un callback (sin async) para GoogleSTTStreamer.
-    Cuando llega texto final, llama a la IA y reproduce audio.
-    Sin embargo, en lugar de ensure_future, usamos run_coroutine_threadsafe
-    y manager.main_loop.
+    Genera un callback para STT que maneja resultados parciales y finales.
+    NO llama directamente a GPT. Sólo actualiza 'current_partial' y 'last_partial_time'.
     """
     def stt_callback(result):
-        if result.is_final:
-            transcript = result.alternatives[0].transcript
-            logger.info(f"USUARIO (final): {transcript}")
-            # // CAMBIO AQUÍ: en lugar de ensure_future, programamos la coroutine
-            if manager.main_loop:
-                asyncio.run_coroutine_threadsafe(
-                    manager.process_gpt_response(transcript, websocket),
-                    manager.main_loop
-                )
-            else:
-                logger.error("No main_loop en manager; no se puede procesar GPT.")
+        transcript = result.alternatives[0].transcript
+        if transcript:
+            # Actualizar la transcripción parcial en manager
+            manager.current_partial = transcript
+            manager.last_partial_time = time.time()
+            logger.debug(f"(parcial) => {transcript}")
+            
+            if result.is_final:
+                logger.debug("Google marcó is_final=True. (Pero no cerramos stream)")
+                # Igual actualizamos, en caso de que Google mande un final real
+                manager.current_partial = transcript
+                manager.last_partial_time = time.time()
+        # Si result no tiene transcript, no hacemos nada
     return stt_callback
 
 class TwilioWebSocketManager:
+    """
+    Maneja la conexión WebSocket con Twilio.
+    + Integración con GoogleSTTStreamer (multi-turn, single_utterance=False).
+    + Detección local de silencio.
+    """
     def __init__(self):
         self.call_ended = False
         self.stream_sid = None
         self.stt_streamer = None
         self.stream_start_time = time.time()
-        self.main_loop = None  # // CAMBIO AQUÍ: almacenaremos aquí el loop principal
+
+        # Para la detección de silencio
+        self.current_partial = ""       # guarda la última transcripción recibida
+        self.last_partial_time = 0.0    # timestamp del último parcial
+        self.silence_threshold = 1.5    # seg de silencio para "final local"
+
+        self._silence_task = None
+        self.main_loop = None
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
-        """
-        Punto de entrada del WebSocket de Twilio.
-        """
-        # // CAMBIO AQUÍ: Tomar el loop actual (el de FastAPI) para luego usarlo en el callback.
+        # Guardamos el event loop principal para tareas
         self.main_loop = asyncio.get_running_loop()
 
         await websocket.accept()
@@ -66,11 +74,12 @@ class TwilioWebSocketManager:
             await websocket.close(code=1011)
             return
 
-        # Callback con referencia a manager y websocket
-        stt_callback = stt_callback_factory(self, websocket)
-
-        # Iniciar streaming en hilo
+        # Crear callback para STT
+        stt_callback = stt_callback_factory(self)
         self.stt_streamer.start_streaming(stt_callback)
+
+        # Iniciamos una tarea asíncrona que revisa silencio cada 0.2 seg
+        self._silence_task = asyncio.create_task(self._silence_watcher(websocket))
 
         self.stream_start_time = time.time()
         try:
@@ -98,6 +107,7 @@ class TwilioWebSocketManager:
                     payload_base64 = data["media"]["payload"]
                     mulaw_chunk = base64.b64decode(payload_base64)
                     self._save_mulaw_chunk(mulaw_chunk)
+
                     # Enviarlo a STT
                     await self.stt_streamer.add_audio_chunk(mulaw_chunk)
 
@@ -114,25 +124,49 @@ class TwilioWebSocketManager:
                 await self._hangup_call(websocket)
             logger.info("WebSocket con Twilio cerrado.")
 
+    async def _silence_watcher(self, websocket: WebSocket):
+        """
+        Revisa periódicamente si pasó suficiente tiempo sin nuevos parciales.
+        Si es así, consideramos que es "final local" y llamamos GPT.
+        """
+        check_interval = 0.2  # cada 200ms
+        while not self.call_ended and websocket.client_state == WebSocketState.CONNECTED:
+            await asyncio.sleep(check_interval)
+
+            # Si tenemos algo en current_partial y ha pasado silence_threshold
+            if self.current_partial and (time.time() - self.last_partial_time > self.silence_threshold):
+                # Guardamos el texto final
+                final_text = self.current_partial.strip()
+                # Limpiamos para no disparar varias veces
+                self.current_partial = ""
+
+                # Llamar GPT
+                asyncio.create_task(self.process_gpt_response(final_text, websocket))
+
     async def process_gpt_response(self, user_text: str, websocket: WebSocket):
         """
-        Llama a GPT con el texto del usuario, obtiene respuesta,
-        lo manda a ElevenLabs y reproduce el audio resultante.
+        Llama a GPT con la transcripción final y reproduce la respuesta.
         """
         try:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
                 return
 
-            # Aquí puedes mantener historial completo
-            conversation_history = [{"role": "user", "content": user_text}]
+            logger.info(f"USUARIO (FINAL_LOCAL): {user_text}")
+
+            # Podrías mantener un historial más grande, 
+            # por ahora un único turno:
+            conversation_history = [
+                {"role": "user", "content": user_text}
+            ]
 
             gpt_response = generate_openai_response(conversation_history)
             if not gpt_response:
-                gpt_response = "Lo siento, no comprendí. Repita por favor."
+                gpt_response = "Lo siento, no comprendí. ¿Podría repetir, por favor?"
 
+            # Convertir texto a audio
             audio_file = text_to_speech(gpt_response, "respuesta_audio.wav")
             if not audio_file:
-                logger.error("No se pudo crear el archivo de audio.")
+                logger.error("No se pudo generar archivo TTS.")
                 return
 
             await self._play_audio_file(websocket, audio_file)
@@ -149,6 +183,10 @@ class TwilioWebSocketManager:
         if self.stt_streamer:
             self.stt_streamer.close()
 
+        # Cancelar tarea de silencio
+        if self._silence_task and not self._silence_task.done():
+            self._silence_task.cancel()
+
         try:
             if websocket.client_state == WebSocketState.CONNECTED:
                 await websocket.close(code=1000)
@@ -160,12 +198,8 @@ class TwilioWebSocketManager:
         if self.stt_streamer:
             self.stt_streamer.close()
         self.stt_streamer = GoogleSTTStreamer()
-        # Al reiniciar, pasamos un nuevo callback. 
-        # Nota: No tenemos un WebSocket nuevo aquí, 
-        #       si deseas que en ese callback se use el websocket, 
-        #       necesitarías guardarlo en una variable de clase.
-        stt_callback = stt_callback_factory(self, None)
-        self.stt_streamer.start_streaming(stt_callback)
+        callback = stt_callback_factory(self)
+        self.stt_streamer.start_streaming(callback)
         self.stream_start_time = time.time()
         logger.info("Nuevo STT streamer iniciado tras reinicio.")
 
