@@ -58,7 +58,6 @@ async def download_raw():
 async def download_linear16():
     """
     Descarga converted_8k.raw (PCM16) que se envía a Google STT tras conversión.
-    Permite inspeccionarlo con Audacity.
     """
     file_path = os.path.abspath("audio_debug/converted_8k.raw")
     if os.path.exists(file_path):

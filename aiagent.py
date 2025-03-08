@@ -2,12 +2,7 @@
 
 # -*- coding: utf-8 -*-
 
-"""
-Módulo de IA con optimización de latencia.
-"""
-
 import logging
-import time
 import json
 from typing import List, Dict
 from decouple import config
@@ -32,7 +27,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_sheet_data",
-            "description": "Obtener información general del consultorio (precios, horarios, ubicación)",
+            "description": "Obtener información general del consultorio (precios, horarios, ubicación)"
         }
     },
     {
@@ -43,9 +38,9 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "target_date": {"type": "string", "format": "date", "description": "Fecha objetivo en formato YYYY-MM-DD"},
-                    "target_hour": {"type": "string", "description": "Hora objetivo en formato HH:MM"},
-                    "urgent": {"type": "boolean", "description": "Si es una solicitud urgente"}
+                    "target_date": {"type": "string", "format": "date", "description": "Fecha objetivo YYYY-MM-DD"},
+                    "target_hour": {"type": "string", "description": "Hora objetivo HH:MM"},
+                    "urgent": {"type": "boolean", "description": "Indica si es urgencia"}
                 },
                 "required": []
             }
@@ -60,10 +55,10 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Nombre completo del paciente"},
-                    "phone": {"type": "string", "description": "Número de teléfono con WhatsApp (10 dígitos)"},
+                    "phone": {"type": "string", "description": "Número de teléfono (10 dígitos)"},
                     "reason": {"type": "string", "description": "Motivo de la consulta"},
-                    "start_time": {"type": "string", "format": "date-time", "description": "Fecha y hora de inicio en ISO8601"},
-                    "end_time": {"type": "string", "format": "date-time", "description": "Fecha y hora de fin en ISO8601"}
+                    "start_time": {"type": "string", "format": "date-time", "description": "Fecha/hora inicio (ISO8601)"},
+                    "end_time": {"type": "string", "format": "date-time", "description": "Fecha/hora fin (ISO8601)"}
                 },
                 "required": ["name", "phone", "start_time", "end_time"]
             }
@@ -78,9 +73,9 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "phone": {"type": "string", "description": "Número de teléfono registrado"},
-                    "original_start_time": {"type": "string", "format": "date-time", "description": "Fecha/hora original de la cita"},
-                    "new_start_time": {"type": "string", "format": "date-time", "description": "Nueva fecha/hora de inicio"},
-                    "new_end_time": {"type": "string", "format": "date-time", "description": "Nueva fecha/hora de fin"}
+                    "original_start_time": {"type": "string", "format": "date-time", "description": "Fecha/hora original"},
+                    "new_start_time": {"type": "string", "format": "date-time", "description": "Nueva fecha/hora inicio"},
+                    "new_end_time": {"type": "string", "format": "date-time", "description": "Nueva fecha/hora fin"}
                 },
                 "required": ["phone", "original_start_time"]
             }
@@ -95,7 +90,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "phone": {"type": "string", "description": "Número de teléfono registrado"},
-                    "patient_name": {"type": "string", "description": "Nombre del paciente (opcional para confirmación)"}
+                    "patient_name": {"type": "string", "description": "Nombre (opcional)"}
                 },
                 "required": ["phone"]
             }
@@ -118,12 +113,11 @@ TOOLS = [
 ]
 
 # ==================================================
-# 🔹 Manejador de Herramientas (Completo)
+# 🔹 Manejador de Herramientas
 # ==================================================
 def handle_tool_execution(tool_call) -> Dict:
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
-    
     logger.info(f"🛠️ Ejecutando {function_name} con: {args}")
 
     try:
@@ -172,17 +166,17 @@ def handle_tool_execution(tool_call) -> Dict:
         return {"error": f"No se pudo ejecutar {function_name}"}
 
 # ==================================================
-# 🔹 Generación de Respuestas (Versión Final)
+# 🔹 Generación de Respuestas
 # ==================================================
 def generate_openai_response(conversation_history: List[Dict]) -> str:
     """
-    conversation_history: lista de dict con mensajes, 
-      p.ej [{role: "system", content: "..."}, {role: "user", content: "..."}, ...]
+    conversation_history: lista de dict con mensajes:
+      [{role: "system", content: "..."},
+       {role: "user", content: "..."} ...]
     """
-    from prompt import generate_openai_prompt
-
+    from prompt import generate_openai_prompt  # asumas que existe, ajusta según tu caso
     try:
-        # Agregar system prompt si no está presente
+        # Si no hay un "system" prompt aún, lo generamos
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation_history = generate_openai_prompt(conversation_history)
 
@@ -194,7 +188,7 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
             tool_choice="auto",
             max_tokens=150,
             temperature=0.3,
-            timeout=10  # Añade solo esto
+            timeout=10
         )
 
         tool_messages = []
@@ -206,17 +200,17 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
                 "tool_call_id": tool_call.id
             })
 
-        # Si GPT no pidió herramientas, retornamos su texto
+        # Si no invoca herramientas, devolvemos su texto
         if not tool_messages:
             return first_response.choices[0].message.content
 
-        # GPT pidió herramientas, hacemos segundo request para la respuesta final
+        # GPT invocó herramientas: segundo request con sus resultados
         second_response = client.chat.completions.create(
             model="gpt-3.5-turbo-0125",
-            messages=conversation_history + tool_messages,
+            messages=conversation_history + tool_messages
         )
         return second_response.choices[0].message.content
 
     except Exception as e:
         logger.error(f"💣 Error crítico: {str(e)}")
-        return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
+        return "Disculpe, tuve un problema técnico. Por favor, intente nuevamente."

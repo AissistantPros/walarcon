@@ -1,3 +1,5 @@
+#google_stt_streamer.py
+
 import os
 import time
 import threading
@@ -6,7 +8,7 @@ import asyncio
 import audioop  # type: ignore
 from google.cloud import speech
 from google.cloud.speech_v1 import StreamingRecognitionConfig, StreamingRecognizeRequest
-from decouple import config  # O python-dotenv, según uses
+from decouple import config
 
 logger = logging.getLogger("google_stt_streamer")
 logger.setLevel(logging.DEBUG)
@@ -46,10 +48,9 @@ class GoogleSTTStreamer:
 
         creds = Credentials.from_service_account_info(credentials_info)
         self.client = speech.SpeechClient(credentials=creds)
-
         logger.info("[GoogleSTTStreamer] Credenciales cargadas correctamente desde variables de entorno.")
 
-        # Configuración del reconocimiento
+        # Configurar STT
         recognition_config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
@@ -58,12 +59,12 @@ class GoogleSTTStreamer:
         )
         self.streaming_config = StreamingRecognitionConfig(
             config=recognition_config,
-            interim_results=True,      # Recibe parciales
-            single_utterance=False     # No cierra al primer silencio
+            interim_results=True,
+            single_utterance=False
         )
-        logger.info("[GoogleSTTStreamer] Instanciado con config 8k LINEAR16, single_utterance=False, interim_results=True.")
+        logger.info("[GoogleSTTStreamer] Instanciado con 8k LINEAR16, single_utterance=False, interim_results=True.")
 
-        # Cola para los chunks de audio
+        # Cola de audio y estado interno
         self.audio_queue = asyncio.Queue()
         self.closed = False
         self._buffer = bytearray()
@@ -72,8 +73,8 @@ class GoogleSTTStreamer:
 
     def start_streaming(self, callback):
         """
-        Inicia el hilo que ejecuta streaming_recognize con Google.
-        callback: función que se llama con cada resultado (parcial o final).
+        Inicia el hilo que ejecuta streaming_recognize en Google. 
+        'callback' se llama con cada resultado (parcial o final).
         """
         if self._thread and self._thread.is_alive():
             logger.warning("[GoogleSTTStreamer] Ya existe un stream activo.")
@@ -105,34 +106,42 @@ class GoogleSTTStreamer:
             logger.debug("[GoogleSTTStreamer] Finalizó recognize_stream()")
 
     def _request_generator(self):
+        # Creamos un loop local para extraer datos de la cola
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             while not self._stop_event.is_set() and not self.closed:
                 try:
+                    # Esperamos un chunk nuevo
                     chunk = loop.run_until_complete(
                         asyncio.wait_for(self.audio_queue.get(), timeout=0.05)
                     )
                     if chunk:
                         self._buffer.extend(chunk)
+
+                    # Empaquetar 100ms de audio por request
                     while len(self._buffer) >= self.REQUIRED_BYTES_100MS:
                         send_chunk = self._buffer[:self.REQUIRED_BYTES_100MS]
                         self._buffer = self._buffer[self.REQUIRED_BYTES_100MS:]
                         yield StreamingRecognizeRequest(audio_content=bytes(send_chunk))
+
                 except asyncio.TimeoutError:
                     pass
                 except Exception as e:
                     logger.debug(f"[GoogleSTTStreamer] _request_generator error: {e}")
                     break
+
+            # Al finalizar, si queda algo en buffer, se envía
             if self._buffer:
                 yield StreamingRecognizeRequest(audio_content=bytes(self._buffer))
                 self._buffer.clear()
+
         finally:
             loop.close()
 
     async def add_audio_chunk(self, mulaw_data: bytes):
         """
-        Convierte audio mu-law a PCM16 y lo añade a la cola.
+        Convierte mu-law a PCM16 y lo añade a la cola de audio para STT.
         """
         try:
             pcm16 = audioop.ulaw2lin(mulaw_data, 2)
@@ -145,7 +154,7 @@ class GoogleSTTStreamer:
 
     def close(self):
         """
-        Cierra la transmisión y vacía la cola.
+        Cierra la transmisión: detiene el hilo y vacía la cola de audio.
         """
         logger.info("[GoogleSTTStreamer] 🛑 Cerrando GoogleSTTStreamer. Vaciando cola de audio.")
         self.closed = True
