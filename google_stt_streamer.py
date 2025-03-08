@@ -14,15 +14,10 @@ logger = logging.getLogger("google_stt_streamer")
 logger.setLevel(logging.DEBUG)
 
 class GoogleSTTStreamer:
-    """
-    Maneja la conexión con Google Speech-to-Text en un hilo secundario.
-    Recibe audio en chunks (PCM16 8kHz), agrupa ~100ms (1600 bytes) y lo envía a Google.
-    Usa single_utterance=False e interim_results=True para mantener el stream abierto.
-    """
     REQUIRED_BYTES_100MS = 1600
 
     def __init__(self):
-        # Cargar credenciales desde variables de entorno
+        # Cargar credenciales
         project_id = config("GOOGLE_PROJECT_ID", default="")
         private_key_id = config("GOOGLE_PRIVATE_KEY_ID", default="")
         private_key = config("GOOGLE_PRIVATE_KEY", default="").replace("\\n", "\n")
@@ -48,9 +43,8 @@ class GoogleSTTStreamer:
 
         creds = Credentials.from_service_account_info(credentials_info)
         self.client = speech.SpeechClient(credentials=creds)
-        logger.info("[GoogleSTTStreamer] Credenciales cargadas correctamente desde variables de entorno.")
+        logger.info("[GoogleSTTStreamer] Credenciales STT cargadas correctamente.")
 
-        # Configurar STT
         recognition_config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
             sample_rate_hertz=8000,
@@ -62,9 +56,9 @@ class GoogleSTTStreamer:
             interim_results=True,
             single_utterance=False
         )
-        logger.info("[GoogleSTTStreamer] Instanciado con 8k LINEAR16, single_utterance=False, interim_results=True.")
+        logger.info("[GoogleSTTStreamer] Config: 8k LINEAR16, single_utterance=False, interim_results=True.")
 
-        # Cola de audio y estado interno
+        # Cola de audio asíncrona
         self.audio_queue = asyncio.Queue()
         self.closed = False
         self._buffer = bytearray()
@@ -72,14 +66,10 @@ class GoogleSTTStreamer:
         self._thread = None
 
     def start_streaming(self, callback):
-        """
-        Inicia el hilo que ejecuta streaming_recognize en Google. 
-        'callback' se llama con cada resultado (parcial o final).
-        """
+        """Lanza el hilo que llama a streaming_recognize con la configuración dada."""
         if self._thread and self._thread.is_alive():
             logger.warning("[GoogleSTTStreamer] Ya existe un stream activo.")
             return
-
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._run_streaming_recognize,
@@ -92,27 +82,22 @@ class GoogleSTTStreamer:
     def _run_streaming_recognize(self, callback):
         try:
             requests = self._request_generator()
-            responses = self.client.streaming_recognize(
-                config=self.streaming_config,
-                requests=requests
-            )
+            responses = self.client.streaming_recognize(config=self.streaming_config, requests=requests)
             for resp in responses:
                 for result in resp.results:
                     callback(result)
         except Exception as e:
             logger.debug(f"[GoogleSTTStreamer] _run_streaming_recognize error: {e}")
-            logger.error(f"❌ Error en el streaming con Google STT: {str(e)}")
+            logger.error(f"❌ Error en streaming con Google STT: {str(e)}")
         finally:
             logger.debug("[GoogleSTTStreamer] Finalizó recognize_stream()")
 
     def _request_generator(self):
-        # Creamos un loop local para extraer datos de la cola
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
             while not self._stop_event.is_set() and not self.closed:
                 try:
-                    # Esperamos un chunk nuevo
                     chunk = loop.run_until_complete(
                         asyncio.wait_for(self.audio_queue.get(), timeout=0.05)
                     )
@@ -131,43 +116,37 @@ class GoogleSTTStreamer:
                     logger.debug(f"[GoogleSTTStreamer] _request_generator error: {e}")
                     break
 
-            # Al finalizar, si queda algo en buffer, se envía
+            # Al finalizar, si queda algo, se envía
             if self._buffer:
                 yield StreamingRecognizeRequest(audio_content=bytes(self._buffer))
                 self._buffer.clear()
-
         finally:
             loop.close()
 
     async def add_audio_chunk(self, mulaw_data: bytes):
-        """
-        Convierte mu-law a PCM16 y lo añade a la cola de audio para STT.
-        """
+        """Convierte mu-law a PCM16 (8 kHz) y lo añade a la cola."""
         try:
             pcm16 = audioop.ulaw2lin(mulaw_data, 2)
             if pcm16:
                 await self.audio_queue.put(pcm16)
             else:
-                logger.warning("[GoogleSTTStreamer] Chunk PCM16 vacío tras conversión mu-law.")
+                logger.warning("[GoogleSTTStreamer] Chunk vacío tras conversión mu-law.")
         except Exception as e:
             logger.error(f"[GoogleSTTStreamer] Error al convertir mu-law: {e}")
 
     def close(self):
         """
-        Cierra la transmisión: detiene el hilo y vacía la cola de audio.
+        Cierra la transmisión: notifica al hilo que se detenga, 
+        y crea una cola nueva para descartar el audio pendiente.
         """
-        logger.info("[GoogleSTTStreamer] 🛑 Cerrando GoogleSTTStreamer. Vaciando cola de audio.")
+        logger.info("[GoogleSTTStreamer] 🛑 Cerrando GoogleSTTStreamer.")
         self.closed = True
         self._stop_event.set()
-        try:
-            self._clear_queue()
-        except:
-            pass
+        
+        # 💥 En vez de 'self._clear_queue()', reasignamos la cola:
+        self.audio_queue = asyncio.Queue()  # nueva cola vacía
+
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
-        logger.info("[GoogleSTTStreamer] ✅ GoogleSTTStreamer cerrado.")
 
-    def _clear_queue(self):
-        while not self.audio_queue.empty():
-            self.audio_queue.get()
-            self.audio_queue.task_done()
+        logger.info("[GoogleSTTStreamer] ✅ GoogleSTTStreamer cerrado.")
