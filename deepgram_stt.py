@@ -11,10 +11,13 @@ logger.setLevel(logging.INFO)
 
 DEEPGRAM_KEY = os.getenv("DEEPGRAM_KEY")
 
-if not DEEPGRAM_KEY or len(DEEPGRAM_KEY) != 40:
-    logger.error(f"❌ ERROR: API Key de Deepgram no encontrada o incorrecta: {DEEPGRAM_KEY}")
-else:
-    logger.info(f"🔑 API Key obtenida correctamente: {DEEPGRAM_KEY[:5]}**********")
+if not DEEPGRAM_KEY:
+    raise ValueError("❌ No se encontró la API Key de Deepgram en las variables de entorno")
+
+HEADERS = {
+    "Authorization": f"Token {DEEPGRAM_KEY.strip()}"
+}
+
 
 
 class DeepgramSTT:
@@ -28,7 +31,7 @@ class DeepgramSTT:
         :param callback: Función que procesará la transcripción de voz.
         """
         self.callback = callback
-        self.deepgram = DeepgramClient(DEEPGRAM_KEY)
+        self.deepgram = DeepgramClient(api_key=DEEPGRAM_KEY.strip(), options={"headers": HEADERS})
         self.dg_connection = None
 
     async def start_streaming(self):
