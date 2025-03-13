@@ -9,9 +9,12 @@ from deepgram import DeepgramClient, DeepgramClientOptions, LiveTranscriptionEve
 logger = logging.getLogger("deepgram_stt")
 logger.setLevel(logging.INFO)
 
-DEEPGRAM_KEY = os.getenv("DEEPGRAM_KEY")  # Usa la clave guardada en .env
-print(f"🔑 API Key obtenida en el código: {DEEPGRAM_KEY}")
-logger.info(f"🔑 API Key obtenida en el código: {DEEPGRAM_KEY[:5]}**********")  # Solo mostramos los primeros caracteres para seguridad
+DEEPGRAM_KEY = os.getenv("DEEPGRAM_KEY")
+
+if not DEEPGRAM_KEY or len(DEEPGRAM_KEY) != 40:
+    logger.error(f"❌ ERROR: API Key de Deepgram no encontrada o incorrecta: {DEEPGRAM_KEY}")
+else:
+    logger.info(f"🔑 API Key obtenida correctamente: {DEEPGRAM_KEY[:5]}**********")
 
 
 class DeepgramSTT:
