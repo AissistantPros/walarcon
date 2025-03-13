@@ -10,7 +10,9 @@ logger = logging.getLogger("deepgram_stt")
 logger.setLevel(logging.INFO)
 
 DEEPGRAM_KEY = os.getenv("DEEPGRAM_KEY")  # Usa la clave guardada en .env
-print(f"🔑 API Key obtenida: {DEEPGRAM_KEY}")
+print(f"🔑 API Key obtenida en el código: {DEEPGRAM_KEY}")
+logger.info(f"🔑 API Key obtenida en el código: {DEEPGRAM_KEY[:5]}**********")  # Solo mostramos los primeros caracteres para seguridad
+
 
 class DeepgramSTT:
     """
