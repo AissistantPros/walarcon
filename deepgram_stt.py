@@ -1,8 +1,8 @@
 # deepgram_stt.py - Transcripción en tiempo real con Deepgram
 
 import asyncio
-import websockets
 import json
+import websockets
 import logging
 import os
 
@@ -25,15 +25,16 @@ class DeepgramSTT:
         """
         self.callback = callback
         self.closed = False
+        self.ws = None
 
     async def start_streaming(self):
         """
         Inicia la conexión con Deepgram y recibe transcripciones en tiempo real.
         """
         try:
-            async with websockets.connect(
-                DEEPGRAM_URL, extra_headers={"Authorization": f"Token {DEEPGRAM_KEY}"}
-            ) as ws:
+            headers = {"Authorization": f"Token {DEEPGRAM_KEY}"}
+            async with websockets.connect(DEEPGRAM_URL, extra_headers=headers) as ws:
+                self.ws = ws
                 logger.info("✅ Conectado a Deepgram STT")
                 while not self.closed:
                     response = await ws.recv()
