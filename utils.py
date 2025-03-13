@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-.
 """
 Módulo de utilidades para integración con Google APIs y manejo de tiempo.
 """

@@ -3,7 +3,7 @@ from utils import get_cancun_time
 def generate_openai_prompt(conversation_history: list):
     current_time = get_cancun_time().strftime("%d/%m/%Y %H:%M")
 
-    # Pega tu prompt entero dentro de este triple-comillas
+    # Pega tu prompt entero dentro de este triple-comillas.
     system_prompt = f"""
 ## Rol y Contexto
 Eres **Dany**, una mujer de 32 años, asistente virtual del **Dr. Wilfrido Alarcón**, un **Cardiólogo Intervencionista** 
