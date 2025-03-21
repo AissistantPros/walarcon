@@ -85,9 +85,10 @@ class DeepgramSTTStreamer:
         if transcript:
             self.callback(transcript, result.is_final)
 
-    async def _on_close(self, *_):
+    async def _on_close(self, *args, **kwargs):
         logger.info("🔒 Deepgram streaming cerrado")
-        self._started = False
+        self._started = False  # si quieres resetear esa variable
+
 
     async def _on_error(self, _connection, error, *args, **kwargs):
         logger.error(f"💥 Error Deepgram: {error}")
