@@ -12,22 +12,23 @@ if not DEEPGRAM_KEY:
     raise ValueError("❌ Variable DEEPGRAM_KEY no encontrada")
 
 class DeepgramSTTStreamer:
-    def __init__(self):
-        self.deepgram = DeepgramClient(DEEPGRAM_KEY)
-        self.dg_connection = None
-        self._callback = None
-        self._started = False
-
-    def start_streaming(self, callback):
+    def __init__(self, callback):
         """
-        Inicia la conexión con Deepgram y establece el callback para resultados.
         callback: función que recibe result (con .is_final y .alternatives[0].transcript)
         """
-        self._callback = callback
-        loop = asyncio.get_event_loop()
-        loop.create_task(self._start_async_stream())
+        self.callback = callback
+        self.dg_connection = None
+        self.deepgram = DeepgramClient(DEEPGRAM_KEY)
+        self._started = False
 
-    async def _start_async_stream(self):
+    async def start_streaming(self):
+        """
+        Inicia la conexión con Deepgram.
+        """
+        if self._started:
+            logger.warning("⚠️ Deepgram ya estaba iniciado.")
+            return
+
         try:
             self.dg_connection = self.deepgram.listen.asynclive.v("1")
             self.dg_connection.on(LiveTranscriptionEvents.Open, self._on_open)
@@ -46,8 +47,8 @@ class DeepgramSTTStreamer:
             )
 
             await self.dg_connection.start(options)
-            logger.info("✅ Conexión Deepgram establecida")
             self._started = True
+            logger.info("✅ Conexión Deepgram establecida")
 
         except Exception as e:
             logger.error(f"❌ Error al iniciar conexión Deepgram: {e}")
@@ -61,6 +62,8 @@ class DeepgramSTTStreamer:
                 await self.dg_connection.send(chunk)
             except Exception as e:
                 logger.error(f"❌ Error enviando audio a Deepgram: {e}")
+        else:
+            logger.warning("⚠️ Audio ignorado: conexión no iniciada.")
 
     async def close(self):
         """
@@ -69,6 +72,7 @@ class DeepgramSTTStreamer:
         if self.dg_connection:
             try:
                 await self.dg_connection.finish()
+                self._started = False
                 logger.info("🔚 Conexión Deepgram finalizada")
             except Exception as e:
                 logger.error(f"❌ Error al cerrar conexión Deepgram: {e}")
@@ -78,11 +82,13 @@ class DeepgramSTTStreamer:
 
     async def _on_transcript(self, _connection, result, *args, **kwargs):
         transcript = result.channel.alternatives[0].transcript
-        if transcript and self._callback:
-            self._callback(result)
+        if transcript:
+            self.callback(transcript, result.is_final)
 
     async def _on_close(self, *_):
         logger.info("🔒 Deepgram streaming cerrado")
+        self._started = False
 
     async def _on_error(self, _connection, error, *args, **kwargs):
         logger.error(f"💥 Error Deepgram: {error}")
+        self._started = False
