@@ -172,12 +172,12 @@ def handle_tool_execution(tool_call) -> Dict:
         return {"error": f"No se pudo ejecutar {function_name}"}
 
 # ==================================================
-# 🔹 Generación de Respuestas (Versión Final)
+# 🔹 Generación de Respuestas
 # ==================================================
 def generate_openai_response(conversation_history: List[Dict]) -> str:
     """
     conversation_history: lista de dict con mensajes, 
-      p.ej [{role: "system", content: "..."}, {role: "user", content: "..."}, ...]
+      p.ej [{role: "system", "content": "..."}, {role: "user", "content": "..."}, ...]
     """
     from prompt import generate_openai_prompt
 
@@ -194,11 +194,17 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
             tool_choice="auto",
             max_tokens=150,
             temperature=0.3,
-            timeout=10  # Añade solo esto
+            timeout=10
         )
 
+        # Si GPT no pidió herramientas, retornamos su respuesta directa
+        tool_calls = first_response.choices[0].message.tool_calls
+        if not tool_calls:
+            return first_response.choices[0].message.content
+
+        # Ejecutamos herramientas y preparamos tool_messages
         tool_messages = []
-        for tool_call in first_response.choices[0].message.tool_calls or []:
+        for tool_call in tool_calls:
             result = handle_tool_execution(tool_call)
             tool_messages.append({
                 "role": "tool",
@@ -206,11 +212,7 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
                 "tool_call_id": tool_call.id
             })
 
-        # Si GPT no pidió herramientas, retornamos su texto
-        if not tool_messages:
-            return first_response.choices[0].message.content
-
-        # GPT pidió herramientas, hacemos segundo request para la respuesta final
+        # Segundo request para obtener la respuesta final
         second_response = client.chat.completions.create(
             model="gpt-3.5-turbo-0125",
             messages=conversation_history + tool_messages,

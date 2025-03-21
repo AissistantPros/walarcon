@@ -65,7 +65,7 @@ class DeepgramSTTStreamer:
         else:
             logger.warning("⚠️ Audio ignorado: conexión no iniciada.")
 
-    async def close(self):
+    async def close(self, *args, **kwargs):
         """
         Cierra la conexión con Deepgram.
         """
