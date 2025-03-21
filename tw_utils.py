@@ -63,11 +63,7 @@ class TwilioWebSocketManager:
 
         try:
             self.stt_streamer = DeepgramSTTStreamer(
-                stt_callback_factory(self),
-                options={
-                    "endpointing": 700,
-                    "utterance_end_ms": 1000
-                }
+                stt_callback_factory(self)
             )
             await self.stt_streamer.start_streaming()
             logger.info("✅ Deepgram STT iniciado correctamente.")
