@@ -1,3 +1,4 @@
+#deepgram_stt_streamer.py
 import os
 import json
 import asyncio
@@ -67,17 +68,22 @@ class DeepgramSTTStreamer:
         else:
             logger.warning("⚠️ Audio ignorado: conexión no iniciada.")
 
-    async def close(self, *args, **kwargs):
+    async def close(self):
         """
-        Cierra la conexión con Deepgram.
+        Cierra la conexión con Deepgram y asegura cierre limpio.
         """
         if self.dg_connection:
             try:
                 await self.dg_connection.finish()
+                await asyncio.sleep(0.1)  # pequeña pausa para que finalice correctamente
                 self._started = False
                 logger.info("🔚 Conexión Deepgram finalizada")
+            except asyncio.CancelledError:
+                logger.warning("⚠️ Tarea de Deepgram cancelada durante el cierre.")
             except Exception as e:
                 logger.error(f"❌ Error al cerrar conexión Deepgram: {e}")
+
+
 
     async def _on_open(self, *_):
         logger.info("🔛 Deepgram streaming iniciado")

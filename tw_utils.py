@@ -1,3 +1,4 @@
+#tw_utils.py
 import json
 import base64
 import time
@@ -164,11 +165,16 @@ class TwilioWebSocketManager:
     async def _shutdown(self):
         logger.info("📴 Cerrando conexión y limpiando recursos...")
         self.call_ended = True
+
         if self._silence_task and not self._silence_task.done():
             self._silence_task.cancel()
+
         if self.stt_streamer:
             await self.stt_streamer.close()
+            await asyncio.sleep(0.1)
+
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
             await self.websocket.close()
             self.conversation_history.clear()
+            
         logger.info("✅ Cierre completo del WebSocket Manager.")

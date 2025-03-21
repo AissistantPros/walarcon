@@ -182,13 +182,11 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
     from prompt import generate_openai_prompt
 
     try:
-        # Agregar system prompt si no está presente
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation_history = generate_openai_prompt(conversation_history)
 
-        # Primer request a GPT (posible invocación de herramientas)
         first_response = client.chat.completions.create(
-            model="gpt-3.5-turbo-0125",
+            model="gpt-4o-mini",
             messages=conversation_history,
             tools=TOOLS,
             tool_choice="auto",
@@ -197,13 +195,10 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
             timeout=10
         )
 
-        # Verificamos si GPT hizo tool_calls:
         tool_calls = first_response.choices[0].message.tool_calls
         if not tool_calls:
-            # Sin herramientas => retorna su texto directo
             return first_response.choices[0].message.content
 
-        # GPT sí pidió herramientas, las ejecutamos
         tool_messages = []
         for tool_call in tool_calls:
             result = handle_tool_execution(tool_call)
@@ -213,18 +208,18 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
                 "tool_call_id": tool_call.id
             })
 
-        # Incluir el mensaje original del assistant (que contiene tool_calls)
-        # antes de las respuestas de cada herramienta
         updated_messages = conversation_history + [first_response.choices[0].message] + tool_messages
 
-        # Segundo request para la respuesta final
         second_response = client.chat.completions.create(
-            model="gpt-3.5-turbo-0125",
+            model="gpt-4o-mini",
             messages=updated_messages,
         )
+
+        if second_response.choices[0].message.tool_calls:
+            logger.warning("⚠️ Segunda respuesta incluyó tool_calls no deseadas. Ignorando.")
+
         return second_response.choices[0].message.content
 
     except Exception as e:
         logger.error(f"💣 Error crítico: {str(e)}")
         return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
-

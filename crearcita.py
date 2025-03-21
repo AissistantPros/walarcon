@@ -44,6 +44,10 @@ def create_calendar_event(name: str, phone: str, reason: str, start_time: str, e
         # Verificar que la cita no sea en el pasado
         if start_dt < get_cancun_time():
             raise ValueError("No se pueden agendar citas en el pasado")
+        
+        if not name or not phone:
+            raise ValueError("Faltan datos obligatorios para crear la cita.")
+
 
         event_body = {
             "summary": name,
