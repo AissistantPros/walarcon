@@ -69,7 +69,7 @@ class TwilioWebSocketManager:
             await websocket.close(code=1011)
             return
 
-        self._silence_task = asyncio.create_task(self._silence_watcher(websocket))
+       # self._silence_task = asyncio.create_task(self._silence_watcher(websocket))
         self.stream_start_time = time.time()
 
         try:
@@ -112,13 +112,13 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
 
-    async def _silence_watcher(self, websocket: WebSocket):
-        while not self.call_ended and websocket.client_state == WebSocketState.CONNECTED:
-            await asyncio.sleep(0.2)
-            if self.current_partial and (time.time() - self.last_partial_time > self.silence_threshold):
-                final_text = self.current_partial.strip()
-                self.current_partial = ""
-                asyncio.create_task(self.process_gpt_response(final_text, websocket))
+    #async def _silence_watcher(self, websocket: WebSocket):
+        #while not self.call_ended and websocket.client_state == WebSocketState.CONNECTED:
+         #   await asyncio.sleep(0.2)
+          #  if self.current_partial and (time.time() - self.last_partial_time > self.silence_threshold):
+           #     final_text = self.current_partial.strip()
+            #    self.current_partial = ""
+             #   asyncio.create_task(self.process_gpt_response(final_text, websocket))
 
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         if not self.stream_sid or self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
