@@ -45,8 +45,8 @@ class DeepgramSTTStreamer:
                 channels=1,
                 smart_format=True,
                 interim_results=True,
-                endpointing=1500,            # ← Espera 800ms de silencio de audio
-                utterance_end_ms=2000 
+                endpointing=2000,            # ← Espera 800ms de silencio de audio
+                utterance_end_ms=2500 
             )
 
             await self.dg_connection.start(options)
