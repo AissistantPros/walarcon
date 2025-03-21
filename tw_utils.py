@@ -54,6 +54,7 @@ class TwilioWebSocketManager:
         self.silence_threshold = 1.5
         self._silence_task = None
         self.websocket = None
+        self.conversation_history = []
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
@@ -61,13 +62,20 @@ class TwilioWebSocketManager:
         logger.info("📞 Llamada iniciada. WebSocket aceptado.")
 
         try:
-            self.stt_streamer = DeepgramSTTStreamer(stt_callback_factory(self))
+            self.stt_streamer = DeepgramSTTStreamer(
+                stt_callback_factory(self),
+                options={
+                    "endpointing": 700,
+                    "utterance_end_ms": 1000
+                }
+            )
             await self.stt_streamer.start_streaming()
             logger.info("✅ Deepgram STT iniciado correctamente.")
         except Exception as e:
             logger.error(f"❌ Error iniciando Deepgram STT: {e}", exc_info=True)
             await websocket.close(code=1011)
             return
+
 
        # self._silence_task = asyncio.create_task(self._silence_watcher(websocket))
         self.stream_start_time = time.time()
@@ -101,24 +109,43 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
+
+
+
+
     async def process_gpt_response(self, user_text: str, websocket: WebSocket):
         try:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
                 return
-            gpt_response = generate_openai_response([{"role": "user", "content": user_text}])
+
+        # Agregar lo que dijo el usuario al historial
+            self.conversation_history.append({
+                "role": "user",
+                "content": user_text
+            })
+
+        # Generar respuesta de la IA usando todo el historial
+            gpt_response = generate_openai_response(self.conversation_history)
+
+        # Agregar respuesta de la IA al historial
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": gpt_response
+            })
+
             logger.info(f"🤖 IA: {gpt_response}")
             audio_bytes = text_to_speech(gpt_response)
             await self._play_audio_bytes(websocket, audio_bytes)
         except Exception as e:
             logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
 
-    #async def _silence_watcher(self, websocket: WebSocket):
-        #while not self.call_ended and websocket.client_state == WebSocketState.CONNECTED:
-         #   await asyncio.sleep(0.2)
-          #  if self.current_partial and (time.time() - self.last_partial_time > self.silence_threshold):
-           #     final_text = self.current_partial.strip()
-            #    self.current_partial = ""
-             #   asyncio.create_task(self.process_gpt_response(final_text, websocket))
+
+
+
+
+
+
+
 
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         if not self.stream_sid or self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
@@ -134,6 +161,10 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"❌ Error enviando audio TTS: {e}", exc_info=True)
 
+
+
+
+
     async def _shutdown(self):
         logger.info("📴 Cerrando conexión y limpiando recursos...")
         self.call_ended = True
@@ -143,4 +174,5 @@ class TwilioWebSocketManager:
             await self.stt_streamer.close()
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
             await self.websocket.close()
+            self.conversation_history.clear()
         logger.info("✅ Cierre completo del WebSocket Manager.")
