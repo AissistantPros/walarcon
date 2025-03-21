@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+#buscarslot.py
 """
 Módulo para buscar el siguiente horario disponible en Google Calendar (usando caché).
 Optimizado para manejar prioridades y fechas específicas.
