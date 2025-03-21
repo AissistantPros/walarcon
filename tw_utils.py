@@ -20,6 +20,9 @@ AUDIO_DIR = "audio"
 
 def stt_callback_factory(manager):
     def stt_callback(transcript, is_final):
+
+        if manager.is_speaking:
+            return  # 🔇 No escuchar mientras está hablando
         if transcript:
             current_time = time.time()
             if current_time - manager.last_final_time < 2.0:
@@ -55,6 +58,7 @@ class TwilioWebSocketManager:
         self.silence_threshold = 1.5
         self._silence_task = None
         self.websocket = None
+        self.is_speaking = False  # ← Nueva bandera
         self.conversation_history = []
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
@@ -115,26 +119,21 @@ class TwilioWebSocketManager:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
                 return
 
-        # Agregar lo que dijo el usuario al historial
-            self.conversation_history.append({
-                "role": "user",
-                "content": user_text
-            })
-
-        # Generar respuesta de la IA usando todo el historial
+            self.conversation_history.append({"role": "user", "content": user_text})
             gpt_response = generate_openai_response(self.conversation_history)
-
-        # Agregar respuesta de la IA al historial
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": gpt_response
-            })
-
+            self.conversation_history.append({"role": "assistant", "content": gpt_response})
             logger.info(f"🤖 IA: {gpt_response}")
+
+        # 🛑 PAUSAR escucha
+            self.is_speaking = True
             audio_bytes = text_to_speech(gpt_response)
             await self._play_audio_bytes(websocket, audio_bytes)
+            await asyncio.sleep(len(audio_bytes) / 6400)  # Aproximadamente la duración del audio (8kHz mu-law)
+            self.is_speaking = False  # ✅ REANUDAR escucha
+
         except Exception as e:
             logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
+
 
 
 
