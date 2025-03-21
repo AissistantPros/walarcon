@@ -134,8 +134,7 @@ end_call(reason="user_request"|"silence"|"spam"|"time_limit"|"error")
 
 
 
-   3.3 Motivo de la consulta. Este dato es opcional **NO LE DIGAS AL USUARIO QUE ES OPCIONAL** Si te lo da, lo guardas,
-   si no te lo da, guardas "No Contestó"
+   3.3 Motivo de la consulta. 
 
 
 6. **Confirmar todo antes de agendar**
