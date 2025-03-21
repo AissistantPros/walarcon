@@ -44,12 +44,12 @@ def text_to_speech(text: str) -> bytes:
             # Si la API lo permite, podrías agregar: output_options={"sample_rate": 8000, "channels": 1}
         )
         audio_data = b"".join(audio_stream)
-        logger.info(f"[TTS] Audio generado en memoria (raw PCM) | Tiempo: {time.perf_counter() - start_total:.2f}s")
+        #logger.info(f"[TTS] Audio generado en memoria (raw PCM) | Tiempo: {time.perf_counter() - start_total:.2f}s")
         
         # Convertir el audio PCM (16 bits) a mu-law (8 bits)
         try:
             mulaw_data = audioop.lin2ulaw(audio_data, 2)  # 2 = sample width de 16 bits
-            logger.info(f"[TTS] Audio convertido a mu-law | Tamaño: {len(mulaw_data)} bytes")
+            #logger.info(f"[TTS] Audio convertido a mu-law | Tamaño: {len(mulaw_data)} bytes")
         except Exception as conv_err:
             logger.error(f"[TTS] Error al convertir a mu-law: {conv_err}")
             return b""
@@ -58,7 +58,7 @@ def text_to_speech(text: str) -> bytes:
         debug_path = os.path.join("debug_tts.ulaw")
         with open(debug_path, "wb") as f:
             f.write(mulaw_data)
-        logger.info(f"[TTS] Archivo de depuración guardado en: {debug_path}")
+        #logger.info(f"[TTS] Archivo de depuración guardado en: {debug_path}")
 
         return mulaw_data
 

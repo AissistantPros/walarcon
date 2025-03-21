@@ -154,7 +154,7 @@ class TwilioWebSocketManager:
                 "streamSid": self.stream_sid,
                 "media": {"payload": encoded}
             }))
-            logger.info("🔊 Audio TTS enviado a Twilio.")
+            #logger.info("🔊 Audio TTS enviado a Twilio.")
         except Exception as e:
             logger.error(f"❌ Error enviando audio TTS: {e}", exc_info=True)
 
@@ -176,5 +176,5 @@ class TwilioWebSocketManager:
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
             await self.websocket.close()
             self.conversation_history.clear()
-            
+
         logger.info("✅ Cierre completo del WebSocket Manager.")
