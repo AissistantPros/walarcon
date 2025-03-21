@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+#utils.py
 """
 Módulo de utilidades para integración con Google APIs y manejo de tiempo.
 """

@@ -5,14 +5,13 @@ from fastapi import FastAPI, Response, WebSocket
 from fastapi.responses import FileResponse
 from tw_utils import TwilioWebSocketManager
 
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
 @app.on_event("startup")
 def startup_event():
-    # Asegurarnos de que existan directorios para almacenar audios
     os.makedirs("audio", exist_ok=True)
     os.makedirs("audio_debug", exist_ok=True)
 
@@ -23,8 +22,8 @@ async def root():
 @app.post("/twilio-voice")
 async def twilio_voice():
     """
-    Twilio apuntará aquí cuando reciba una llamada. 
-    Retornamos la respuesta con <Stream> a /twilio-websocket
+    Twilio llamará a este endpoint cuando reciba una llamada.
+    Responde con TwiML que inicia el <Stream> hacia nuestro WebSocket.
     """
     logger.info("📞 Nueva llamada entrante desde Twilio.")
     twiml_response = """<?xml version="1.0" encoding="UTF-8"?>
@@ -32,14 +31,14 @@ async def twilio_voice():
     <Connect>
         <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" />
     </Connect>
-</Response>
-"""
+</Response>"""
     return Response(content=twiml_response, media_type="application/xml")
 
 @app.websocket("/twilio-websocket")
 async def twilio_websocket(websocket: WebSocket):
     """
-    Maneja la comunicación WebSocket con Twilio.
+    WebSocket receptor del audio en tiempo real desde Twilio.
+    Se delega el manejo a TwilioWebSocketManager.
     """
     manager = TwilioWebSocketManager()
     await manager.handle_twilio_websocket(websocket)
@@ -58,7 +57,7 @@ async def download_raw():
 async def download_linear16():
     """
     Descarga converted_8k.raw (PCM16) que se envía a Google STT tras conversión.
-    Permite inspeccionarlo con Audacity.
+    Útil para debugging en Audacity.
     """
     file_path = os.path.abspath("audio_debug/converted_8k.raw")
     if os.path.exists(file_path):

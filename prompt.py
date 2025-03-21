@@ -1,3 +1,4 @@
+#prompt.py
 from utils import get_cancun_time
 
 def generate_openai_prompt(conversation_history: list):
