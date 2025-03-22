@@ -268,7 +268,7 @@ Ejemplos:
 Siempre despídete con cortesía:
 - ✅ "Fue un placer atenderle. Que tenga un excelente día."
 
----
+---.
 
 """
 
