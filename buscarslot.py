@@ -63,7 +63,18 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
         elif urgent:
             search_start = now + timedelta(hours=4)
         else:
-            search_start = now
+             # 🧠 Si el usuario dice "la próxima semana", ajustamos al próximo lunes
+             # Solo si no hay fecha objetivo ni urgencia
+            today = now
+            days_ahead = 0 - today.weekday() + 7  # lunes = 0
+            if days_ahead <= 0:
+                days_ahead += 7
+            next_monday = today + timedelta(days=days_ahead)
+            local_tz = pytz.timezone("America/Cancun")
+            search_start = local_tz.localize(datetime(
+                next_monday.year, next_monday.month, next_monday.day, 0, 0
+            ))
+
 
         # Convertir target_hour a hora + slot
         if target_hour:

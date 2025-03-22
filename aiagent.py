@@ -1,7 +1,6 @@
 #aiagent.py
 
 # -*- coding: utf-8 -*-
-
 """
 Módulo de IA con optimización de latencia.
 """
@@ -114,6 +113,24 @@ TOOLS = [
                 "required": ["phone"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "end_call",
+            "description": "Termina la llamada con el usuario y cierra la sesión actual",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "Razón para finalizar la llamada",
+                        "enum": ["user_request", "silence", "spam", "time_limit", "error"]
+                    }
+                },
+                "required": ["reason"]
+            }
+        }
     }
 ]
 
@@ -123,7 +140,7 @@ TOOLS = [
 def handle_tool_execution(tool_call) -> Dict:
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
-    
+
     logger.info(f"🛠️ Ejecutando {function_name} con: {args}")
 
     try:
@@ -163,6 +180,9 @@ def handle_tool_execution(tool_call) -> Dict:
         elif function_name == "search_calendar_event_by_phone":
             return {"events": search_calendar_event_by_phone(args["phone"])}
 
+        elif function_name == "end_call":
+            return {"status": "__END_CALL__", "reason": args.get("reason", "user_request")}
+
         else:
             logger.error(f"❌ Función no reconocida: {function_name}")
             return {"error": "Función no implementada"}
@@ -175,10 +195,6 @@ def handle_tool_execution(tool_call) -> Dict:
 # 🔹 Generación de Respuestas
 # ==================================================
 def generate_openai_response(conversation_history: List[Dict]) -> str:
-    """
-    conversation_history: lista de dict con mensajes, 
-      p.ej [{role: "system", "content": "..."}, {role: "user", "content": "..."}, ...]
-    """
     from prompt import generate_openai_prompt
 
     try:
@@ -207,6 +223,9 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
                 "content": json.dumps(result),
                 "tool_call_id": tool_call.id
             })
+
+            if result.get("status") == "__END_CALL__":
+                return "__END_CALL__"
 
         updated_messages = conversation_history + [first_response.choices[0].message] + tool_messages
 

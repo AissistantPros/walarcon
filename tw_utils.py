@@ -114,25 +114,31 @@ class TwilioWebSocketManager:
 
 
 
-    async def process_gpt_response(self, user_text: str, websocket: WebSocket):
-        try:
-            if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
-                return
+        async def process_gpt_response(self, user_text: str, websocket: WebSocket):
+            try:
+                if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
+                    return
 
-            self.conversation_history.append({"role": "user", "content": user_text})
-            gpt_response = generate_openai_response(self.conversation_history)
-            self.conversation_history.append({"role": "assistant", "content": gpt_response})
-            logger.info(f"🤖 IA: {gpt_response}")
+                self.conversation_history.append({"role": "user", "content": user_text})
+                gpt_response = generate_openai_response(self.conversation_history)
 
-        # 🛑 PAUSAR escucha
-            self.is_speaking = True
-            audio_bytes = text_to_speech(gpt_response)
-            await self._play_audio_bytes(websocket, audio_bytes)
-            await asyncio.sleep(len(audio_bytes) / 6400)  # Aproximadamente la duración del audio (8kHz mu-law)
-            self.is_speaking = False  # ✅ REANUDAR escucha
+                if gpt_response == "__END_CALL__":
+                    logger.info("📞 La IA solicitó finalizar la llamada.")
+                    await self._shutdown()
+                    return
 
-        except Exception as e:
-            logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
+                self.conversation_history.append({"role": "assistant", "content": gpt_response})
+                logger.info(f"🤖 IA: {gpt_response}")
+
+                self.is_speaking = True
+                audio_bytes = text_to_speech(gpt_response)
+                await self._play_audio_bytes(websocket, audio_bytes)
+                await asyncio.sleep(len(audio_bytes) / 6400)
+                self.is_speaking = False
+
+            except Exception as e:
+                logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
+
 
 
 
