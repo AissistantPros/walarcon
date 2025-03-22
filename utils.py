@@ -169,3 +169,14 @@ def is_slot_available(start_dt: datetime, end_dt: datetime, busy_slots=None):
         if start_dt < slot_end and end_dt > slot_start:
             return False
     return True
+
+
+
+def convert_utc_to_cancun(utc_str):
+    """Convierte un string UTC (ISO8601) a datetime en zona horaria de Cancún."""
+    from datetime import datetime
+    import pytz
+
+    utc_dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
+    cancun_tz = pytz.timezone("America/Cancun")
+    return utc_dt.astimezone(cancun_tz)
