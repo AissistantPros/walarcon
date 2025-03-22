@@ -20,7 +20,6 @@ AUDIO_DIR = "audio"
 
 def stt_callback_factory(manager):
     def stt_callback(transcript, is_final):
-
         if manager.is_speaking:
             return  # 🔇 No escuchar mientras está hablando
         if transcript:
@@ -58,7 +57,7 @@ class TwilioWebSocketManager:
         self.silence_threshold = 1.5
         self._silence_task = None
         self.websocket = None
-        self.is_speaking = False  # ← Nueva bandera
+        self.is_speaking = False
         self.conversation_history = []
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
@@ -77,8 +76,6 @@ class TwilioWebSocketManager:
             await websocket.close(code=1011)
             return
 
-
-       # self._silence_task = asyncio.create_task(self._silence_watcher(websocket))
         self.stream_start_time = time.time()
 
         try:
@@ -110,44 +107,31 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
+    async def process_gpt_response(self, user_text: str, websocket: WebSocket):
+        try:
+            if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
+                return
 
+            self.conversation_history.append({"role": "user", "content": user_text})
+            logger.info("💬 Procesando GPT con: " + user_text)
+            gpt_response = generate_openai_response(self.conversation_history)
 
+            if gpt_response == "__END_CALL__":
+                logger.info("📞 La IA solicitó finalizar la llamada.")
+                await self._shutdown()
+                return
 
+            self.conversation_history.append({"role": "assistant", "content": gpt_response})
+            logger.info(f"🤖 IA: {gpt_response}")
 
-        async def process_gpt_response(self, user_text: str, websocket: WebSocket):
-            try:
-                if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
-                    return
+            self.is_speaking = True
+            audio_bytes = text_to_speech(gpt_response)
+            await self._play_audio_bytes(websocket, audio_bytes)
+            await asyncio.sleep(len(audio_bytes) / 6400)
+            self.is_speaking = False
 
-                self.conversation_history.append({"role": "user", "content": user_text})
-                gpt_response = generate_openai_response(self.conversation_history)
-
-                if gpt_response == "__END_CALL__":
-                    logger.info("📞 La IA solicitó finalizar la llamada.")
-                    await self._shutdown()
-                    return
-
-                self.conversation_history.append({"role": "assistant", "content": gpt_response})
-                logger.info(f"🤖 IA: {gpt_response}")
-
-                self.is_speaking = True
-                audio_bytes = text_to_speech(gpt_response)
-                await self._play_audio_bytes(websocket, audio_bytes)
-                await asyncio.sleep(len(audio_bytes) / 6400)
-                self.is_speaking = False
-
-            except Exception as e:
-                logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
-
-
-
-
-
-
-
-
-
-
+        except Exception as e:
+            logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
 
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         if not self.stream_sid or self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
@@ -159,13 +143,8 @@ class TwilioWebSocketManager:
                 "streamSid": self.stream_sid,
                 "media": {"payload": encoded}
             }))
-            #logger.info("🔊 Audio TTS enviado a Twilio.")
         except Exception as e:
             logger.error(f"❌ Error enviando audio TTS: {e}", exc_info=True)
-
-
-
-
 
     async def _shutdown(self):
         logger.info("📴 Cerrando conexión y limpiando recursos...")
