@@ -181,7 +181,16 @@ def handle_tool_execution(tool_call) -> Dict:
             return {"events": search_calendar_event_by_phone(args["phone"])}
 
         elif function_name == "end_call":
+            try:
+                from tw_utils import CURRENT_CALL_MANAGER
+                if CURRENT_CALL_MANAGER is not None:
+                    import asyncio
+                    asyncio.create_task(CURRENT_CALL_MANAGER._shutdown())
+            except Exception as e:
+                logger.error("❌ Error al intentar finalizar la llamada desde end_call", exc_info=True)
+
             return {"status": "__END_CALL__", "reason": args.get("reason", "user_request")}
+
 
         else:
             logger.error(f"❌ Función no reconocida: {function_name}")

@@ -1,4 +1,5 @@
 #tw_utils.py
+
 import json
 import base64
 import time
@@ -7,10 +8,18 @@ import logging
 import os
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
+
 from deepgram_stt_streamer import DeepgramSTTStreamer
 from aiagent import generate_openai_response
 from tts_utils import text_to_speech
 from utils import get_cancun_time
+
+# 🔸 Importamos las funciones y variables para manipular el cache
+from buscarslot import load_free_slots_to_cache, free_slots_cache, last_cache_update
+
+
+CURRENT_CALL_MANAGER = None  # Referencia global al manejador de llamada actual
+
 
 # Configurar logging
 logger = logging.getLogger(__name__)
@@ -63,7 +72,17 @@ class TwilioWebSocketManager:
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
         await websocket.accept()
+        global CURRENT_CALL_MANAGER
+        CURRENT_CALL_MANAGER = self
+
         logger.info("📞 Llamada iniciada. WebSocket aceptado.")
+
+        # 1) Cargar la caché de slots libres al iniciar la llamada
+        try:
+            load_free_slots_to_cache(days_ahead=90)
+            logger.info("✅ Slots libres precargados al iniciar la llamada.")
+        except Exception as e:
+            logger.error(f"❌ Error cargando slots libres: {str(e)}", exc_info=True)
 
         try:
             self.stt_streamer = DeepgramSTTStreamer(
@@ -148,6 +167,9 @@ class TwilioWebSocketManager:
 
     async def _shutdown(self):
         logger.info("📴 Cerrando conexión y limpiando recursos...")
+        global CURRENT_CALL_MANAGER
+        CURRENT_CALL_MANAGER = None
+
         self.call_ended = True
 
         if self._silence_task and not self._silence_task.done():
@@ -160,5 +182,10 @@ class TwilioWebSocketManager:
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
             await self.websocket.close()
             self.conversation_history.clear()
+
+        # 2) Borrar la caché de slots cuando termina la llamada
+        free_slots_cache.clear()
+        last_cache_update = None
+        logger.info("🗑️ Caché de slots libres limpiada al terminar la llamada.")
 
         logger.info("✅ Cierre completo del WebSocket Manager.")
