@@ -81,6 +81,10 @@ class TwilioWebSocketManager:
         try:
             load_free_slots_to_cache(days_ahead=90)
             logger.info("✅ Slots libres precargados al iniciar la llamada.")
+            from consultarinfo import load_consultorio_data_to_cache
+            load_consultorio_data_to_cache()
+            logger.info("✅ Datos del consultorio precargados al iniciar la llamada.")
+
         except Exception as e:
             logger.error(f"❌ Error cargando slots libres: {str(e)}", exc_info=True)
 
@@ -187,5 +191,9 @@ class TwilioWebSocketManager:
         free_slots_cache.clear()
         last_cache_update = None
         logger.info("🗑️ Caché de slots libres limpiada al terminar la llamada.")
+        from consultarinfo import clear_consultorio_data_cache
+        clear_consultorio_data_cache()
+        logger.info("🗑️ Caché de datos del consultorio limpiada al terminar la llamada.")
+
 
         logger.info("✅ Cierre completo del WebSocket Manager.")

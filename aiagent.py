@@ -11,7 +11,7 @@ import json
 from typing import List, Dict
 from decouple import config
 from openai import OpenAI
-from consultarinfo import read_sheet_data
+from consultarinfo import get_consultorio_data_from_cache
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
@@ -145,7 +145,7 @@ def handle_tool_execution(tool_call) -> Dict:
 
     try:
         if function_name == "read_sheet_data":
-            return {"data": read_sheet_data()}
+            return {"data": get_consultorio_data_from_cache()}
 
         elif function_name == "find_next_available_slot":
             return {"slot": find_next_available_slot(
