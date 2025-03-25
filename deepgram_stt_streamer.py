@@ -45,8 +45,8 @@ class DeepgramSTTStreamer:
                 channels=1,
                 smart_format=True,
                 interim_results=True,
-                endpointing=1000,            
-                utterance_end_ms=3000 
+                endpointing=1000,
+                utterance_end_ms=3000
             )
 
             await self.dg_connection.start(options)
@@ -79,11 +79,12 @@ class DeepgramSTTStreamer:
                 self._started = False
                 logger.info("🔚 Conexión Deepgram finalizada")
             except asyncio.CancelledError:
-                logger.warning("⚠️ Tarea de Deepgram cancelada durante el cierre.")
+                logger.warning("⚠️ Tarea cancelada durante el cierre de Deepgram.")
             except Exception as e:
-                logger.error(f"❌ Error al cerrar conexión Deepgram: {e}")
-
-
+                if "cancelled" in str(e).lower():
+                    logger.info("🔇 Deepgram cerró la conexión por cancelación de tareas (normal).")
+                else:
+                    logger.error(f"❌ Error al cerrar conexión Deepgram: {e}")
 
     async def _on_open(self, *_):
         logger.info("🔛 Deepgram streaming iniciado")
@@ -95,8 +96,7 @@ class DeepgramSTTStreamer:
 
     async def _on_close(self, *args, **kwargs):
         logger.info("🔒 Deepgram streaming cerrado")
-        self._started = False  # si quieres resetear esa variable
-
+        self._started = False
 
     async def _on_error(self, _connection, error, *args, **kwargs):
         logger.error(f"💥 Error Deepgram: {error}")

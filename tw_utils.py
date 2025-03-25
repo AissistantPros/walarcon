@@ -8,7 +8,7 @@ import logging
 import os
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
-
+from consultarinfo import load_consultorio_data_to_cache
 from deepgram_stt_streamer import DeepgramSTTStreamer
 from aiagent import generate_openai_response
 from tts_utils import text_to_speech
@@ -27,6 +27,7 @@ logger.setLevel(logging.INFO)
 
 AUDIO_DIR = "audio"
 
+
 def stt_callback_factory(manager):
     def stt_callback(transcript, is_final):
         if manager.is_speaking:
@@ -40,8 +41,24 @@ def stt_callback_factory(manager):
             if is_final:
                 logger.info(f"🎙️ USUARIO (final): {transcript}")
                 manager.last_final_time = time.time()
-                asyncio.create_task(manager.process_gpt_response(transcript, manager.websocket))
+
+                # 🔁 Cancelamos tarea anterior si sigue corriendo
+                if manager.current_gpt_task and not manager.current_gpt_task.done():
+                    manager.current_gpt_task.cancel()
+                    logger.info("🧹 Tarea anterior de GPT cancelada antes de lanzar nueva.")
+
+                # 🚀 Creamos nueva tarea
+                manager.current_gpt_task = asyncio.create_task(
+                    manager.process_gpt_response(transcript, manager.websocket)
+                )
     return stt_callback
+
+
+
+
+
+
+
 
 def get_greeting_by_time():
     now = get_cancun_time()
@@ -68,6 +85,10 @@ class TwilioWebSocketManager:
         self.websocket = None
         self.is_speaking = False
         self.conversation_history = []
+        self.current_gpt_task = None
+
+
+
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
@@ -81,7 +102,6 @@ class TwilioWebSocketManager:
         try:
             load_free_slots_to_cache(days_ahead=90)
             logger.info("✅ Slots libres precargados al iniciar la llamada.")
-            from consultarinfo import load_consultorio_data_to_cache
             load_consultorio_data_to_cache()
             logger.info("✅ Datos del consultorio precargados al iniciar la llamada.")
 
@@ -130,13 +150,16 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
+
+
+
     async def process_gpt_response(self, user_text: str, websocket: WebSocket):
         try:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
                 return
 
             self.conversation_history.append({"role": "user", "content": user_text})
-            logger.info("💬 Procesando GPT con: " + user_text)
+            #logger.info("💬 Procesando GPT con: " + user_text)
             gpt_response = generate_openai_response(self.conversation_history)
 
             if gpt_response == "__END_CALL__":
@@ -156,6 +179,10 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
 
+
+
+
+
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         if not self.stream_sid or self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
             return
@@ -169,6 +196,11 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"❌ Error enviando audio TTS: {e}", exc_info=True)
 
+
+
+
+
+
     async def _shutdown(self):
         logger.info("📴 Cerrando conexión y limpiando recursos...")
         global CURRENT_CALL_MANAGER
@@ -178,6 +210,11 @@ class TwilioWebSocketManager:
 
         if self._silence_task and not self._silence_task.done():
             self._silence_task.cancel()
+
+        if self.current_gpt_task and not self.current_gpt_task.done():
+           self.current_gpt_task.cancel()
+           logger.info("🧹 Tarea de GPT cancelada al cerrar la llamada.")
+
 
         if self.stt_streamer:
             await self.stt_streamer.close()
