@@ -14,6 +14,7 @@ from aiagent import generate_openai_response
 from tts_utils import text_to_speech
 from utils import get_cancun_time
 import re
+from difflib import SequenceMatcher
 
 from buscarslot import load_free_slots_to_cache, free_slots_cache, last_cache_update
 
@@ -24,6 +25,11 @@ logger.setLevel(logging.INFO)
 
 AUDIO_DIR = "audio"
 
+def clean_buffer(new_transcript, buffer):
+    similarity = SequenceMatcher(None, new_transcript, buffer).ratio()
+    if similarity > 0.8:
+        return buffer
+    return f"{buffer} {new_transcript}"
 
 def stt_callback_factory(manager):
     def stt_callback(transcript, is_final):
@@ -34,21 +40,32 @@ def stt_callback_factory(manager):
             current_time = time.time()
 
             # ⏳ Aumentamos el threshold SOLO si está esperando nombre o número
-            pause_threshold = 3.5 if (manager.expecting_number or manager.expecting_name) else 2.0
+            pause_threshold = 4.5 if (manager.expecting_number or manager.expecting_name) else 2.0
 
-            if current_time - manager.last_final_time < pause_threshold:
+            silence_duration = current_time - manager.last_partial_time
+            if silence_duration > pause_threshold and manager.current_partial:
+                logger.info(f"🔔 Silencio prolongado ({silence_duration:.1f}s). Forzando final.")
+                transcript = manager.current_partial
+                is_final = True
+                manager.current_partial = ""
+                manager.current_partial_buffer = ""
+
+            if silence_duration < pause_threshold:
                 return
 
-            manager.current_partial = transcript
+            manager.current_partial_buffer = clean_buffer(transcript.strip(), manager.current_partial_buffer)
+            manager.current_partial = manager.current_partial_buffer.strip()
             manager.last_partial_time = current_time
 
             if is_final:
                 if manager.expecting_number and len(transcript.split()) <= 4:
-                    logger.info("🔄 Evitado 'final' porque usuario está dictando el número con pausas")
-                    return
-                if manager.expecting_name and len(transcript.split()) <= 3:
-                    logger.info("🔄 Evitado 'final' porque usuario está diciendo el nombre con pausas")
-                    return
+                    if silence_duration < 4.5:
+                        logger.info("🔄 Evitado 'final' (número incompleto sin silencio)")
+                        return
+                elif manager.expecting_name and len(transcript.split()) <= 3:
+                    if silence_duration < 4.5:
+                        logger.info("🔄 Evitado 'final' (nombre incompleto sin silencio)")
+                        return
 
                 logger.info(f"🎙️ USUARIO (final): {transcript}")
                 manager.last_final_time = time.time()
@@ -62,8 +79,6 @@ def stt_callback_factory(manager):
                 )
     return stt_callback
 
-
-
 def get_greeting_by_time():
     now = get_cancun_time()
     hour = now.hour
@@ -75,7 +90,6 @@ def get_greeting_by_time():
     else:
         return "Buenas tardes, soy Dany, la asistente virtual del Dr. Alarcón. ¿En qué puedo ayudarle?"
 
-
 class TwilioWebSocketManager:
     def __init__(self):
         self.call_ended = False
@@ -83,6 +97,7 @@ class TwilioWebSocketManager:
         self.stt_streamer = None
         self.stream_start_time = time.time()
         self.current_partial = ""
+        self.current_partial_buffer = ""
         self.last_partial_time = 0.0
         self.last_final_time = 0.0
         self.silence_threshold = 1.5
@@ -174,7 +189,7 @@ class TwilioWebSocketManager:
             elif "número de whatsapp" in response_lower:
                 self.expecting_number = True
                 self.expecting_name = False
-            elif "¿es correcto" in response_lower or "¿cuál es el motivo" in response_lower:
+            elif any(kw in response_lower for kw in ["¿es correcto", "¿cuál es el motivo", "¿confirmamos"]):
                 self.expecting_name = False
                 self.expecting_number = False
 
