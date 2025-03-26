@@ -29,12 +29,19 @@ def stt_callback_factory(manager):
     def stt_callback(transcript, is_final):
         if manager.is_speaking:
             return
+
         if transcript:
             current_time = time.time()
-            if current_time - manager.last_final_time < 2.0:
+
+            # ⏳ Aumentamos el threshold SOLO si está esperando nombre o número
+            pause_threshold = 3.5 if (manager.expecting_number or manager.expecting_name) else 2.0
+
+            if current_time - manager.last_final_time < pause_threshold:
                 return
+
             manager.current_partial = transcript
             manager.last_partial_time = current_time
+
             if is_final:
                 if manager.expecting_number and len(transcript.split()) <= 4:
                     logger.info("🔄 Evitado 'final' porque usuario está dictando el número con pausas")
@@ -54,6 +61,7 @@ def stt_callback_factory(manager):
                     manager.process_gpt_response(transcript, manager.websocket)
                 )
     return stt_callback
+
 
 
 def get_greeting_by_time():
