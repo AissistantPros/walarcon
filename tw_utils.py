@@ -15,23 +15,20 @@ from tts_utils import text_to_speech
 from utils import get_cancun_time
 import re
 
-# 🔸 Importamos las funciones y variables para manipular el cache
 from buscarslot import load_free_slots_to_cache, free_slots_cache, last_cache_update
 
-CURRENT_CALL_MANAGER = None  # Referencia global al manejador de llamada actual
+CURRENT_CALL_MANAGER = None
 
-# Configurar logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 AUDIO_DIR = "audio"
 
 
-
 def stt_callback_factory(manager):
     def stt_callback(transcript, is_final):
         if manager.is_speaking:
-            return  # 🔇 No escuchar mientras está hablando
+            return
         if transcript:
             current_time = time.time()
             if current_time - manager.last_final_time < 2.0:
@@ -49,16 +46,15 @@ def stt_callback_factory(manager):
                 logger.info(f"🎙️ USUARIO (final): {transcript}")
                 manager.last_final_time = time.time()
 
-                # 🔁 Cancelamos tarea anterior si sigue corriendo
                 if manager.current_gpt_task and not manager.current_gpt_task.done():
                     manager.current_gpt_task.cancel()
                     logger.info("🧹 Tarea anterior de GPT cancelada antes de lanzar nueva.")
 
-                # 🚀 Creamos nueva tarea
                 manager.current_gpt_task = asyncio.create_task(
                     manager.process_gpt_response(transcript, manager.websocket)
                 )
     return stt_callback
+
 
 def get_greeting_by_time():
     now = get_cancun_time()
@@ -70,6 +66,7 @@ def get_greeting_by_time():
         return "Buenas noches, soy Dany, la asistente virtual del Dr. Alarcón. ¿En qué puedo ayudarle?"
     else:
         return "Buenas tardes, soy Dany, la asistente virtual del Dr. Alarcón. ¿En qué puedo ayudarle?"
+
 
 class TwilioWebSocketManager:
     def __init__(self):
@@ -86,8 +83,8 @@ class TwilioWebSocketManager:
         self.is_speaking = False
         self.conversation_history = []
         self.current_gpt_task = None
-        self.expecting_number = False  # 🟡 El usuario está dictando su número
-        self.expecting_name = False    # 🟡 El usuario está diciendo el nombre del paciente
+        self.expecting_number = False
+        self.expecting_name = False
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
@@ -97,7 +94,6 @@ class TwilioWebSocketManager:
 
         logger.info("📞 Llamada iniciada. WebSocket aceptado.")
 
-        # 1) Cargar la caché de slots libres al iniciar la llamada
         try:
             load_free_slots_to_cache(days_ahead=90)
             logger.info("✅ Slots libres precargados al iniciar la llamada.")
@@ -163,7 +159,6 @@ class TwilioWebSocketManager:
 
             self.conversation_history.append({"role": "assistant", "content": gpt_response})
 
-            # 🧠 Detectar intención para control de pausas
             response_lower = gpt_response.lower()
             if "nombre completo del paciente" in response_lower:
                 self.expecting_name = True
@@ -175,7 +170,8 @@ class TwilioWebSocketManager:
                 self.expecting_name = False
                 self.expecting_number = False
 
-            logger.info(f"🤖 IA: {re.sub(r'http[s]?://\S+', '', gpt_response)}")
+            cleaned_gpt_response = re.sub(r"http[s]?://\S+", "", gpt_response)
+            logger.info(f"🤖 IA: {cleaned_gpt_response}")
 
             self.is_speaking = True
             audio_bytes = text_to_speech(gpt_response)
@@ -221,7 +217,6 @@ class TwilioWebSocketManager:
             await self.websocket.close()
             self.conversation_history.clear()
 
-        # 2) Borrar la caché de slots cuando termina la llamada
         free_slots_cache.clear()
         last_cache_update = None
         logger.info("🗑️ Caché de slots libres limpiada al terminar la llamada.")
