@@ -18,15 +18,14 @@ import re
 # 🔸 Importamos las funciones y variables para manipular el cache
 from buscarslot import load_free_slots_to_cache, free_slots_cache, last_cache_update
 
-
 CURRENT_CALL_MANAGER = None  # Referencia global al manejador de llamada actual
-
 
 # Configurar logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 AUDIO_DIR = "audio"
+
 
 
 def stt_callback_factory(manager):
@@ -40,6 +39,13 @@ def stt_callback_factory(manager):
             manager.current_partial = transcript
             manager.last_partial_time = current_time
             if is_final:
+                if manager.expecting_number and len(transcript.split()) <= 4:
+                    logger.info("🔄 Evitado 'final' porque usuario está dictando el número con pausas")
+                    return
+                if manager.expecting_name and len(transcript.split()) <= 3:
+                    logger.info("🔄 Evitado 'final' porque usuario está diciendo el nombre con pausas")
+                    return
+
                 logger.info(f"🎙️ USUARIO (final): {transcript}")
                 manager.last_final_time = time.time()
 
@@ -53,13 +59,6 @@ def stt_callback_factory(manager):
                     manager.process_gpt_response(transcript, manager.websocket)
                 )
     return stt_callback
-
-
-
-
-
-
-
 
 def get_greeting_by_time():
     now = get_cancun_time()
@@ -87,9 +86,8 @@ class TwilioWebSocketManager:
         self.is_speaking = False
         self.conversation_history = []
         self.current_gpt_task = None
-
-
-
+        self.expecting_number = False  # 🟡 El usuario está dictando su número
+        self.expecting_name = False    # 🟡 El usuario está diciendo el nombre del paciente
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
@@ -105,7 +103,6 @@ class TwilioWebSocketManager:
             logger.info("✅ Slots libres precargados al iniciar la llamada.")
             load_consultorio_data_to_cache()
             logger.info("✅ Datos del consultorio precargados al iniciar la llamada.")
-
         except Exception as e:
             logger.error(f"❌ Error cargando slots libres: {str(e)}", exc_info=True)
 
@@ -151,16 +148,12 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
-
-
-
     async def process_gpt_response(self, user_text: str, websocket: WebSocket):
         try:
             if self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
                 return
 
             self.conversation_history.append({"role": "user", "content": user_text})
-            #logger.info("💬 Procesando GPT con: " + user_text)
             gpt_response = generate_openai_response(self.conversation_history)
 
             if gpt_response == "__END_CALL__":
@@ -169,13 +162,20 @@ class TwilioWebSocketManager:
                 return
 
             self.conversation_history.append({"role": "assistant", "content": gpt_response})
-            #logger.info(f"🤖 IA: {gpt_response}")
 
-            cleaned_gpt_response = re.sub(r'http[s]?://\S+', '', gpt_response)
-            logger.info(f"🤖 IA: {cleaned_gpt_response}")
+            # 🧠 Detectar intención para control de pausas
+            response_lower = gpt_response.lower()
+            if "nombre completo del paciente" in response_lower:
+                self.expecting_name = True
+                self.expecting_number = False
+            elif "número de whatsapp" in response_lower:
+                self.expecting_number = True
+                self.expecting_name = False
+            elif "¿es correcto" in response_lower or "¿cuál es el motivo" in response_lower:
+                self.expecting_name = False
+                self.expecting_number = False
 
-
-            
+            logger.info(f"🤖 IA: {re.sub(r'http[s]?://\S+', '', gpt_response)}")
 
             self.is_speaking = True
             audio_bytes = text_to_speech(gpt_response)
@@ -185,10 +185,6 @@ class TwilioWebSocketManager:
 
         except Exception as e:
             logger.error(f"❌ Error procesando respuesta de IA: {e}", exc_info=True)
-
-
-
-
 
     async def _play_audio_bytes(self, websocket: WebSocket, audio_bytes: bytes):
         if not self.stream_sid or self.call_ended or websocket.client_state != WebSocketState.CONNECTED:
@@ -203,11 +199,6 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"❌ Error enviando audio TTS: {e}", exc_info=True)
 
-
-
-
-
-
     async def _shutdown(self):
         logger.info("📴 Cerrando conexión y limpiando recursos...")
         global CURRENT_CALL_MANAGER
@@ -219,9 +210,8 @@ class TwilioWebSocketManager:
             self._silence_task.cancel()
 
         if self.current_gpt_task and not self.current_gpt_task.done():
-           self.current_gpt_task.cancel()
-           logger.info("🧹 Tarea de GPT cancelada al cerrar la llamada.")
-
+            self.current_gpt_task.cancel()
+            logger.info("🧹 Tarea de GPT cancelada al cerrar la llamada.")
 
         if self.stt_streamer:
             await self.stt_streamer.close()
@@ -238,6 +228,5 @@ class TwilioWebSocketManager:
         from consultarinfo import clear_consultorio_data_cache
         clear_consultorio_data_cache()
         logger.info("🗑️ Caché de datos del consultorio limpiada al terminar la llamada.")
-
 
         logger.info("✅ Cierre completo del WebSocket Manager.")
