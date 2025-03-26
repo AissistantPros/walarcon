@@ -13,6 +13,7 @@ from deepgram_stt_streamer import DeepgramSTTStreamer
 from aiagent import generate_openai_response
 from tts_utils import text_to_speech
 from utils import get_cancun_time
+import re
 
 # 🔸 Importamos las funciones y variables para manipular el cache
 from buscarslot import load_free_slots_to_cache, free_slots_cache, last_cache_update
@@ -168,7 +169,13 @@ class TwilioWebSocketManager:
                 return
 
             self.conversation_history.append({"role": "assistant", "content": gpt_response})
-            logger.info(f"🤖 IA: {gpt_response}")
+            #logger.info(f"🤖 IA: {gpt_response}")
+
+            cleaned_gpt_response = re.sub(r'http[s]?://\S+', '', gpt_response)
+            logger.info(f"🤖 IA: {cleaned_gpt_response}")
+
+
+            
 
             self.is_speaking = True
             audio_bytes = text_to_speech(gpt_response)

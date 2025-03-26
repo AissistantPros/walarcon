@@ -134,6 +134,10 @@ TOOLS = [
     }
 ]
 
+
+
+
+
 # ==================================================
 # 🔹 Manejador de Herramientas (Completo)
 # ==================================================
@@ -155,12 +159,21 @@ def handle_tool_execution(tool_call) -> Dict:
             )}
 
         elif function_name == "create_calendar_event":
+            # ✅ Asegurar zona horaria -05:00 en los campos de tiempo
+            start_time = args["start_time"]
+            end_time = args["end_time"]
+
+            if not start_time.endswith("-05:00"):
+                start_time += "-05:00"
+            if not end_time.endswith("-05:00"):
+                end_time += "-05:00"
+
             return {"event": create_calendar_event(
                 args["name"],
                 args["phone"],
                 args.get("reason", "Consulta general"),
-                args["start_time"],
-                args["end_time"]
+                start_time,
+                end_time
             )}
 
         elif function_name == "edit_calendar_event":
@@ -191,7 +204,6 @@ def handle_tool_execution(tool_call) -> Dict:
 
             return {"status": "__END_CALL__", "reason": args.get("reason", "user_request")}
 
-
         else:
             logger.error(f"❌ Función no reconocida: {function_name}")
             return {"error": "Función no implementada"}
@@ -199,6 +211,10 @@ def handle_tool_execution(tool_call) -> Dict:
     except Exception as e:
         logger.error(f"💥 Error en {function_name}: {str(e)}")
         return {"error": f"No se pudo ejecutar {function_name}"}
+
+
+
+
 
 # ==================================================
 # 🔹 Generación de Respuestas
