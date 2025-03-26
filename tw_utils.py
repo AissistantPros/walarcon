@@ -38,34 +38,39 @@ def stt_callback_factory(manager):
 
         if transcript:
             current_time = time.time()
+            manager.last_partial_time = current_time  # 🔄 siempre actualiza el tiempo con cada parcial
 
-            # ⏳ Aumentamos el threshold SOLO si está esperando nombre o número
-            pause_threshold = 4.5 if (manager.expecting_number or manager.expecting_name) else 2.0
+            if manager.expecting_name or manager.expecting_number:
+                # Acumula parcial y evalúa silencio
+                manager.current_partial_buffer = clean_buffer(transcript.strip(), manager.current_partial_buffer)
+                manager.current_partial = manager.current_partial_buffer.strip()
 
-            silence_duration = current_time - manager.last_partial_time
-            if silence_duration > pause_threshold and manager.current_partial:
-                logger.info(f"🔔 Silencio prolongado ({silence_duration:.1f}s). Forzando final.")
-                transcript = manager.current_partial
-                is_final = True
-                manager.current_partial = ""
-                manager.current_partial_buffer = ""
+                silence_duration = current_time - manager.last_partial_time
+                pause_threshold = 4.5
 
-            if silence_duration < pause_threshold:
-                return
+                if silence_duration > pause_threshold and manager.current_partial:
+                    logger.info(f"🔔 Silencio prolongado ({silence_duration:.1f}s). Forzando final.")
+                    transcript = manager.current_partial
+                    is_final = True
+                    manager.current_partial = ""
+                    manager.current_partial_buffer = ""
+                elif not is_final:
+                    return  # aún no es tiempo de procesar
+            else:
+                # Flujo normal para otros casos
+                silence_duration = current_time - manager.last_final_time
+                if silence_duration < 2.0:
+                    return
 
-            manager.current_partial_buffer = clean_buffer(transcript.strip(), manager.current_partial_buffer)
-            manager.current_partial = manager.current_partial_buffer.strip()
-            manager.last_partial_time = current_time
+                manager.current_partial = transcript
 
             if is_final:
                 if manager.expecting_number and len(transcript.split()) <= 4:
-                    if silence_duration < 4.5:
-                        logger.info("🔄 Evitado 'final' (número incompleto sin silencio)")
-                        return
+                    logger.info("🔄 Evitado 'final' (número incompleto sin silencio)")
+                    return
                 elif manager.expecting_name and len(transcript.split()) <= 3:
-                    if silence_duration < 4.5:
-                        logger.info("🔄 Evitado 'final' (nombre incompleto sin silencio)")
-                        return
+                    logger.info("🔄 Evitado 'final' (nombre incompleto sin silencio)")
+                    return
 
                 logger.info(f"🎙️ USUARIO (final): {transcript}")
                 manager.last_final_time = time.time()
