@@ -209,26 +209,33 @@ class TwilioWebSocketManager:
             pass
 
     def _flush_accumulated_transcripts(self):
-        """
-        Concatena los transcript finales acumulados y los manda a GPT.
-        Luego desactiva la acumulación.
-        """
         if not self.accumulating_mode:
             return
 
-        final_text = " ".join(self.accumulated_transcripts).strip()
-        logger.info(f"🟡 Flushing transcripts acumulados: {final_text}")
+        import re
+        raw_text = " ".join(self.accumulated_transcripts).strip()
+        logger.info(f"🟡 Flushing transcripts acumulados: {raw_text}")
 
-        # Desactivamos modo y limpiamos
         self.accumulating_mode = False
         self.accumulated_transcripts = []
         self._cancel_accumulating_timer()
 
-        # Disparamos a GPT
+        # LIMPIEZA: extraer solo dígitos
+        digits_only = re.sub(r"\D+", "", raw_text)  # quita todo lo que no sea número
+
+        if len(digits_only) == 10:
+            # Formato limpio para que GPT no se confunda
+            final_text = f"El usuario indica que su número de teléfono es {digits_only}."
+        else:
+            # Si no son 10 dígitos, deja el texto como está
+            final_text = raw_text
+
+        # Mandar a GPT
         if final_text:
             self.current_gpt_task = asyncio.create_task(
                 self.process_gpt_response(final_text)
-            )
+        )
+
 
     # ─────────────────────────────────────────────────────────────────────────
     # FIN LÓGICA DE ACUMULACIÓN
