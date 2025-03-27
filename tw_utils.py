@@ -69,14 +69,14 @@ class TwilioWebSocketManager:
             load_free_slots_to_cache(90)
             load_consultorio_data_to_cache()
         except Exception as e:
-            logger.error(f"❌ Error precargando datos: {e}", exc_info=True)
+            logger.error(f"❌ Error precargando datos: %s", e, exc_info=True)
 
         # Iniciar STT
         try:
             self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
             await self.stt_streamer.start_streaming()
         except Exception as e:
-            logger.error(f"❌ Error iniciando STT: {e}", exc_info=True)
+            logger.error(f"❌ Error iniciando STT: %s", e, exc_info=True)
             await websocket.close(code=1011)
             return
 
@@ -108,7 +108,7 @@ class TwilioWebSocketManager:
                     break
 
         except Exception as e:
-            logger.error(f"❌ WebSocket error: {e}", exc_info=True)
+            logger.error(f"❌ WebSocket error: %s", e, exc_info=True)
         finally:
             await self._shutdown()
 
@@ -174,22 +174,24 @@ class TwilioWebSocketManager:
     def _accumulate_transcript(self, transcript: str):
         """
         Guarda el transcript en accumulated_transcripts
-        y reinicia la cuenta de 4 segundos.
+        y REINICIA la cuenta de X segundos.
         """
         self.accumulated_transcripts.append(transcript)
         self._reset_accumulating_timer()
+        logger.info(f"🔄 Fragmento acumulado: {transcript} | Total: {len(self.accumulated_transcripts)}")
 
     def _reset_accumulating_timer(self):
         """
-        Reinicia la tarea que espera 4s sin nuevos transcripts para “soltarlo” a GPT.
+        Reinicia la tarea que espera Xs sin nuevos transcripts para “soltarlo” a GPT.
         """
         self._cancel_accumulating_timer()
         loop = asyncio.get_event_loop()
         self.accumulating_timer_task = loop.create_task(self._accumulating_timer())
+        logger.info(f"⏳ Temporizador reiniciado ({self.accumulating_timeout_seconds}s) por nuevo fragmento.")
 
     def _cancel_accumulating_timer(self):
         """
-        Cancela la tarea que espera 4s, si existe.
+        Cancela la tarea que espera Xs, si existe.
         """
         if self.accumulating_timer_task and not self.accumulating_timer_task.done():
             self.accumulating_timer_task.cancel()
@@ -197,24 +199,23 @@ class TwilioWebSocketManager:
 
     async def _accumulating_timer(self):
         """
-        Tarea asíncrona que espera self.accumulating_timeout_seconds (4s por defecto).
+        Tarea asíncrona que espera self.accumulating_timeout_seconds (ej. 3s).
         Si transcurre ese tiempo sin un nuevo final, “flush” al GPT.
         """
         try:
             await asyncio.sleep(self.accumulating_timeout_seconds)
-            # Si llegamos aquí sin cancel, ya pasaron 4s sin nuevos transcripts
+            logger.info("🟠 Tiempo agotado sin nuevos fragmentos. Flusheando...")
             self._flush_accumulated_transcripts()
         except asyncio.CancelledError:
-            # Cancelado porque llegó otra transcripción final
-            pass
-
-
-
+            logger.debug("🔁 Temporizador de acumulación cancelado (nuevo fragmento llegó).")
 
     def _flush_accumulated_transcripts(self):
+        """
+        Si estamos acumulando y pasa el tiempo, se disparará esta función
+        para mandar todo el texto junto a GPT.
+        """
         if not self.accumulating_mode:
             return
-
 
         raw_text = " ".join(self.accumulated_transcripts).strip()
         logger.info(f"🟡 Flushing transcripts acumulados: {raw_text}")
@@ -223,16 +224,13 @@ class TwilioWebSocketManager:
         self.accumulated_transcripts = []
         self._cancel_accumulating_timer()
 
-        # PASAMOS EL TEXTO COMPLETO SIN FILTRAR
-        final_text = raw_text 
+        final_text = raw_text  # No filtramos, se pasa tal cual
 
         if final_text:
             logger.info(f"✅ Enviando a GPT: {final_text}")
             self.current_gpt_task = asyncio.create_task(
                 self.process_gpt_response(final_text)
-        )
-       
-
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # FIN LÓGICA DE ACUMULACIÓN
@@ -360,7 +358,7 @@ class TwilioWebSocketManager:
             await asyncio.sleep(5)
             now = time.time()
 
-            # fin por duracion maxima
+            # fin por duración máxima
             if now - self.stream_start_time > CALL_MAX_DURATION:
                 logger.info("⏱️ Tiempo máximo alcanzado. Terminando llamada.")
                 await self._shutdown()
