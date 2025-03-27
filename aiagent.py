@@ -1,4 +1,4 @@
-#aiagent.py
+# aiagent.py
 
 # -*- coding: utf-8 -*-
 """
@@ -11,21 +11,106 @@ import json
 from typing import List, Dict
 from decouple import config
 from openai import OpenAI
+
+#########################################################
+# IMPORTAMOS FUNCIONES EXISTENTES
+#########################################################
 from consultarinfo import get_consultorio_data_from_cache
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
-from utils import search_calendar_event_by_phone
+from utils import search_calendar_event_by_phone, get_cancun_time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 
-# ==================================================
-# 🔹 Herramientas Disponibles (Actualizadas)
-# ==================================================
+#########################################################
+# 🔹 NUEVO: Funciones para interpretar expresiones de fecha
+#########################################################
+from datetime import datetime, timedelta
+import pytz
+
+def get_next_monday(reference_date: datetime) -> datetime:
+    """
+    Retorna el lunes de la próxima semana a partir de 'reference_date'.
+    Si hoy es lunes, se va al lunes de la semana siguiente.
+    """
+    ref = reference_date
+    while ref.weekday() != 0:  # 0 = lunes
+        ref += timedelta(days=1)
+    # Si hoy es lunes, saltamos 7 días
+    if ref.date() == reference_date.date():
+        ref += timedelta(days=7)
+    return ref
+
+def interpret_date_expression(date_expr: str, now: datetime):
+    """
+    Convierte expresiones como 'lo antes posible', 'mañana', 
+    'la próxima semana', 'de hoy en 8', 'el próximo mes', etc.,
+    en una (target_date_str, urgent_bool).
+
+    Retorna (target_date_str, urgent_bool).
+    target_date_str es YYYY-MM-DD o None.
+    urgent_bool es True o False.
+    """
+    date_expr_lower = date_expr.strip().lower()
+    cancun = pytz.timezone("America/Cancun")
+
+    # Valor por defecto
+    date_str = None
+    urgent = False
+
+    if date_expr_lower in ["lo antes posible", "urgente", "hoy"]:
+        # Significa urgent = True
+        urgent = True
+
+    elif date_expr_lower == "mañana":
+        tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        date_str = tomorrow
+
+    elif date_expr_lower == "la próxima semana":
+        next_mon = get_next_monday(now)
+        date_str = next_mon.strftime("%Y-%m-%d")
+
+    elif date_expr_lower in ["de hoy en 8", "hoy en 8"]:
+        future = now + timedelta(days=7)
+        date_str = future.strftime("%Y-%m-%d")
+
+    elif date_expr_lower in ["de mañana en 8", "mañana en 8"]:
+        future = now + timedelta(days=8)
+        date_str = future.strftime("%Y-%m-%d")
+
+    elif date_expr_lower in ["en 15 días", "15 dias", "en quince dias"]:
+        future = now + timedelta(days=14)
+        date_str = future.strftime("%Y-%m-%d")
+
+    elif date_expr_lower == "el próximo mes":
+        # Primer día del mes siguiente
+        y = now.year
+        m = now.month
+        if m == 12:
+            y += 1
+            m = 1
+        else:
+            m += 1
+        next_month_first = datetime(y, m, 1, tzinfo=cancun)
+        date_str = next_month_first.strftime("%Y-%m-%d")
+
+    else:
+        # Si GPT pasa algo tipo '2025-03-31', interpretamos
+        # si luce como YYYY-MM-DD:
+        if len(date_expr_lower) == 10 and date_expr_lower[4] == '-' and date_expr_lower[7] == '-':
+            date_str = date_expr_lower
+
+    return date_str, urgent
+
+
+#########################################################
+# 🔹 DEFINICIÓN DE TOOLS
+#########################################################
 TOOLS = [
     {
         "type": "function",
@@ -136,11 +221,9 @@ TOOLS = [
 
 
 
-
-
-# ==================================================
-# 🔹 Manejador de Herramientas (Completo)
-# ==================================================
+#########################################################
+# 🔹 handle_tool_execution
+#########################################################
 def handle_tool_execution(tool_call) -> Dict:
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
@@ -152,11 +235,35 @@ def handle_tool_execution(tool_call) -> Dict:
             return {"data": get_consultorio_data_from_cache()}
 
         elif function_name == "find_next_available_slot":
-            return {"slot": find_next_available_slot(
+
+            # 1) Obtenemos fecha/hora actual
+            now = get_cancun_time()
+
+            # 2) Leemos la expresión que GPT pasa
+            raw_date_expr = args.get("target_date", "")
+            raw_date_expr = raw_date_expr.strip()
+
+            # 3) Interpretamos la expresión
+            real_date_str, real_urgent = interpret_date_expression(raw_date_expr, now)
+
+            # 4) Combinamos con 'urgent' que ya pase GPT
+            combined_urgent = args.get("urgent", False) or real_urgent
+
+            # 5) Ajustamos 'args' finales
+            if real_date_str:
+                args["target_date"] = real_date_str
+            else:
+                args["target_date"] = None
+
+            args["urgent"] = combined_urgent
+
+            # 6) Llamamos a la función real con los args corregidos
+            slot_info = find_next_available_slot(
                 target_date=args.get("target_date"),
                 target_hour=args.get("target_hour"),
                 urgent=args.get("urgent", False)
-            )}
+            )
+            return {"slot": slot_info}
 
         elif function_name == "create_calendar_event":
             # ✅ Asegurar zona horaria -05:00 en los campos de tiempo
@@ -204,6 +311,7 @@ def handle_tool_execution(tool_call) -> Dict:
 
             return {"status": "__END_CALL__", "reason": args.get("reason", "user_request")}
 
+
         else:
             logger.error(f"❌ Función no reconocida: {function_name}")
             return {"error": "Función no implementada"}
@@ -213,19 +321,18 @@ def handle_tool_execution(tool_call) -> Dict:
         return {"error": f"No se pudo ejecutar {function_name}"}
 
 
-
-
-
-# ==================================================
+#########################################################
 # 🔹 Generación de Respuestas
-# ==================================================
+#########################################################
 def generate_openai_response(conversation_history: List[Dict]) -> str:
     from prompt import generate_openai_prompt
 
     try:
+        # Insertamos el system_prompt si no existe
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation_history = generate_openai_prompt(conversation_history)
 
+        # Primer request a GPT, con tool_choice auto
         first_response = client.chat.completions.create(
             model="gpt-4o",
             messages=conversation_history,
@@ -238,8 +345,10 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
 
         tool_calls = first_response.choices[0].message.tool_calls
         if not tool_calls:
+            # No llamó tools, devuelvo directamente
             return first_response.choices[0].message.content
 
+        # Procesamos tools
         tool_messages = []
         for tool_call in tool_calls:
             result = handle_tool_execution(tool_call)
@@ -252,8 +361,10 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
             if result.get("status") == "__END_CALL__":
                 return "__END_CALL__"
 
+        # Combinamos la historia
         updated_messages = conversation_history + [first_response.choices[0].message] + tool_messages
 
+        # Segunda request, sin tool_choice
         second_response = client.chat.completions.create(
             model="gpt-4o",
             messages=updated_messages,
@@ -267,3 +378,4 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
     except Exception as e:
         logger.error(f"💣 Error crítico: {str(e)}")
         return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
+

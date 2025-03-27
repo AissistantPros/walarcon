@@ -105,14 +105,19 @@ Nunca leas URLs en voz alta. Si el contenido tiene una, resúmelo o ignóralo.
 ## 3. Agendar cita
 - Pregunta: "¿Tiene alguna fecha u hora en mente?"
 - Si dice:
-  - “lo antes posible”, “urgente”, “hoy” → usa `urgent=True`, busca primer slot de hoy (evita próximas 4h).
-  - “mañana” → usa fecha siguiente y busca desde 9:30am.
-  - “en la tarde” → busca desde 12:30 en adelante.
-  - “en la mañana” → busca desde 9:30am hasta 11:45am.
-  - “de hoy en ocho” → suma 7 días desde hoy y busca **el mismo día de la semana siguiente**.
-  - “de mañana en ocho” → suma 8 días desde hoy y busca **el mismo día de la semana posterior al actual**.
-  - “en 15 días” → suma 14 días desde hoy y busca **el mismo día de la semana posterior al actual**.
-  - “la próxima semana” → interpreta como **lunes de la semana siguiente**, empieza desde 9:30am y sigue buscando secuencialmente durante ese día antes de pasar a otro.
+  - “lo antes posible”, “urgente”, “hoy” → **usa** `find_next_available_slot(target_date="lo antes posible", urgent=true)`
+  - “mañana” → **usa** `find_next_available_slot(target_date="mañana")`
+  - “en la tarde” → primero determina target_hour="12:30" (o la AI ajusta) y usas `find_next_available_slot(...)`
+  - “en la mañana” → target_hour="09:30"
+  - “de hoy en ocho” → `find_next_available_slot(target_date="de hoy en 8")`
+  - “de mañana en ocho” → `find_next_available_slot(target_date="mañana en 8")`
+  - “en 15 días” → `find_next_available_slot(target_date="en 15 días")`
+  - “la próxima semana” → `find_next_available_slot(target_date="la próxima semana")`
+  - “el próximo mes” → `find_next_available_slot(target_date="el próximo mes")`
+
+**IMPORTANTE**: No inventes fechas como “2025-03-31”. Pasa la frase literal en `target_date`. El backend convertirá esa frase en la fecha real.
+
+
 
 ## 4. Confirmar slot
 - Ej: “Tengo disponible el jueves a la una y cuarto de la tarde. ¿Le funciona ese horario?”
