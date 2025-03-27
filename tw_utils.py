@@ -40,11 +40,22 @@ class TwilioWebSocketManager:
         self.conversation_history = []
         self.current_gpt_task = None
 
-        # Esperas de datos
+        # Banderas clásicas
         self.expecting_number = False
         self.expecting_name = False
 
+        # ─────────────────────────────────────────────────────────
+        # NUEVAS VARIABLES PARA “MODO ACUMULACIÓN” DE TRANSCRIPCIONES
+        # ─────────────────────────────────────────────────────────
+        self.accumulating_mode = False           # True cuando queremos juntar transcripciones
+        self.accumulated_transcripts = []        # Lista de strings con las partes finales
+        self.accumulating_timer_task = None      # Tarea asyncio que “espera 4s” para procesar
+        self.accumulating_timeout_seconds = 4.0  # Ajusta a gusto
+
     async def handle_twilio_websocket(self, websocket: WebSocket):
+        """
+        Punto de entrada para manejar el WebSocket enviado por Twilio <Stream>.
+        """
         self.websocket = websocket
         await websocket.accept()
 
@@ -69,10 +80,10 @@ class TwilioWebSocketManager:
             await websocket.close(code=1011)
             return
 
-        # Crea la tarea que chequea silencio total o tiempo máximo
+        # Crear tarea que chequea silencio total o tiempo máximo
         asyncio.create_task(self._monitor_call_timeout())
 
-        # Recibir datos WebSocket
+        # Recibir datos WebSocket (audio en tiempo real de Twilio)
         try:
             while True:
                 raw_msg = await websocket.receive_text()
@@ -102,6 +113,9 @@ class TwilioWebSocketManager:
             await self._shutdown()
 
     def _get_greeting_by_time(self):
+        """
+        Genera saludo según la hora actual en Cancún.
+        """
         now = get_cancun_time()
         hour = now.hour
         minute = now.minute
@@ -115,7 +129,7 @@ class TwilioWebSocketManager:
 
     def _stt_callback(self, transcript: str, is_final: bool):
         """
-        Callback llamado desde deepgram_stt_streamer cuando llega transcripción.
+        Callback llamado desde deepgram_stt_streamer cuando llega transcripción del STT.
         """
         if not transcript:
             return
@@ -123,21 +137,102 @@ class TwilioWebSocketManager:
         # Actualizamos última vez que recibimos algo
         self.last_partial_time = time.time()
 
-        logger.debug(f"STT partial => transcript={transcript}, final={is_final}")
-
         if is_final:
             logger.info(f"🎙️ USUARIO (final): {transcript}")
             self.last_final_time = time.time()
 
-            # Cancelar GPT anterior si estaba corriendo
+            # Cancelar GPT anterior si seguía vivo
             if self.current_gpt_task and not self.current_gpt_task.done():
                 self.current_gpt_task.cancel()
                 logger.info("🧹 GPT anterior cancelado.")
 
-            # Crear nueva tarea
+            # ─────────────────────────────────────────────────────────────────
+            # Si estamos en modo acumulación, no llamamos a GPT inmediatamente;
+            # en vez de eso, vamos sumando transcripciones.
+            # ─────────────────────────────────────────────────────────────────
+            if self.accumulating_mode:
+                self._accumulate_transcript(transcript)
+            else:
+                # Modo normal: enviamos a GPT de inmediato
+                self.current_gpt_task = asyncio.create_task(
+                    self.process_gpt_response(transcript)
+                )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # LÓGICA “MODO ACUMULACIÓN DE TRANSCRIPCIONES”
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def _activate_accumulating_mode(self):
+        """
+        Se activa cuando la IA pida el número de Whatsapp.
+        """
+        logger.info("🔵 Activando modo ACUMULACIÓN DE TRANSCRIPCIONES")
+        self.accumulating_mode = True
+        self.accumulated_transcripts = []
+        self._cancel_accumulating_timer()
+
+    def _accumulate_transcript(self, transcript: str):
+        """
+        Guarda el transcript en accumulated_transcripts
+        y reinicia la cuenta de 4 segundos.
+        """
+        self.accumulated_transcripts.append(transcript)
+        self._reset_accumulating_timer()
+
+    def _reset_accumulating_timer(self):
+        """
+        Reinicia la tarea que espera 4s sin nuevos transcripts para “soltarlo” a GPT.
+        """
+        self._cancel_accumulating_timer()
+        loop = asyncio.get_event_loop()
+        self.accumulating_timer_task = loop.create_task(self._accumulating_timer())
+
+    def _cancel_accumulating_timer(self):
+        """
+        Cancela la tarea que espera 4s, si existe.
+        """
+        if self.accumulating_timer_task and not self.accumulating_timer_task.done():
+            self.accumulating_timer_task.cancel()
+            self.accumulating_timer_task = None
+
+    async def _accumulating_timer(self):
+        """
+        Tarea asíncrona que espera self.accumulating_timeout_seconds (4s por defecto).
+        Si transcurre ese tiempo sin un nuevo final, “flush” al GPT.
+        """
+        try:
+            await asyncio.sleep(self.accumulating_timeout_seconds)
+            # Si llegamos aquí sin cancel, ya pasaron 4s sin nuevos transcripts
+            self._flush_accumulated_transcripts()
+        except asyncio.CancelledError:
+            # Cancelado porque llegó otra transcripción final
+            pass
+
+    def _flush_accumulated_transcripts(self):
+        """
+        Concatena los transcript finales acumulados y los manda a GPT.
+        Luego desactiva la acumulación.
+        """
+        if not self.accumulating_mode:
+            return
+
+        final_text = " ".join(self.accumulated_transcripts).strip()
+        logger.info(f"🟡 Flushing transcripts acumulados: {final_text}")
+
+        # Desactivamos modo y limpiamos
+        self.accumulating_mode = False
+        self.accumulated_transcripts = []
+        self._cancel_accumulating_timer()
+
+        # Disparamos a GPT
+        if final_text:
             self.current_gpt_task = asyncio.create_task(
-                self.process_gpt_response(transcript)
+                self.process_gpt_response(final_text)
             )
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # FIN LÓGICA DE ACUMULACIÓN
+    # ─────────────────────────────────────────────────────────────────────────
 
     async def process_gpt_response(self, user_text: str):
         """
@@ -157,34 +252,49 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "assistant", "content": gpt_response})
         logger.info(f"🤖 IA (texto completo): {gpt_response}")
 
-        # Detectar si la IA está pidiendo nombre o número
         resp_lower = gpt_response.lower()
-        if "nombre completo del paciente" in resp_lower:
-            self.expecting_name = True
-            self.expecting_number = False
-        elif "número de whatsapp" in resp_lower:
+
+        # Activa la acumulación si GPT pregunta por el número de WhatsApp
+        if "número de whatsapp" in resp_lower:
+            self._activate_accumulating_mode()
             self.expecting_number = True
             self.expecting_name = False
         elif any(kw in resp_lower for kw in ["¿es correcto", "¿cuál es el motivo", "¿confirmamos"]):
-            self.expecting_name = False
             self.expecting_number = False
+            self.expecting_name = False
 
-        # Detectar cierre de llamada
+        # ─────────────────────────────────────────────────────────────────────
+        # DETECCIÓN DE FRASE DE DESPEDIDA
+        # ─────────────────────────────────────────────────────────────────────
         if "fue un placer atenderle. que tenga un excelente día. ¡hasta luego!" in resp_lower:
-            logger.info("🧼 Frase de cierre detectada. Terminando llamada.")
+            logger.info("🧼 Frase de cierre detectada. Reproduciendo despedida y terminando llamada.")
+
+            # 1) Generamos TTS
+            self.is_speaking = True
+            tts_audio = text_to_speech(gpt_response)
+            await self._play_audio_bytes(tts_audio)
+
+            # 2) Esperamos 5s para asegurar que el usuario escuche todo
+            await asyncio.sleep(5)
+            self.is_speaking = False
+
+            # 3) Cerramos la llamada
             await self._shutdown()
             return
 
-        # Reproducir TTS
+        # ─────────────────────────────────────────────────────────────────────
+        # REPRODUCIR RESPUESTA NORMAL
+        # ─────────────────────────────────────────────────────────────────────
         self.is_speaking = True
         tts_audio = text_to_speech(gpt_response)
         await self._play_audio_bytes(tts_audio)
+        # Pausa opcional según la duración del audio
         await asyncio.sleep(len(tts_audio) / 6400)
         self.is_speaking = False
 
     async def _play_audio_bytes(self, audio_bytes: bytes):
         """
-        Envía texto 'media' con payload base64 a Twilio
+        Envía 'media' con payload base64 a Twilio.
         """
         if not self.stream_sid or self.call_ended:
             return
@@ -202,7 +312,7 @@ class TwilioWebSocketManager:
 
     async def _shutdown(self):
         """
-        Detener STT, cerrar websocket, limpiar estado
+        Detener STT, cerrar websocket, limpiar estado.
         """
         if self.call_ended:
             return
@@ -237,7 +347,10 @@ class TwilioWebSocketManager:
 
     async def _monitor_call_timeout(self):
         """
-        Checa cada 5s si hubo silencio total por 30s o se llegó a 10min
+        Cada 5s revisa:
+          - Si se llegó al tiempo máximo (10 min).
+          - Si hay silencio total de 30s.
+        De cumplirse, cierra la llamada.
         """
         while not self.call_ended:
             await asyncio.sleep(5)
