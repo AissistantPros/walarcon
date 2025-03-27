@@ -334,7 +334,7 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
 
         # Primer request a GPT, con tool_choice auto
         first_response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=conversation_history,
             tools=TOOLS,
             tool_choice="auto",
@@ -366,7 +366,7 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
 
         # Segunda request, sin tool_choice
         second_response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=updated_messages,
         )
 
