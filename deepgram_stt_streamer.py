@@ -45,8 +45,8 @@ class DeepgramSTTStreamer:
                 channels=1,
                 smart_format=True,
                 interim_results=True,
-                endpointing=2000,
-                utterance_end_ms=4000
+                endpointing=2500,
+                utterance_end_ms=4500
             )
 
             await self.dg_connection.start(options)
