@@ -50,7 +50,7 @@ class TwilioWebSocketManager:
         self.accumulating_mode = False           # True cuando queremos juntar transcripciones
         self.accumulated_transcripts = []        # Lista de strings con las partes finales
         self.accumulating_timer_task = None      # Tarea asyncio que “espera 4s” para procesar
-        self.accumulating_timeout_seconds = 4.0  # Ajusta a gusto
+        self.accumulating_timeout_seconds = 3.0  # Ajusta a gusto
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         """
@@ -208,11 +208,14 @@ class TwilioWebSocketManager:
             # Cancelado porque llegó otra transcripción final
             pass
 
+
+
+
     def _flush_accumulated_transcripts(self):
         if not self.accumulating_mode:
             return
 
-        import re
+
         raw_text = " ".join(self.accumulated_transcripts).strip()
         logger.info(f"🟡 Flushing transcripts acumulados: {raw_text}")
 
@@ -220,21 +223,15 @@ class TwilioWebSocketManager:
         self.accumulated_transcripts = []
         self._cancel_accumulating_timer()
 
-        # LIMPIEZA: extraer solo dígitos
-        digits_only = re.sub(r"\D+", "", raw_text)  # quita todo lo que no sea número
+        # PASAMOS EL TEXTO COMPLETO SIN FILTRAR
+        final_text = raw_text 
 
-        if len(digits_only) == 10:
-            # Formato limpio para que GPT no se confunda
-            final_text = f"El usuario indica que su número de teléfono es {digits_only}."
-        else:
-            # Si no son 10 dígitos, deja el texto como está
-            final_text = raw_text
-
-        # Mandar a GPT
         if final_text:
+            logger.info(f"✅ Enviando a GPT: {final_text}")
             self.current_gpt_task = asyncio.create_task(
                 self.process_gpt_response(final_text)
         )
+       
 
 
     # ─────────────────────────────────────────────────────────────────────────
