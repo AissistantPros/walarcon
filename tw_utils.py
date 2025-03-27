@@ -169,6 +169,8 @@ class TwilioWebSocketManager:
             return
 
         self.conversation_history.append({"role": "assistant", "content": gpt_response})
+        logger.info(f"🤖 IA (texto completo): {gpt_response}")
+
 
         lower = gpt_response.lower()
         if "nombre completo del paciente" in lower:
