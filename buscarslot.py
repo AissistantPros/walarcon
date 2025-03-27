@@ -1,9 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Módulo para buscar el siguiente horario disponible en Google Calendar (usando caché).
-Optimizado para manejar prioridades y fechas específicas, precargando slots LIBRES
-para los próximos 90 días y evitando llamadas constantes a Calendar.
-"""
+# buscarslot.py
 
 import logging
 from datetime import datetime, timedelta
@@ -16,17 +11,12 @@ from utils import (
     cache_lock,
     availability_cache,
     convert_utc_to_cancun,
-    GOOGLE_CALENDAR_ID,  # 👈 IMPORTANTE: usamos el ID desde utils/env
+    GOOGLE_CALENDAR_ID,
 )
 
-# Configuración de logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# APIRouter para exponer endpoints (si se desea)
 router = APIRouter()
 
-# Definición de slots válidos (duración: 45 minutos)
 SLOT_TIMES = [
     {"start": "09:30", "end": "10:15"},
     {"start": "10:15", "end": "11:00"},
@@ -37,12 +27,10 @@ SLOT_TIMES = [
     {"start": "14:00", "end": "14:45"},
 ]
 
-# Caché de slots libres
 free_slots_cache = {}
 last_cache_update = None
-CACHE_VALID_MINUTES = 15  # Refrescar cada 15 minutos
+CACHE_VALID_MINUTES = 15
 
-# Precarga los slots libres a la caché
 def load_free_slots_to_cache(days_ahead=90):
     global free_slots_cache, last_cache_update
 
@@ -59,11 +47,10 @@ def load_free_slots_to_cache(days_ahead=90):
             "timeMin": time_min,
             "timeMax": time_max,
             "timeZone": "America/Cancun",
-            "items": [{"id": GOOGLE_CALENDAR_ID}],  # ✅ CORRECTO
+            "items": [{"id": GOOGLE_CALENDAR_ID}],
         }
 
-        calendar_id = GOOGLE_CALENDAR_ID  # ✅ CORRECTO
-
+        calendar_id = GOOGLE_CALENDAR_ID
         events_result = service.freebusy().query(body=body).execute()
         busy_slots = events_result["calendars"][calendar_id]["busy"]
 
@@ -78,7 +65,7 @@ def load_free_slots_to_cache(days_ahead=90):
             day_date = now + timedelta(days=offset)
             day_str = day_date.strftime("%Y-%m-%d")
 
-            if day_date.weekday() == 6:  # Domingo
+            if day_date.weekday() == 6:
                 free_slots_cache[day_str] = []
                 continue
 
@@ -89,7 +76,6 @@ def load_free_slots_to_cache(days_ahead=90):
         last_cache_update = get_cancun_time()
         logger.info(f"✅ Slots libres precargados para los próximos {days_ahead} días.")
 
-# Construye la lista de slots libres para un día
 def build_free_slots_for_day(day_dt, busy_list):
     day_str = day_dt.strftime("%Y-%m-%d")
     free_list = []
@@ -104,9 +90,8 @@ def build_free_slots_for_day(day_dt, busy_list):
         if all(not (start_dt < b_end and end_dt > b_start) for b_start, b_end in busy_list):
             free_list.append(slot["start"])
 
-    return free_list
+    return sorted(free_list, key=lambda x: datetime.strptime(x, "%H:%M"))
 
-# Asegura que el caché esté actualizado
 def ensure_cache_is_fresh():
     global last_cache_update
     now = get_cancun_time()
@@ -114,16 +99,14 @@ def ensure_cache_is_fresh():
     if not last_cache_update or (now - last_cache_update).total_seconds() / 60.0 > CACHE_VALID_MINUTES:
         load_free_slots_to_cache(days_ahead=90)
 
-# Ajusta una hora a un slot válido
 def adjust_to_valid_slot(requested_time, slot_times):
     req_time_obj = datetime.strptime(requested_time, "%H:%M").time()
     for s in slot_times:
         slot_start_obj = datetime.strptime(s["start"], "%H:%M").time()
         if slot_start_obj >= req_time_obj:
             return s["start"]
-    return slot_times[-1]["start"]  # Último slot disponible
+    return slot_times[-1]["start"]
 
-# Función principal: Buscar el siguiente slot disponible
 def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
     try:
         ensure_cache_is_fresh()
@@ -150,9 +133,10 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
             if day_str not in free_slots_cache:
                 continue
 
-            for free_slot_start in free_slots_cache[day_str]:
+            for free_slot_start in sorted(free_slots_cache[day_str], key=lambda x: datetime.strptime(x, "%H:%M")):
                 start_dt = pytz.timezone("America/Cancun").localize(
-                    datetime.strptime(f"{day_str} {free_slot_start}:00", "%Y-%m-%d %H:%M:%S"))
+                    datetime.strptime(f"{day_str} {free_slot_start}:00", "%Y-%m-%d %H:%M:%S")
+                )
 
                 if urgent and start_dt < now + timedelta(hours=4):
                     continue
@@ -169,11 +153,12 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                     continue
 
                 end_dt = pytz.timezone("America/Cancun").localize(
-                    datetime.strptime(f"{day_str} {end_str}:00", "%Y-%m-%d %H:%M:%S"))
+                    datetime.strptime(f"{day_str} {end_str}:00", "%Y-%m-%d %H:%M:%S")
+                )
 
                 return {
                     "start_time": start_dt.isoformat(),
-                    "end_time": end_dt.isoformat()
+                    "end_time": end_dt.isoformat(),
                 }
 
         return {"error": "No se encontraron horarios disponibles en los próximos 6 meses."}
@@ -182,7 +167,6 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
         logger.error(f"❌ Error inesperado al buscar horario: {str(e)}")
         return {"error": "GOOGLE_CALENDAR_UNAVAILABLE"}
 
-# Endpoint opcional (para pruebas o consumo externo)
 @router.get("/buscar-disponibilidad")
 async def get_next_available_slot(target_date: str = None, target_hour: str = None, urgent: bool = False):
     slot = find_next_available_slot(target_date, target_hour, urgent)
