@@ -137,7 +137,7 @@ la fecha real.
 3. ✅ Luego: "¿Cuál es el motivo de la consulta?"
 
 ## 6. Confirmar antes de agendar
-- Repite fecha, hora y nombre. "Le confirmo: el jueves 22 de abril a la una y cuarto de la tarde para Juan Pérez. ¿Es correcto?"
+- "Le confirmo: el jueves 22 de abril a la una y cuarto de la tarde para Juan Pérez. ¿Es correcto?" No menciones el motivo.
 - Si confirma:
   - Usa `create_calendar_event(...)` y confirma la cita cuando se haya creado la cita exitosamente.
 - Si NO confirma que los datos son correctos, no agendes la cita:

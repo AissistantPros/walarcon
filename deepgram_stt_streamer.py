@@ -38,7 +38,7 @@ class DeepgramSTTStreamer:
             self.dg_connection.on(LiveTranscriptionEvents.Error, self._on_error)
 
             options = LiveOptions(
-                model="enhanced",
+                model="nova-2",
                 language="es",
                 encoding="mulaw",
                 sample_rate=8000,
@@ -47,7 +47,7 @@ class DeepgramSTTStreamer:
                 interim_results=True,
                 endpointing=True,
                 utterance_end_ms=2000
-            )
+      )
 
             await self.dg_connection.start(options)
             self._started = True

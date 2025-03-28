@@ -50,7 +50,7 @@ class TwilioWebSocketManager:
         self.accumulating_mode = False           # True cuando queremos juntar transcripciones
         self.accumulated_transcripts = []        # Lista de strings con las partes finales
         self.accumulating_timer_task = None      # Tarea asyncio que “espera 4s” para procesar
-        self.accumulating_timeout_seconds = 6.0  # Ajusta a gusto
+        self.accumulating_timeout_seconds = 5.0  # Ajusta a gusto
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         """
