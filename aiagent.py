@@ -332,6 +332,18 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation_history = generate_openai_prompt(conversation_history)
 
+        # --- Instrucción de idioma ---
+        last_user_msg = next((msg for msg in reversed(conversation_history) if msg["role"] == "user"), None)
+        if last_user_msg and "[EN]" in last_user_msg.get("content", ""):
+            lang_instruction = " Respond in English only. Keep responses under 50 words."
+        else:
+            lang_instruction = " Responde en español. Máximo 50 palabras."
+        if conversation_history and conversation_history[0]["role"] == "system":
+            conversation_history[0]["content"] += lang_instruction
+        # -------------------------------------
+
+
+
         # Primer request a GPT, con tool_choice auto
         first_response = client.chat.completions.create(
             model="gpt-4o-mini",

@@ -7,7 +7,7 @@ import asyncio
 import logging
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
-
+from langdetect import detect
 from consultarinfo import load_consultorio_data_to_cache
 from deepgram_stt_streamer import DeepgramSTTStreamer
 from aiagent import generate_openai_response
@@ -44,6 +44,9 @@ class TwilioWebSocketManager:
         self.expecting_number = False
         self.expecting_name = False
 
+        self.current_language = "es"  # Inicialmente en español
+
+
         # ─────────────────────────────────────────────────────────
         # NUEVAS VARIABLES PARA “MODO ACUMULACIÓN” DE TRANSCRIPCIONES
         # ─────────────────────────────────────────────────────────
@@ -51,6 +54,20 @@ class TwilioWebSocketManager:
         self.accumulated_transcripts = []        # Lista de strings con las partes finales
         self.accumulating_timer_task = None      # Tarea asyncio que “espera 4s” para procesar
         self.accumulating_timeout_seconds = 5.0  # Ajusta a gusto
+
+    def _detect_language(self, text: str) -> str:
+        """
+        Detecta el idioma del texto usando langdetect.
+        Retorna 'en' si es inglés, de lo contrario 'es'.
+        """
+        try:
+            # Podemos agregar lógica adicional si queremos usar marcadores específicos
+            return detect(text)
+        except Exception:
+            return "es"
+
+
+
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         """
@@ -243,13 +260,23 @@ class TwilioWebSocketManager:
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
 
-        self.conversation_history.append({"role": "user", "content": user_text})
+
+        user_lang = self._detect_language(user_text)
+        self.current_language = user_lang
+        self.conversation_history.append({
+        "role": "user",
+        "content": f"[{user_lang.upper()}] {user_text}"
+        } )
+  
+
+        # Generar respuesta con el historial actualizado
         gpt_response = generate_openai_response(self.conversation_history)
 
         if gpt_response == "__END_CALL__":
             # IA dice que hay que colgar
             await self._shutdown()
             return
+
 
         self.conversation_history.append({"role": "assistant", "content": gpt_response})
         logger.info(f"🤖 IA (texto completo): {gpt_response}")
