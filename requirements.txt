@@ -88,3 +88,5 @@ webrtcvad==2.0.10
 websockets==14.2
 yarl==1.18.3
 deepgram-sdk==3.10.1
+langdetect==1.0.9
+
