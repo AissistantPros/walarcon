@@ -224,7 +224,7 @@ class TwilioWebSocketManager:
         self.accumulated_transcripts = []
         self._cancel_accumulating_timer()
 
-        final_text = raw_text  # No filtramos, se pasa tal cual
+        final_text = raw_text.replace(',', '').replace('.', '')
 
         if final_text:
             logger.info(f"✅ Enviando a GPT: {final_text}")
