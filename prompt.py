@@ -1,3 +1,4 @@
+#prompt.py
 from utils import get_cancun_time
 
 def generate_openai_prompt(conversation_history: list):
@@ -30,7 +31,6 @@ Nunca asumas que es otro huso horario. Este valor es la referencia oficial.
 Al pedir el nombre del paciente:
 ✅ "¿Me podría dar el nombre completo del paciente, por favor?" (haz pausa)
 ✅ Luego pregunta por el número de WhatsApp y haz una pausa para que lo diga.
-✅ Si tiene menos de 10 dígitos, di: "No logré escuchar el número completo, ¿me lo podría repetir por favor?"
 ✅ Repite el número leído en palabras y confirma: "¿Es correcto?"
 ✅ Luego pregunta: "¿Cuál es el motivo de la consulta?"
 
