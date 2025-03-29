@@ -53,7 +53,15 @@ class TwilioWebSocketManager:
         self.accumulating_mode = False           # True cuando queremos juntar transcripciones
         self.accumulated_transcripts = []        # Lista de strings con las partes finales
         self.accumulating_timer_task = None      # Tarea asyncio que “espera 4s” para procesar
-        self.accumulating_timeout_seconds = 4.0  # Ajusta a gusto
+        self.accumulating_timeout_seconds = 3.0  # Ajusta a gusto
+
+
+
+
+
+
+
+
 
     def _detect_language(self, text: str) -> str:
         """
@@ -65,6 +73,11 @@ class TwilioWebSocketManager:
             return detect(text)
         except Exception:
             return "es"
+
+
+
+
+
 
 
 
@@ -135,6 +148,14 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
+
+
+
+
+
+
+
+
     def _get_greeting_by_time(self):
         """
         Genera saludo según la hora actual en Cancún.
@@ -149,6 +170,13 @@ class TwilioWebSocketManager:
             return "¡Buenas noches!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
         else:
             return "¡Buenas tardes!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+
+
+
+
+
+
+
 
     def _stt_callback(self, transcript: str, is_final: bool):
         """
@@ -185,6 +213,11 @@ class TwilioWebSocketManager:
     # LÓGICA “MODO ACUMULACIÓN DE TRANSCRIPCIONES”
     # ─────────────────────────────────────────────────────────────────────────
 
+
+
+
+
+
     def _activate_accumulating_mode(self):
         """
         Se activa cuando la IA pida el número de Whatsapp.
@@ -193,6 +226,11 @@ class TwilioWebSocketManager:
         self.accumulating_mode = True
         self.accumulated_transcripts = []
         self._cancel_accumulating_timer()
+
+
+
+
+
 
     def _accumulate_transcript(self, transcript: str):
         """
@@ -203,6 +241,11 @@ class TwilioWebSocketManager:
         self._reset_accumulating_timer()
         logger.info(f"🔄 Fragmento acumulado: {transcript} | Total: {len(self.accumulated_transcripts)}")
 
+
+
+
+
+
     def _reset_accumulating_timer(self):
         """
         Reinicia la tarea que espera Xs sin nuevos transcripts para “soltarlo” a GPT.
@@ -212,6 +255,10 @@ class TwilioWebSocketManager:
         self.accumulating_timer_task = loop.create_task(self._accumulating_timer())
         logger.info(f"⏳ Temporizador reiniciado ({self.accumulating_timeout_seconds}s) por nuevo fragmento.")
 
+
+
+
+
     def _cancel_accumulating_timer(self):
         """
         Cancela la tarea que espera Xs, si existe.
@@ -219,6 +266,10 @@ class TwilioWebSocketManager:
         if self.accumulating_timer_task and not self.accumulating_timer_task.done():
             self.accumulating_timer_task.cancel()
             self.accumulating_timer_task = None
+
+
+
+
 
     async def _accumulating_timer(self):
         """
@@ -231,6 +282,10 @@ class TwilioWebSocketManager:
             self._flush_accumulated_transcripts()
         except asyncio.CancelledError:
             logger.debug("🔁 Temporizador de acumulación cancelado (nuevo fragmento llegó).")
+
+
+
+
 
     def _flush_accumulated_transcripts(self):
         """
@@ -255,9 +310,18 @@ class TwilioWebSocketManager:
                 self.process_gpt_response(final_text)
             )
 
+
+
+
+
     # ─────────────────────────────────────────────────────────────────────────
     # FIN LÓGICA DE ACUMULACIÓN
     # ─────────────────────────────────────────────────────────────────────────
+
+
+
+
+
 
     async def process_gpt_response(self, user_text: str):
         """
@@ -327,6 +391,12 @@ class TwilioWebSocketManager:
         await asyncio.sleep(len(tts_audio) / 6400)
         self.is_speaking = False
 
+
+
+
+
+
+
     async def _play_audio_bytes(self, audio_bytes: bytes):
         """
         Envía 'media' con payload base64 a Twilio.
@@ -344,6 +414,13 @@ class TwilioWebSocketManager:
                 await self.websocket.send_text(json.dumps(message))
             except Exception as e:
                 logger.error(f"❌ Error enviando audio TTS: {e}", exc_info=True)
+
+
+
+
+
+
+
 
     async def _shutdown(self):
         """
@@ -379,6 +456,10 @@ class TwilioWebSocketManager:
         CURRENT_CALL_MANAGER = None
 
         logger.info("✅ Llamada finalizada y recursos limpiados.")
+
+
+
+
 
     async def _monitor_call_timeout(self):
         """
