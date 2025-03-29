@@ -118,7 +118,7 @@ class TwilioWebSocketManager:
 
                     # NUEVO: Si el sistema está hablando (modo mute), ignorar el audio entrante
                     if self.is_speaking:
-                        logger.info("🔇 Modo mute activo: se ignora audio entrante.")
+                        #logger.info("🔇 Modo mute activo: se ignora audio entrante.")
                         continue
 
                     payload = data["media"].get("payload")

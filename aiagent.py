@@ -231,20 +231,13 @@ def handle_tool_execution(tool_call) -> Dict:
 
         elif function_name == "find_next_available_slot":
 
-            # 1) Obtenemos fecha/hora actual
+            logger.info(f"🧠 IA → aiagent.py → find_next_available_slot: argumentos crudos recibidos: {args}")
+
             now = get_cancun_time()
-
-            # 2) Leemos la expresión que GPT pasa
-            raw_date_expr = args.get("target_date", "")
-            raw_date_expr = raw_date_expr.strip()
-
-            # 3) Interpretamos la expresión
+            raw_date_expr = args.get("target_date", "").strip()
             real_date_str, real_urgent = interpret_date_expression(raw_date_expr, now)
-
-            # 4) Combinamos con 'urgent' que ya pase GPT
             combined_urgent = args.get("urgent", False) or real_urgent
 
-            # 5) Ajustamos 'args' finales
             if real_date_str:
                 args["target_date"] = real_date_str
             else:
@@ -252,20 +245,24 @@ def handle_tool_execution(tool_call) -> Dict:
 
             args["urgent"] = combined_urgent
 
-            # NUEVO: Forzar target_hour a "09:30" si no se especifica
-            if not args.get("target_hour"):
+            # Forzar target_hour si no viene especificada
+            if args.get("target_hour") in [None, False, ""]:
                 args["target_hour"] = "09:30"
 
-            # 6) Llamamos a la función real con los args corregidos
+            logger.info(f"📤 aiagent.py → buscarslot.py: llamando con target_date={args.get('target_date')}, target_hour={args.get('target_hour')}, urgent={args.get('urgent')}")
+
             slot_info = find_next_available_slot(
                 target_date=args.get("target_date"),
                 target_hour=args.get("target_hour"),
                 urgent=args.get("urgent", False)
             )
+
+            logger.info(f"📩 aiagent.py ← buscarslot.py: respuesta recibida: {slot_info}")
+            logger.info(f"📦 aiagent.py → sistema: enviando slot final a la IA: {slot_info}")
+
             return {"slot": slot_info}
 
         elif function_name == "create_calendar_event":
-            # ✅ Asegurar zona horaria -05:00 en los campos de tiempo
             start_time = args["start_time"]
             end_time = args["end_time"]
 
@@ -273,6 +270,8 @@ def handle_tool_execution(tool_call) -> Dict:
                 start_time += "-05:00"
             if not end_time.endswith("-05:00"):
                 end_time += "-05:00"
+
+            logger.info(f"Zonas horarias ajustadas: start_time={start_time}, end_time={end_time}")
 
             return {"event": create_calendar_event(
                 args["name"],
