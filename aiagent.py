@@ -1,9 +1,7 @@
 # aiagent.py
 
 # -*- coding: utf-8 -*-
-"""
-Módulo de IA con optimización de latencia.
-"""
+
 
 import logging
 import time
@@ -11,16 +9,14 @@ import json
 from typing import List, Dict
 from decouple import config
 from openai import OpenAI
-
-#########################################################
-# IMPORTAMOS FUNCIONES EXISTENTES
-#########################################################
 from consultarinfo import get_consultorio_data_from_cache
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
 from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
 from utils import search_calendar_event_by_phone, get_cancun_time
+from datetime import datetime, timedelta
+import pytz
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,8 +26,7 @@ client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 #########################################################
 # 🔹 NUEVO: Funciones para interpretar expresiones de fecha
 #########################################################
-from datetime import datetime, timedelta
-import pytz
+
 
 def get_next_monday(reference_date: datetime) -> datetime:
     """
@@ -257,6 +252,10 @@ def handle_tool_execution(tool_call) -> Dict:
 
             args["urgent"] = combined_urgent
 
+            # NUEVO: Forzar target_hour a "09:30" si no se especifica
+            if not args.get("target_hour"):
+                args["target_hour"] = "09:30"
+
             # 6) Llamamos a la función real con los args corregidos
             slot_info = find_next_available_slot(
                 target_date=args.get("target_date"),
@@ -311,7 +310,6 @@ def handle_tool_execution(tool_call) -> Dict:
 
             return {"status": "__END_CALL__", "reason": args.get("reason", "user_request")}
 
-
         else:
             logger.error(f"❌ Función no reconocida: {function_name}")
             return {"error": "Función no implementada"}
@@ -319,6 +317,7 @@ def handle_tool_execution(tool_call) -> Dict:
     except Exception as e:
         logger.error(f"💥 Error en {function_name}: {str(e)}")
         return {"error": f"No se pudo ejecutar {function_name}"}
+
 
 
 #########################################################

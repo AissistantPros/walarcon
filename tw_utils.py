@@ -53,7 +53,7 @@ class TwilioWebSocketManager:
         self.accumulating_mode = False           # True cuando queremos juntar transcripciones
         self.accumulated_transcripts = []        # Lista de strings con las partes finales
         self.accumulating_timer_task = None      # Tarea asyncio que “espera 4s” para procesar
-        self.accumulating_timeout_seconds = 5.0  # Ajusta a gusto
+        self.accumulating_timeout_seconds = 4.0  # Ajusta a gusto
 
     def _detect_language(self, text: str) -> str:
         """
@@ -115,6 +115,12 @@ class TwilioWebSocketManager:
                     await self._play_audio_bytes(saludo_audio)
 
                 elif event_type == "media":
+
+                    # NUEVO: Si el sistema está hablando (modo mute), ignorar el audio entrante
+                    if self.is_speaking:
+                        logger.info("🔇 Modo mute activo: se ignora audio entrante.")
+                        continue
+
                     payload = data["media"].get("payload")
                     if payload:
                         audio_chunk = base64.b64decode(payload)
