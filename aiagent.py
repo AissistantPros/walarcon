@@ -245,7 +245,6 @@ def handle_tool_execution(tool_call) -> Dict:
 
             args["urgent"] = combined_urgent
 
-            # Forzar target_hour si no viene especificada
             if args.get("target_hour") in [None, False, ""]:
                 args["target_hour"] = "09:30"
 
@@ -258,8 +257,54 @@ def handle_tool_execution(tool_call) -> Dict:
             )
 
             logger.info(f"📩 aiagent.py ← buscarslot.py: respuesta recibida: {slot_info}")
-            logger.info(f"📦 aiagent.py → sistema: enviando slot final a la IA: {slot_info}")
 
+            # 🧠 Formateo final para la IA (para que diga la fecha con claridad)
+            if "start_time" in slot_info:
+                try:
+                    start_iso = slot_info["start_time"][:19]  # Quitar zona horaria
+                    start_dt = datetime.strptime(start_iso, "%Y-%m-%dT%H:%M:%S")
+                    tz = pytz.timezone("America/Cancun")
+                    start_dt = tz.localize(start_dt)
+
+                    dias_semana = {
+                        "Monday": "lunes",
+                        "Tuesday": "martes",
+                        "Wednesday": "miércoles",
+                        "Thursday": "jueves",
+                        "Friday": "viernes",
+                        "Saturday": "sábado",
+                        "Sunday": "domingo"
+                    }
+                    meses = {
+                        "January": "enero",
+                        "February": "febrero",
+                        "March": "marzo",
+                        "April": "abril",
+                        "May": "mayo",
+                        "June": "junio",
+                        "July": "julio",
+                        "August": "agosto",
+                        "September": "septiembre",
+                        "October": "octubre",
+                        "November": "noviembre",
+                        "December": "diciembre"
+                    }
+
+                    dia_ingles = start_dt.strftime("%A")
+                    dia_semana = dias_semana.get(dia_ingles, dia_ingles).capitalize()
+
+                    dia_num = start_dt.strftime("%d")
+                    mes_ingles = start_dt.strftime("%B")
+                    mes = meses.get(mes_ingles, mes_ingles)
+                    anio = start_dt.strftime("%Y")
+                    hora = start_dt.strftime("%I:%M %p").lstrip("0").lower().replace("am", "a.m.").replace("pm", "p.m.")
+
+                    formatted_text = f"Slot disponible: {dia_semana} {dia_num} de {mes} del {anio} a las {hora}"
+                    slot_info["formatted_description"] = formatted_text
+                except Exception as e:
+                    logger.warning(f"⚠️ No se pudo formatear la fecha para la IA: {e}")
+
+            logger.info(f"📦 aiagent.py → sistema: enviando slot final a la IA: {slot_info}")
             return {"slot": slot_info}
 
         elif function_name == "create_calendar_event":
