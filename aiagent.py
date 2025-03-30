@@ -2,7 +2,6 @@
 
 # -*- coding: utf-8 -*-
 
-
 import logging
 import time
 import json
@@ -24,83 +23,84 @@ logger = logging.getLogger(__name__)
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 
 #########################################################
-# 🔹 NUEVO: Funciones para interpretar expresiones de fecha
+# 🔹 Funciones para interpretar expresiones de fecha
 #########################################################
 
-
 def get_next_monday(reference_date: datetime) -> datetime:
-    """
-    Retorna el lunes de la próxima semana a partir de 'reference_date'.
-    Si hoy es lunes, se va al lunes de la semana siguiente.
-    """
     ref = reference_date
     while ref.weekday() != 0:  # 0 = lunes
         ref += timedelta(days=1)
-    # Si hoy es lunes, saltamos 7 días
     if ref.date() == reference_date.date():
         ref += timedelta(days=7)
     return ref
 
 def interpret_date_expression(date_expr: str, now: datetime):
     """
-    Convierte expresiones como 'lo antes posible', 'mañana', 
-    'la próxima semana', 'de hoy en 8', 'el próximo mes', etc.,
-    en una (target_date_str, urgent_bool).
+    Maneja expresiones como:
+    - 'lo antes posible', 'mañana', 'la próxima semana'
+    - 'el martes por la mañana', 'próximo viernes por la tarde'
+    - '2025-04-10', etc.
 
-    Retorna (target_date_str, urgent_bool).
-    target_date_str es YYYY-MM-DD o None.
-    urgent_bool es True o False.
+    Retorna (target_date_str, target_hour_str, urgent_bool)
     """
-    date_expr_lower = date_expr.strip().lower()
     cancun = pytz.timezone("America/Cancun")
+    date_expr_lower = date_expr.strip().lower()
 
-    # Valor por defecto
-    date_str = None
+    # Valores por defecto
+    target_date = None
+    target_hour = "09:30"
     urgent = False
 
-    if date_expr_lower in ["lo antes posible", "urgente", "hoy"]:
-        # Significa urgent = True
+    # Urgencia
+    if any(word in date_expr_lower for word in ["urgente", "lo antes posible", "hoy"]):
         urgent = True
 
-    elif date_expr_lower == "mañana":
-        tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-        date_str = tomorrow
-
-    elif date_expr_lower == "la próxima semana":
-        next_mon = get_next_monday(now)
-        date_str = next_mon.strftime("%Y-%m-%d")
-
-    elif date_expr_lower in ["de hoy en 8", "hoy en 8"]:
-        future = now + timedelta(days=7)
-        date_str = future.strftime("%Y-%m-%d")
-
-    elif date_expr_lower in ["de mañana en 8", "mañana en 8"]:
-        future = now + timedelta(days=8)
-        date_str = future.strftime("%Y-%m-%d")
-
-    elif date_expr_lower in ["en 15 días", "15 dias", "en quince dias"]:
-        future = now + timedelta(days=14)
-        date_str = future.strftime("%Y-%m-%d")
-
-    elif date_expr_lower == "el próximo mes":
-        # Primer día del mes siguiente
-        y = now.year
-        m = now.month
-        if m == 12:
-            y += 1
-            m = 1
-        else:
-            m += 1
-        next_month_first = datetime(y, m, 1, tzinfo=cancun)
-        date_str = next_month_first.strftime("%Y-%m-%d")
-
+    # Hora del día
+    if "tarde" in date_expr_lower:
+        target_hour = "12:30"
+    elif "mañana" in date_expr_lower:
+        target_hour = "09:30"
     else:
-        # Si GPT pasa algo tipo '2025-03-31', interpretamos
-        # si luce como YYYY-MM-DD:
-        if len(date_expr_lower) == 10 and date_expr_lower[4] == '-' and date_expr_lower[7] == '-':
-            date_str = date_expr_lower
+        target_hour = "09:30"  # default siempre 9:30 si no dice nada
 
-    return date_str, urgent
+    # Fechas relativas
+    if "mañana" in date_expr_lower:
+        target_date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    elif "de hoy en 8" in date_expr_lower or "hoy en 8" in date_expr_lower:
+        target_date = (now + timedelta(days=7)).strftime("%Y-%m-%d")
+    elif "de mañana en 8" in date_expr_lower or "mañana en 8" in date_expr_lower:
+        target_date = (now + timedelta(days=8)).strftime("%Y-%m-%d")
+    elif any(x in date_expr_lower for x in ["en 15 días", "en quince días", "15 dias"]):
+        target_date = (now + timedelta(days=14)).strftime("%Y-%m-%d")
+    elif "el próximo mes" in date_expr_lower:
+        y, m = now.year, now.month
+        m = m + 1 if m < 12 else 1
+        y = y if m > 1 else y + 1
+        target_date = datetime(y, m, 1, tzinfo=cancun).strftime("%Y-%m-%d")
+    elif "la próxima semana" in date_expr_lower:
+        next_monday = now + timedelta(days=(7 - now.weekday()) % 7 or 7)
+        target_date = next_monday.strftime("%Y-%m-%d")
+
+    # Días específicos
+    days = {
+        "lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2,
+        "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5
+    }
+    for day_name, weekday in days.items():
+        if f"el próximo {day_name}" in date_expr_lower or f"la próxima semana, {day_name}" in date_expr_lower:
+            delta_days = (weekday - now.weekday() + 7) % 7 or 7
+            target_date = (now + timedelta(days=delta_days)).strftime("%Y-%m-%d")
+            break
+        elif f"el {day_name}" in date_expr_lower:
+            delta_days = (weekday - now.weekday() + 7) % 7 or 7
+            target_date = (now + timedelta(days=delta_days)).strftime("%Y-%m-%d")
+            break
+
+    # Fecha directa YYYY-MM-DD
+    if len(date_expr_lower) == 10 and date_expr_lower[4] == "-" and date_expr_lower[7] == "-":
+        target_date = date_expr_lower
+
+    return target_date, target_hour, urgent
 
 
 #########################################################
@@ -122,9 +122,9 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "target_date": {"type": "string", "format": "date", "description": "Fecha objetivo en formato YYYY-MM-DD"},
-                    "target_hour": {"type": "string", "description": "Hora objetivo en formato HH:MM"},
-                    "urgent": {"type": "boolean", "description": "Si es una solicitud urgente"}
+                    "target_date": {"type": "string", "format": "date"},
+                    "target_hour": {"type": "string"},
+                    "urgent": {"type": "boolean"}
                 },
                 "required": []
             }
@@ -138,11 +138,11 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "description": "Nombre completo del paciente"},
-                    "phone": {"type": "string", "description": "Número de teléfono con WhatsApp"},
-                    "reason": {"type": "string", "description": "Motivo de la consulta"},
-                    "start_time": {"type": "string", "format": "date-time", "description": "Fecha y hora de inicio en ISO8601"},
-                    "end_time": {"type": "string", "format": "date-time", "description": "Fecha y hora de fin en ISO8601"}
+                    "name": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "start_time": {"type": "string", "format": "date-time"},
+                    "end_time": {"type": "string", "format": "date-time"}
                 },
                 "required": ["name", "phone", "start_time", "end_time"]
             }
@@ -156,10 +156,10 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "phone": {"type": "string", "description": "Número de teléfono registrado"},
-                    "original_start_time": {"type": "string", "format": "date-time", "description": "Fecha/hora original de la cita"},
-                    "new_start_time": {"type": "string", "format": "date-time", "description": "Nueva fecha/hora de inicio"},
-                    "new_end_time": {"type": "string", "format": "date-time", "description": "Nueva fecha/hora de fin"}
+                    "phone": {"type": "string"},
+                    "original_start_time": {"type": "string", "format": "date-time"},
+                    "new_start_time": {"type": "string", "format": "date-time"},
+                    "new_end_time": {"type": "string", "format": "date-time"}
                 },
                 "required": ["phone", "original_start_time"]
             }
@@ -173,8 +173,8 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "phone": {"type": "string", "description": "Número de teléfono registrado"},
-                    "patient_name": {"type": "string", "description": "Nombre del paciente (opcional para confirmación)"}
+                    "phone": {"type": "string"},
+                    "patient_name": {"type": "string"}
                 },
                 "required": ["phone"]
             }
@@ -188,7 +188,7 @@ TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "phone": {"type": "string", "description": "Número de teléfono a buscar"}
+                    "phone": {"type": "string"}
                 },
                 "required": ["phone"]
             }
@@ -204,7 +204,6 @@ TOOLS = [
                 "properties": {
                     "reason": {
                         "type": "string",
-                        "description": "Razón para finalizar la llamada",
                         "enum": ["user_request", "silence", "spam", "time_limit", "error"]
                     }
                 },
@@ -213,7 +212,6 @@ TOOLS = [
         }
     }
 ]
-
 
 
 #########################################################
@@ -230,77 +228,91 @@ def handle_tool_execution(tool_call) -> Dict:
             return {"data": get_consultorio_data_from_cache()}
 
         elif function_name == "find_next_available_slot":
-
             logger.info(f"🧠 IA → aiagent.py → find_next_available_slot: argumentos crudos recibidos: {args}")
 
             now = get_cancun_time()
             raw_date_expr = args.get("target_date", "").strip()
-            real_date_str, real_urgent = interpret_date_expression(raw_date_expr, now)
+
+            # 1) Interpretar fecha/hora
+            real_date_str, real_hour_str, real_urgent = interpret_date_expression(raw_date_expr, now)
             combined_urgent = args.get("urgent", False) or real_urgent
+            final_hour = args.get("target_hour") or real_hour_str or "09:30"
 
-            if real_date_str:
-                args["target_date"] = real_date_str
-            else:
-                args["target_date"] = None
-
+            args["target_date"] = real_date_str
+            args["target_hour"] = final_hour
             args["urgent"] = combined_urgent
 
-            if args.get("target_hour") in [None, False, ""]:
-                args["target_hour"] = "09:30"
+            logger.info(f"📤 aiagent.py → buscarslot.py: llamando con target_date={args['target_date']}, "
+                        f"target_hour={args['target_hour']}, urgent={args['urgent']}")
 
-            logger.info(f"📤 aiagent.py → buscarslot.py: llamando con target_date={args.get('target_date')}, target_hour={args.get('target_hour')}, urgent={args.get('urgent')}")
-
+            # 2) Llamar al backend de slots
             slot_info = find_next_available_slot(
-                target_date=args.get("target_date"),
-                target_hour=args.get("target_hour"),
-                urgent=args.get("urgent", False)
+                target_date=args["target_date"],
+                target_hour=args["target_hour"],
+                urgent=args["urgent"]
             )
 
             logger.info(f"📩 aiagent.py ← buscarslot.py: respuesta recibida: {slot_info}")
 
-            # 🧠 Formateo final para la IA (para que diga la fecha con claridad)
+            # 2.1 Manejar errores “NO_MORNING_AVAILABLE” o “NO_TARDE_AVAILABLE”
+            if slot_info.get("error") == "NO_MORNING_AVAILABLE":
+                return {
+                    "slot": {
+                        "error": "NO_MORNING_AVAILABLE",
+                        "date": slot_info["date"],
+                        "message": (
+                            "Mmm, no tengo horarios por la mañana ese día. "
+                            "¿Desea que busque en la tarde o en otro día por la mañana?"
+                        )
+                    }
+                }
+
+            if slot_info.get("error") == "NO_TARDE_AVAILABLE":
+                return {
+                    "slot": {
+                        "error": "NO_TARDE_AVAILABLE",
+                        "date": slot_info["date"],
+                        "message": (
+                            "Mmm, no tengo horarios por la tarde ese día. "
+                            "¿Le gustaría que busque otro día por la tarde o puedo revisar la mañana de ese mismo día?"
+                        )
+                    }
+                }
+
+            # 2.2 Manejar otros errores normales
+            if "error" in slot_info:
+                return {"slot": slot_info}
+
+            # 3) Formatear si ya hay “start_time”
             if "start_time" in slot_info:
                 try:
-                    start_iso = slot_info["start_time"][:19]  # Quitar zona horaria
+                    start_iso = slot_info["start_time"][:19]
                     start_dt = datetime.strptime(start_iso, "%Y-%m-%dT%H:%M:%S")
                     tz = pytz.timezone("America/Cancun")
                     start_dt = tz.localize(start_dt)
 
                     dias_semana = {
-                        "Monday": "lunes",
-                        "Tuesday": "martes",
-                        "Wednesday": "miércoles",
-                        "Thursday": "jueves",
-                        "Friday": "viernes",
-                        "Saturday": "sábado",
-                        "Sunday": "domingo"
+                        "Monday": "lunes", "Tuesday": "martes", "Wednesday": "miércoles",
+                        "Thursday": "jueves", "Friday": "viernes", "Saturday": "sábado", "Sunday": "domingo"
                     }
                     meses = {
-                        "January": "enero",
-                        "February": "febrero",
-                        "March": "marzo",
-                        "April": "abril",
-                        "May": "mayo",
-                        "June": "junio",
-                        "July": "julio",
-                        "August": "agosto",
-                        "September": "septiembre",
-                        "October": "octubre",
-                        "November": "noviembre",
-                        "December": "diciembre"
+                        "January": "enero", "February": "febrero", "March": "marzo", "April": "abril",
+                        "May": "mayo", "June": "junio", "July": "julio", "August": "agosto",
+                        "September": "septiembre", "October": "octubre", "November": "noviembre", "December": "diciembre"
                     }
 
-                    dia_ingles = start_dt.strftime("%A")
-                    dia_semana = dias_semana.get(dia_ingles, dia_ingles).capitalize()
-
+                    dia_semana = dias_semana.get(start_dt.strftime("%A"), "")
+                    mes = meses.get(start_dt.strftime("%B"), "")
                     dia_num = start_dt.strftime("%d")
-                    mes_ingles = start_dt.strftime("%B")
-                    mes = meses.get(mes_ingles, mes_ingles)
                     anio = start_dt.strftime("%Y")
                     hora = start_dt.strftime("%I:%M %p").lstrip("0").lower().replace("am", "a.m.").replace("pm", "p.m.")
 
-                    formatted_text = f"Slot disponible: {dia_semana} {dia_num} de {mes} del {anio} a las {hora}"
+                    formatted_text = (
+                        f"Slot disponible: {dia_semana.capitalize()} {dia_num} "
+                        f"de {mes} del {anio} a las {hora}"
+                    )
                     slot_info["formatted_description"] = formatted_text
+
                 except Exception as e:
                     logger.warning(f"⚠️ No se pudo formatear la fecha para la IA: {e}")
 
@@ -363,7 +375,6 @@ def handle_tool_execution(tool_call) -> Dict:
         return {"error": f"No se pudo ejecutar {function_name}"}
 
 
-
 #########################################################
 # 🔹 Generación de Respuestas
 #########################################################
@@ -376,7 +387,10 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
             conversation_history = generate_openai_prompt(conversation_history)
 
         # --- Instrucción de idioma ---
-        last_user_msg = next((msg for msg in reversed(conversation_history) if msg["role"] == "user"), None)
+        last_user_msg = next(
+            (msg for msg in reversed(conversation_history) if msg["role"] == "user"),
+            None
+        )
         if last_user_msg and "[EN]" in last_user_msg.get("content", ""):
             lang_instruction = " Respond in English only. Keep responses under 50 words."
         else:
@@ -384,8 +398,6 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
         if conversation_history and conversation_history[0]["role"] == "system":
             conversation_history[0]["content"] += lang_instruction
         # -------------------------------------
-
-
 
         # Primer request a GPT, con tool_choice auto
         first_response = client.chat.completions.create(
@@ -433,4 +445,3 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
     except Exception as e:
         logger.error(f"💣 Error crítico: {str(e)}")
         return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
-

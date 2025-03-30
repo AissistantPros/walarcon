@@ -27,11 +27,18 @@ SLOT_TIMES = [
     {"start": "14:00", "end": "14:45"},
 ]
 
+# Constantes de corte para “mañana” y “tarde”
+MORNING_CUTOFF = datetime.strptime("12:30", "%H:%M").time()  # Hasta antes de 12:30 = mañana
+# Después de 12:30, se considera tarde
+
 free_slots_cache = {}
 last_cache_update = None
 CACHE_VALID_MINUTES = 15
 
 def load_free_slots_to_cache(days_ahead=90):
+    """
+    Carga en caché los slots libres para los próximos 'days_ahead' días.
+    """
     global free_slots_cache, last_cache_update
 
     with cache_lock:
@@ -61,10 +68,12 @@ def load_free_slots_to_cache(days_ahead=90):
             day_key = start_local.strftime("%Y-%m-%d")
             busy_by_day.setdefault(day_key, []).append((start_local, end_local))
 
+        # Construye la lista de slots libres para cada día
         for offset in range(days_ahead + 1):
             day_date = now + timedelta(days=offset)
             day_str = day_date.strftime("%Y-%m-%d")
 
+            # Si es domingo (weekday=6), no hay citas
             if day_date.weekday() == 6:
                 free_slots_cache[day_str] = []
                 continue
@@ -77,6 +86,9 @@ def load_free_slots_to_cache(days_ahead=90):
         logger.info(f"✅ Slots libres precargados para los próximos {days_ahead} días.")
 
 def build_free_slots_for_day(day_dt, busy_list):
+    """
+    Para un día 'day_dt', construye la lista de horas de inicio disponibles.
+    """
     day_str = day_dt.strftime("%Y-%m-%d")
     free_list = []
 
@@ -88,15 +100,20 @@ def build_free_slots_for_day(day_dt, busy_list):
         start_dt = tz.localize(datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S"))
         end_dt = tz.localize(datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S"))
 
+        # Comprobamos que NO se solape con ninguno de los busy
         if all(
             not (start_dt < (b_end - timedelta(seconds=1)) and end_dt > b_start)
             for b_start, b_end in busy_list
         ):
             free_list.append(slot["start"])
 
+    # Ordenamos de menor a mayor hora
     return sorted(free_list, key=lambda x: datetime.strptime(x, "%H:%M"))
 
 def ensure_cache_is_fresh():
+    """
+    Si la caché no se ha actualizado en los últimos 15 minutos, la recarga.
+    """
     global last_cache_update
     now = get_cancun_time()
 
@@ -104,6 +121,9 @@ def ensure_cache_is_fresh():
         load_free_slots_to_cache(days_ahead=90)
 
 def adjust_to_valid_slot(requested_time, slot_times):
+    """
+    Dado 'requested_time' (ej. '12:30'), encuentra en SLOT_TIMES el primer slot >= esa hora.
+    """
     req_time_obj = datetime.strptime(requested_time, "%H:%M").time()
     for s in slot_times:
         slot_start_obj = datetime.strptime(s["start"], "%H:%M").time()
@@ -112,12 +132,18 @@ def adjust_to_valid_slot(requested_time, slot_times):
     return slot_times[-1]["start"]
 
 def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
+    """
+    Si target_hour=="09:30", interpretamos que el usuario quiere 'mañana'.
+    Si target_hour=="12:30", interpretamos que el usuario quiere 'tarde'.
+    - Si no hay nada en esa franja, retornamos error especial.
+    """
     try:
         logger.info(f"📥 buscarslot.py recibió: target_date={target_date}, target_hour={target_hour}, urgent={urgent}")
 
         ensure_cache_is_fresh()
         now = get_cancun_time()
 
+        # 1) Determinar punto de arranque
         if target_date:
             date_obj = datetime.strptime(target_date, "%Y-%m-%d")
             search_start = pytz.timezone("America/Cancun").localize(
@@ -132,20 +158,54 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                 datetime(now.year, now.month, now.day)
             )
 
+        # 2) Si pidieron explícitamente un día y “mañana/tarde”
+        if target_date and target_hour in ("09:30", "12:30"):
+            day_str = search_start.strftime("%Y-%m-%d")
+            if day_str not in free_slots_cache:
+                # No hay info para ese día
+                if target_hour == "09:30":
+                    return {"error": "NO_MORNING_AVAILABLE", "date": day_str}
+                else:
+                    return {"error": "NO_TARDE_AVAILABLE", "date": day_str}
+
+            # Filtramos slots para ver si hay en la franja
+            all_slots = sorted(
+                free_slots_cache[day_str],
+                key=lambda x: datetime.strptime(x, "%H:%M")
+            )
+
+            if target_hour == "09:30":
+                # Mañana: slots < 12:30
+                morning_slots = []
+                for free_slot_start in all_slots:
+                    fs_time_obj = datetime.strptime(free_slot_start, "%H:%M").time()
+                    # Check si es < 12:30
+                    if fs_time_obj < MORNING_CUTOFF:  # MORNING_CUTOFF=12:30
+                        morning_slots.append(free_slot_start)
+                if not morning_slots:
+                    return {"error": "NO_MORNING_AVAILABLE", "date": day_str}
+            elif target_hour == "12:30":
+                # Tarde: slots >= 12:30
+                afternoon_slots = []
+                for free_slot_start in all_slots:
+                    fs_time_obj = datetime.strptime(free_slot_start, "%H:%M").time()
+                    if fs_time_obj >= MORNING_CUTOFF:
+                        afternoon_slots.append(free_slot_start)
+                if not afternoon_slots:
+                    return {"error": "NO_TARDE_AVAILABLE", "date": day_str}
+            # Si sí hay, continuamos la lógica normal
+
+        # 3) Lógica normal de 180 días
         valid_target_hour = adjust_to_valid_slot(target_hour, SLOT_TIMES) if target_hour else None
 
         for offset in range(180):
             day_to_check = search_start + timedelta(days=offset)
             day_str = day_to_check.strftime("%Y-%m-%d")
 
-            logger.info(f"🔎 Revisando día: {day_str}")
-
-            if day_to_check.weekday() == 6:
-                logger.info(f"⛔ Día {day_str} es domingo, se omite.")
+            if day_to_check.weekday() == 6:  # domingo
                 continue
 
             if day_str not in free_slots_cache:
-                logger.info(f"⚠️ No hay datos en caché para {day_str}, se omite.")
                 continue
 
             for free_slot_start in sorted(free_slots_cache[day_str], key=lambda x: datetime.strptime(x, "%H:%M")):
@@ -154,7 +214,6 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                 )
 
                 if urgent and start_dt < now + timedelta(hours=4):
-                    logger.info(f"⏩ Slot {free_slot_start} de {day_str} ignorado por urgencia.")
                     continue
                 if start_dt < now:
                     continue
@@ -163,7 +222,6 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                     fs_time_obj = datetime.strptime(free_slot_start, "%H:%M").time()
                     vt_time_obj = datetime.strptime(valid_target_hour, "%H:%M").time()
                     if fs_time_obj < vt_time_obj:
-                        logger.info(f"⏩ Slot {free_slot_start} de {day_str} menor que target_hour {valid_target_hour}.")
                         continue
 
                 end_str = next((s["end"] for s in SLOT_TIMES if s["start"] == free_slot_start), None)
@@ -173,15 +231,11 @@ def find_next_available_slot(target_date=None, target_hour=None, urgent=False):
                 end_dt = pytz.timezone("America/Cancun").localize(
                     datetime.strptime(f"{day_str} {end_str}:00", "%Y-%m-%d %H:%M:%S")
                 )
-
-                slot_found = {
+                return {
                     "start_time": start_dt.isoformat(),
                     "end_time": end_dt.isoformat(),
                 }
-                logger.info(f"✅ buscarslot.py → slot encontrado: {slot_found}")
-                return slot_found
 
-        logger.error("❌ buscarslot.py no encontró ningún slot en 180 días.")
         return {"error": "No se encontraron horarios disponibles en los próximos 6 meses."}
 
     except Exception as e:
