@@ -139,7 +139,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Nombre completo del paciente"},
-                    "phone": {"type": "string", "description": "Número de teléfono con WhatsApp (10 dígitos)"},
+                    "phone": {"type": "string", "description": "Número de teléfono con WhatsApp"},
                     "reason": {"type": "string", "description": "Motivo de la consulta"},
                     "start_time": {"type": "string", "format": "date-time", "description": "Fecha y hora de inicio en ISO8601"},
                     "end_time": {"type": "string", "format": "date-time", "description": "Fecha y hora de fin en ISO8601"}
