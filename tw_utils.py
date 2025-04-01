@@ -1,5 +1,22 @@
 # tw_utils.py
 
+"""
+Este archivo gestiona toda la lógica de llamada con Twilio WebSocket.
+
+- Cada vez que el usuario habla, se envía:
+  - La hora actual en Cancún como system_message temporal.
+  - El mensaje del usuario.
+  - El historial anterior sin system_messages.
+
+- La IA puede consultar también la hora con la tool get_cancun_time si lo necesita.
+
+- El historial real mantiene solo las intervenciones de usuario e IA.
+
+- La lógica de acumulación permite recoger números largos como teléfonos sin cortes.
+
+Autor: Esteban Reyna / Aissistants Pro
+"""
+
 import json
 import base64
 import time
@@ -318,6 +335,22 @@ class TwilioWebSocketManager:
     # FIN LÓGICA DE ACUMULACIÓN
     # ─────────────────────────────────────────────────────────────────────────
 
+    def _generate_system_message_datetime(self):
+        now = get_cancun_time()
+        formatted = now.strftime("Hoy es %A %d de %B del %Y, son las %H:%M en Cancún.")
+        traducciones = {
+            "Monday": "lunes", "Tuesday": "martes", "Wednesday": "miércoles", "Thursday": "jueves",
+            "Friday": "viernes", "Saturday": "sábado", "Sunday": "domingo",
+            "January": "enero", "February": "febrero", "March": "marzo", "April": "abril",
+            "May": "mayo", "June": "junio", "July": "julio", "August": "agosto",
+            "September": "septiembre", "October": "octubre", "November": "noviembre", "December": "diciembre"
+        }
+        for en, es in traducciones.items():
+            formatted = formatted.replace(en, es)
+        return {
+            "role": "system",
+            "content": f"{formatted}. Utiliza esta fecha y hora para todos tus cálculos e interacciones con el usuario. No alucines ni uses otra zona horaria."
+        }
 
 
 
@@ -330,30 +363,35 @@ class TwilioWebSocketManager:
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
 
-
         user_lang = self._detect_language(user_text)
         self.current_language = user_lang
-        self.conversation_history.append({
-        "role": "user",
-        "content": f"[{user_lang.upper()}] {user_text}"
-        } )
-  
 
-        # Generar respuesta con el historial actualizado
-        gpt_response = generate_openai_response(self.conversation_history)
+        # Armar input del usuario para GPT
+        user_input = {"role": "user", "content": f"[{user_lang.upper()}] {user_text}"}
 
+        # Generar system_message con hora actual en Cancún (NO se guarda en el historial)
+        system_message = self._generate_system_message_datetime()
+
+        # Preparar conversación para enviar a GPT
+        messages_for_gpt = [system_message] + self.conversation_history + [user_input]
+
+        # Enviar a GPT
+        gpt_response = generate_openai_response(messages_for_gpt)
+
+        # Verificar si la IA pidió terminar la llamada
         if gpt_response == "__END_CALL__":
-            # IA dice que hay que colgar
             await self._shutdown()
             return
 
-
+        # Guardar solo lo esencial en el historial real
+        self.conversation_history.append(user_input)
         self.conversation_history.append({"role": "assistant", "content": gpt_response})
+
         logger.info(f"🤖 IA (texto completo): {gpt_response}")
 
         resp_lower = gpt_response.lower()
 
-        # Activa la acumulación si GPT pregunta por el número de WhatsApp
+        # Activar acumulación si GPT pregunta por el número de WhatsApp
         if "número de whatsapp" in resp_lower:
             self._activate_accumulating_mode()
             self.expecting_number = True
@@ -362,34 +400,24 @@ class TwilioWebSocketManager:
             self.expecting_number = False
             self.expecting_name = False
 
-        # ─────────────────────────────────────────────────────────────────────
-        # DETECCIÓN DE FRASE DE DESPEDIDA
-        # ─────────────────────────────────────────────────────────────────────
+        # Detectar frase final de despedida y cerrar llamada
         if "fue un placer atenderle. que tenga un excelente día. ¡hasta luego!" in resp_lower:
             logger.info("🧼 Frase de cierre detectada. Reproduciendo despedida y terminando llamada.")
-
-            # 1) Generamos TTS
             self.is_speaking = True
             tts_audio = text_to_speech(gpt_response)
             await self._play_audio_bytes(tts_audio)
-
-            # 2) Esperamos 5s para asegurar que el usuario escuche todo
             await asyncio.sleep(5)
             self.is_speaking = False
-
-            # 3) Cerramos la llamada
             await self._shutdown()
             return
 
-        # ─────────────────────────────────────────────────────────────────────
-        # REPRODUCIR RESPUESTA NORMAL
-        # ─────────────────────────────────────────────────────────────────────
+        # Reproducir respuesta normal
         self.is_speaking = True
         tts_audio = text_to_speech(gpt_response)
         await self._play_audio_bytes(tts_audio)
-        # Pausa opcional según la duración del audio
         await asyncio.sleep(len(tts_audio) / 6400)
         self.is_speaking = False
+
 
 
 

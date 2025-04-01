@@ -102,6 +102,41 @@ def interpret_date_expression(date_expr: str, now: datetime):
 
     return target_date, target_hour, urgent
 
+#########################################################
+# 🔹 Función para generar system_message de resumen de fechas
+#########################################################
+
+def generar_system_message_resumen_fecha(original_date_str, original_hour_str, result_date_str, result_hour_str):
+    dias_semana = {
+        0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves",
+        4: "viernes", 5: "sábado", 6: "domingo"
+    }
+    meses = {
+        1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+        5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+        9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
+    }
+    try:
+        original_dt = datetime.strptime(f"{original_date_str} {original_hour_str}", "%Y-%m-%d %H:%M")
+        result_dt = datetime.strptime(f"{result_date_str} {result_hour_str}", "%Y-%m-%d %H:%M")
+
+        dia_orig = dias_semana[original_dt.weekday()]
+        dia_disp = dias_semana[result_dt.weekday()]
+        mes_orig = meses[original_dt.month]
+        mes_disp = meses[result_dt.month]
+
+        fecha_inicio = f"{dia_orig} {original_dt.day} de {mes_orig} del {original_dt.year} a las {original_dt.strftime('%H:%M')}"
+        fecha_resultado = f"{dia_disp} {result_dt.day} de {mes_disp} del {result_dt.year} a las {result_dt.strftime('%H:%M')}"
+        return {
+            "role": "system",
+            "content": (
+                f"Se comenzó buscando desde el {fecha_inicio}, pero no había disponibilidad. "
+                f"El sistema encontró espacio el {fecha_resultado}. Explica esto al usuario con claridad, sin inventar intenciones."
+            )
+        }
+    except Exception as e:
+        logger.warning(f"No se pudo generar system_message de fechas: {e}")
+        return None
 
 #########################################################
 # 🔹 DEFINICIÓN DE TOOLS
@@ -162,6 +197,17 @@ TOOLS = [
                     "new_end_time": {"type": "string", "format": "date-time"}
                 },
                 "required": ["phone", "original_start_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cancun_time",
+            "description": "Devuelve la fecha y hora actual en Cancún (UTC -5). Úsala como referencia para interpretar expresiones como 'hoy', 'mañana', etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
             }
         }
     },
@@ -313,11 +359,35 @@ def handle_tool_execution(tool_call) -> Dict:
                     )
                     slot_info["formatted_description"] = formatted_text
 
+                    # Comparar si la fecha/hora encontrada es distinta a la solicitada originalmente
+                    if real_date_str and final_hour:
+                        # Extraer la fecha y hora del slot encontrado
+                        result_date_str = datetime.strptime(slot_info["start_time"][:10], "%Y-%m-%d").strftime("%Y-%m-%d")
+                        result_hour_str = datetime.strptime(slot_info["start_time"][11:16], "%H:%M").strftime("%H:%M")
+                        if result_date_str != real_date_str or result_hour_str != final_hour:
+                            resumen_msg = generar_system_message_resumen_fecha(
+                                original_date_str=real_date_str,
+                                original_hour_str=final_hour,
+                                result_date_str=result_date_str,
+                                result_hour_str=result_hour_str
+                            )
+                            if resumen_msg:
+                                slot_info["system_context_message"] = resumen_msg
                 except Exception as e:
                     logger.warning(f"⚠️ No se pudo formatear la fecha para la IA: {e}")
 
             logger.info(f"📦 aiagent.py → sistema: enviando slot final a la IA: {slot_info}")
             return {"slot": slot_info}
+
+
+        elif function_name == "get_cancun_time":
+            from utils import get_cancun_time
+            now = get_cancun_time()
+            return {
+                "datetime": now.isoformat(),
+                "formatted": now.strftime("Hoy es %A %d de %B del %Y, son las %I:%M %p en Cancún.")
+            }
+
 
         elif function_name == "create_calendar_event":
             start_time = args["start_time"]
