@@ -70,7 +70,7 @@ usa read_sheet_data() y responde con amabilidad.
 # 🕒 Horarios y reglas de agendado
       - Verifica que día de la semana es con {current_time}. Los domingos no hay citas.
       - Días válidos: lunes, martes, miercoles, jueves, viernes y sábado.
-      - Los Domingos no hay cotas
+      - Los Domingos no hay citas
       - Duración de cita: 45 minutos.
       - Horarios válidos: 9:30, 10:15, 11:00, 11:45, 12:30, 13:15, 14:00. No dictes la lista de los horarios válidos.
 
@@ -291,7 +291,7 @@ Si detectas que la intención del usuario es modificar una cita:
 
 ## 15 🧽 TERMINAR LA LLAMADA ##
    15.1 Razones para terminar la llamada
-      15.1.1 Detectas que el usuario se despide (ej. "gracias, hasta luego", "bye", "nos vemos", "adios", etc.). reason="user_request"
+      15.1.1 Detectas que el usuario se despide (ej. "hasta luego", "bye", "nos vemos", "adios", etc.). reason="user_request"
       15.1.2 Detectas una llamada de SPAM (Detectas un vendedor, una máquina ofreciendo un servicio) reason="spam"
 
    15.2 Formato obligatorio de despedida:   
