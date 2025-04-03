@@ -3,10 +3,16 @@ import os
 import json
 import asyncio
 import logging
+import warnings
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
 
 logger = logging.getLogger("deepgram_stt_streamer")
 logger.setLevel(logging.INFO)
+
+# Silenciar logs molestos del WebSocket de Deepgram al cancelar tareas
+logging.getLogger("deepgram.clients.common.v1.abstract_async_websocket").setLevel(logging.ERROR)
+warnings.filterwarnings("ignore", message="coroutine .* was never awaited")
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 DEEPGRAM_KEY = os.getenv("DEEPGRAM_KEY")
 if not DEEPGRAM_KEY:
@@ -50,7 +56,6 @@ class DeepgramSTTStreamer:
                 vad_events=True
             )
 
-
             await self.dg_connection.start(options)
             self._started = True
             logger.info("✅ Conexión Deepgram establecida")
@@ -81,7 +86,7 @@ class DeepgramSTTStreamer:
                 self._started = False
                 logger.info("🔚 Conexión Deepgram finalizada")
             except asyncio.CancelledError:
-                logger.warning("⚠️ Tarea cancelada durante el cierre de Deepgram.")
+                logger.info("🧹 Tarea cancelada limpiamente al cerrar el streaming de Deepgram.")
             except Exception as e:
                 if "cancelled" in str(e).lower():
                     logger.info("🔇 Deepgram cerró la conexión por cancelación de tareas (normal).")
