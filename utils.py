@@ -141,16 +141,37 @@ def search_calendar_event_by_phone(phone: str):
             orderBy="startTime"
         ).execute()
         items = events_result.get("items", [])
-        # OJO: items no siempre tiene 'name' => con la API devuelta
-        # Podrías parsear 'summary' y 'description'.
-        # Asumimos que "summary" es el nombre y "description" cont. el phone
-        # Tu lógica actual no filtra. Ajustar según tu necesidad:
+
+        parsed_events = []
         for evt in items:
-            if "summary" not in evt:
-                evt["name"] = "Desconocido"
-            else:
-                evt["name"] = evt["summary"]
-        return items
+            # summary => nombre del paciente
+            summary = evt.get("summary", "Desconocido")
+            description = evt.get("description", "")
+            
+            # Variables por defecto
+            motive = None
+            phone_in_desc = None
+            
+            # Parse de la descripción
+            # Ej: "📞 Teléfono: 9982137477\n📝 Motivo: Dolor en el pecho"
+            # Lo puedes hacer con splits:
+            lines = description.split("\n")
+            for line in lines:
+                line_lower = line.lower()
+                if "teléfono:" in line_lower:
+                    phone_in_desc = line.split("Teléfono:")[-1].strip()
+                if "motivo:" in line_lower:
+                    motive = line.split("Motivo:")[-1].strip()
+            
+            # Reemplazar en la data "name", "reason", "phone"
+            evt["name"] = summary
+            evt["reason"] = motive
+            evt["phone"] = phone_in_desc if phone_in_desc else phone
+            
+            parsed_events.append(evt)
+
+        return parsed_events
+
     except Exception as e:
         logger.error(f"❌ Error buscando citas: {str(e)}")
         return []

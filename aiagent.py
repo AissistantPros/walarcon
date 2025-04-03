@@ -16,6 +16,12 @@ from editarcita import edit_calendar_event
 from utils import search_calendar_event_by_phone, get_cancun_time
 from datetime import datetime, timedelta
 import pytz
+from prompt import generate_openai_prompt
+from prompts.prompt_crear_cita import prompt_crear_cita
+from prompts.prompt_editar_cita import prompt_editar_cita
+from prompts.prompt_eliminar_cita import prompt_eliminar_cita
+
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -34,73 +40,9 @@ def get_next_monday(reference_date: datetime) -> datetime:
         ref += timedelta(days=7)
     return ref
 
-def interpret_date_expression(date_expr: str, now: datetime):
-    """
-    Maneja expresiones como:
-    - 'lo antes posible', 'mañana', 'la próxima semana'
-    - 'el martes por la mañana', 'próximo viernes por la tarde'
-    - '2025-04-10', etc.
 
-    Retorna (target_date_str, target_hour_str, urgent_bool)
-    """
-    cancun = pytz.timezone("America/Cancun")
-    date_expr_lower = date_expr.strip().lower()
 
-    # Valores por defecto
-    target_date = None
-    target_hour = "09:30"
-    urgent = False
 
-    # Urgencia
-    if any(word in date_expr_lower for word in ["urgente", "lo antes posible", "hoy"]):
-        urgent = True
-
-    # Hora del día
-    if "tarde" in date_expr_lower:
-        target_hour = "12:30"
-    elif "mañana" in date_expr_lower:
-        target_hour = "09:30"
-    else:
-        target_hour = "09:30"  # default siempre 9:30 si no dice nada
-
-    # Fechas relativas
-    if "mañana" in date_expr_lower:
-        target_date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-    elif "de hoy en 8" in date_expr_lower or "hoy en 8" in date_expr_lower:
-        target_date = (now + timedelta(days=7)).strftime("%Y-%m-%d")
-    elif "de mañana en 8" in date_expr_lower or "mañana en 8" in date_expr_lower:
-        target_date = (now + timedelta(days=8)).strftime("%Y-%m-%d")
-    elif any(x in date_expr_lower for x in ["en 15 días", "en quince días", "15 dias"]):
-        target_date = (now + timedelta(days=14)).strftime("%Y-%m-%d")
-    elif "el próximo mes" in date_expr_lower:
-        y, m = now.year, now.month
-        m = m + 1 if m < 12 else 1
-        y = y if m > 1 else y + 1
-        target_date = datetime(y, m, 1, tzinfo=cancun).strftime("%Y-%m-%d")
-    elif "la próxima semana" in date_expr_lower:
-        next_monday = now + timedelta(days=(7 - now.weekday()) % 7 or 7)
-        target_date = next_monday.strftime("%Y-%m-%d")
-
-    # Días específicos
-    days = {
-        "lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2,
-        "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5
-    }
-    for day_name, weekday in days.items():
-        if f"el próximo {day_name}" in date_expr_lower or f"la próxima semana, {day_name}" in date_expr_lower:
-            delta_days = (weekday - now.weekday() + 7) % 7 or 7
-            target_date = (now + timedelta(days=delta_days)).strftime("%Y-%m-%d")
-            break
-        elif f"el {day_name}" in date_expr_lower:
-            delta_days = (weekday - now.weekday() + 7) % 7 or 7
-            target_date = (now + timedelta(days=delta_days)).strftime("%Y-%m-%d")
-            break
-
-    # Fecha directa YYYY-MM-DD
-    if len(date_expr_lower) == 10 and date_expr_lower[4] == "-" and date_expr_lower[7] == "-":
-        target_date = date_expr_lower
-
-    return target_date, target_hour, urgent
 
 #########################################################
 # 🔹 Función para generar system_message de resumen de fechas
@@ -130,13 +72,45 @@ def generar_system_message_resumen_fecha(original_date_str, original_hour_str, r
         return {
             "role": "system",
             "content": (
-                f"Se comenzó buscando desde el {fecha_inicio}, pero no había disponibilidad. "
+                f"Se comenzó buscando desde el {fecha_inicio}. "
                 f"El sistema encontró espacio el {fecha_resultado}. Explica esto al usuario con claridad, sin inventar intenciones."
             )
         }
     except Exception as e:
         logger.warning(f"No se pudo generar system_message de fechas: {e}")
         return None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #########################################################
 # 🔹 DEFINICIÓN DE TOOLS
@@ -220,6 +194,7 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "phone": {"type": "string"},
+                    "original_start_time": {"type": "string", "format": "date-time"},
                     "patient_name": {"type": "string"}
                 },
                 "required": ["phone"]
@@ -260,6 +235,29 @@ TOOLS = [
 ]
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #########################################################
 # 🔹 handle_tool_execution
 #########################################################
@@ -274,205 +272,162 @@ def handle_tool_execution(tool_call) -> Dict:
             return {"data": get_consultorio_data_from_cache()}
 
         elif function_name == "find_next_available_slot":
-            logger.info(f"🧠 IA → aiagent.py → find_next_available_slot: argumentos crudos recibidos: {args}")
+            # GPT-4o ya interpreta fecha claramente.
+            target_date = args.get("target_date")
+            target_hour = args.get("target_hour", "09:30")
+            urgent = args.get("urgent", False)
 
-            now = get_cancun_time()
-            raw_date_expr = args.get("target_date", "").strip()
-
-            # 1) Interpretar fecha/hora
-            real_date_str, real_hour_str, real_urgent = interpret_date_expression(raw_date_expr, now)
-            combined_urgent = args.get("urgent", False) or real_urgent
-            final_hour = args.get("target_hour") or real_hour_str or "09:30"
-
-            args["target_date"] = real_date_str
-            args["target_hour"] = final_hour
-            args["urgent"] = combined_urgent
-
-            logger.info(f"📤 aiagent.py → buscarslot.py: llamando con target_date={args['target_date']}, "
-                        f"target_hour={args['target_hour']}, urgent={args['urgent']}")
-
-            # 2) Llamar al backend de slots
             slot_info = find_next_available_slot(
-                target_date=args["target_date"],
-                target_hour=args["target_hour"],
-                urgent=args["urgent"]
+                target_date=target_date,
+                target_hour=target_hour,
+                urgent=urgent
             )
 
-            logger.info(f"📩 aiagent.py ← buscarslot.py: respuesta recibida: {slot_info}")
-
-            # 2.1 Manejar errores “NO_MORNING_AVAILABLE” o “NO_TARDE_AVAILABLE”
-            if slot_info.get("error") == "NO_MORNING_AVAILABLE":
-                return {
-                    "slot": {
-                        "error": "NO_MORNING_AVAILABLE",
-                        "date": slot_info["date"],
-                        "message": (
-                            "Mmm, no tengo horarios por la mañana ese día. "
-                            "¿Desea que busque en la tarde o en otro día por la mañana?"
-                        )
-                    }
-                }
-
-            if slot_info.get("error") == "NO_TARDE_AVAILABLE":
-                return {
-                    "slot": {
-                        "error": "NO_TARDE_AVAILABLE",
-                        "date": slot_info["date"],
-                        "message": (
-                            "Mmm, no tengo horarios por la tarde ese día. "
-                            "¿Le gustaría que busque otro día por la tarde o puedo revisar la mañana de ese mismo día?"
-                        )
-                    }
-                }
-
-            # 2.2 Manejar otros errores normales
             if "error" in slot_info:
                 return {"slot": slot_info}
 
-            # 3) Formatear si ya hay “start_time”
             if "start_time" in slot_info:
-                try:
-                    start_iso = slot_info["start_time"][:19]
-                    start_dt = datetime.strptime(start_iso, "%Y-%m-%dT%H:%M:%S")
-                    tz = pytz.timezone("America/Cancun")
-                    start_dt = tz.localize(start_dt)
+                start_iso = slot_info["start_time"][:19]
+                start_dt = datetime.strptime(start_iso, "%Y-%m-%dT%H:%M:%S")
+                tz = pytz.timezone("America/Cancun")
+                start_dt = tz.localize(start_dt)
 
-                    dias_semana = {
-                        "Monday": "lunes", "Tuesday": "martes", "Wednesday": "miércoles",
-                        "Thursday": "jueves", "Friday": "viernes", "Saturday": "sábado", "Sunday": "domingo"
-                    }
-                    meses = {
-                        "January": "enero", "February": "febrero", "March": "marzo", "April": "abril",
-                        "May": "mayo", "June": "junio", "July": "julio", "August": "agosto",
-                        "September": "septiembre", "October": "octubre", "November": "noviembre", "December": "diciembre"
-                    }
+                dias_semana = {
+                    "Monday": "lunes", "Tuesday": "martes", "Wednesday": "miércoles",
+                    "Thursday": "jueves", "Friday": "viernes", "Saturday": "sábado", "Sunday": "domingo"
+                }
+                meses = {
+                    "January": "enero", "February": "febrero", "March": "marzo", "April": "abril",
+                    "May": "mayo", "June": "junio", "July": "julio", "August": "agosto",
+                    "September": "septiembre", "October": "octubre", "November": "noviembre", "December": "diciembre"
+                }
 
-                    dia_semana = dias_semana.get(start_dt.strftime("%A"), "")
-                    mes = meses.get(start_dt.strftime("%B"), "")
-                    dia_num = start_dt.strftime("%d")
-                    anio = start_dt.strftime("%Y")
-                    hora = start_dt.strftime("%I:%M %p").lstrip("0").lower().replace("am", "a.m.").replace("pm", "p.m.")
+                fecha_formateada = f"{dias_semana[start_dt.strftime('%A')]} {start_dt.day} de {meses[start_dt.strftime('%B')]} del {start_dt.year} a las {start_dt.strftime('%H:%M')}"
+                slot_info["formatted_description"] = f"Slot disponible: {fecha_formateada}"
 
-                    formatted_text = (
-                        f"Slot disponible: {dia_semana.capitalize()} {dia_num} "
-                        f"de {mes} del {anio} a las {hora}"
-                    )
-                    slot_info["formatted_description"] = formatted_text
-
-                    # Comparar si la fecha/hora encontrada es distinta a la solicitada originalmente
-                    if real_date_str and final_hour:
-                        # Extraer la fecha y hora del slot encontrado
-                        result_date_str = datetime.strptime(slot_info["start_time"][:10], "%Y-%m-%d").strftime("%Y-%m-%d")
-                        result_hour_str = datetime.strptime(slot_info["start_time"][11:16], "%H:%M").strftime("%H:%M")
-                        if result_date_str != real_date_str or result_hour_str != final_hour:
-                            resumen_msg = generar_system_message_resumen_fecha(
-                                original_date_str=real_date_str,
-                                original_hour_str=final_hour,
-                                result_date_str=result_date_str,
-                                result_hour_str=result_hour_str
-                            )
-                            if resumen_msg:
-                                slot_info["system_context_message"] = resumen_msg
-                except Exception as e:
-                    logger.warning(f"⚠️ No se pudo formatear la fecha para la IA: {e}")
-
-            logger.info(f"📦 aiagent.py → sistema: enviando slot final a la IA: {slot_info}")
             return {"slot": slot_info}
 
-
-        elif function_name == "get_cancun_time":
-            from utils import get_cancun_time
-            now = get_cancun_time()
-            return {
-                "datetime": now.isoformat(),
-                "formatted": now.strftime("Hoy es %A %d de %B del %Y, son las %I:%M %p en Cancún.")
-            }
-
-
         elif function_name == "create_calendar_event":
-            start_time = args["start_time"]
-            end_time = args["end_time"]
-
-            if not start_time.endswith("-05:00"):
-                start_time += "-05:00"
-            if not end_time.endswith("-05:00"):
-                end_time += "-05:00"
-
-            logger.info(f"Zonas horarias ajustadas: start_time={start_time}, end_time={end_time}")
-
-            return {"event": create_calendar_event(
-                args["name"],
-                args["phone"],
-                args.get("reason", "Consulta general"),
-                start_time,
-                end_time
-            )}
+            created_event = create_calendar_event(**args)
+            return {"event_created": created_event}
 
         elif function_name == "edit_calendar_event":
-            return {"event": edit_calendar_event(
-                args["phone"],
-                args["original_start_time"],
-                args.get("new_start_time"),
-                args.get("new_end_time")
-            )}
+            edited_event = edit_calendar_event(**args)
+            return {"event_edited": edited_event}
 
         elif function_name == "delete_calendar_event":
-            return {"status": delete_calendar_event(
-                args["phone"],
-                args.get("patient_name")
-            )}
+            deleted_event = delete_calendar_event(**args)
+            return {"event_deleted": deleted_event}
 
         elif function_name == "search_calendar_event_by_phone":
-            return {"events": search_calendar_event_by_phone(args["phone"])}
+            search_results = search_calendar_event_by_phone(args["phone"])
+            return {"search_results": search_results}
+
+        elif function_name == "get_cancun_time":
+            current_time = get_cancun_time()
+            return {"cancun_time": current_time.isoformat()}
 
         elif function_name == "end_call":
-            try:
-                from tw_utils import CURRENT_CALL_MANAGER
-                if CURRENT_CALL_MANAGER is not None:
-                    import asyncio
-                    asyncio.create_task(CURRENT_CALL_MANAGER._shutdown())
-            except Exception as e:
-                logger.error("❌ Error al intentar finalizar la llamada desde end_call", exc_info=True)
-
-            return {"status": "__END_CALL__", "reason": args.get("reason", "user_request")}
-
-        else:
-            logger.error(f"❌ Función no reconocida: {function_name}")
-            return {"error": "Función no implementada"}
+            reason = args["reason"]
+            return {"call_ended": reason}
 
     except Exception as e:
-        logger.error(f"💥 Error en {function_name}: {str(e)}")
-        return {"error": f"No se pudo ejecutar {function_name}"}
+        logger.error(f"Error en ejecución de herramienta {function_name}: {e}")
+        return {"error": str(e)}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #########################################################
 # 🔹 Generación de Respuestas
 #########################################################
-def generate_openai_response(conversation_history: List[Dict]) -> str:
-    from prompt import generate_openai_prompt
+async def generate_openai_response(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+    """
+    Genera una respuesta del modelo GPT-4o o GPT-4o-mini (según 'model'),
+    usando un prompt específico si detecta que el usuario quiere crear/editar/eliminar cita.
+    Integra:
+      - System prompt si no existe (con generate_openai_prompt)
+      - Detección de idioma (lang_instruction)
+      - Primer request con tool_choice auto (para usar las Tools)
+      - Manejo de tool_calls y segundo request
+      - Devolución final, o __END_CALL__ si la IA pide terminar llamada
+    """
 
     try:
-        # Insertamos el system_prompt si no existe
-        if not any(msg["role"] == "system" for msg in conversation_history):
-            conversation_history = generate_openai_prompt(conversation_history)
+        # 1) Detectar intención para usar sub-prompt
+        last_user_msg = conversation_history[-1]["content"].lower()
 
-        # --- Instrucción de idioma ---
-        last_user_msg = next(
-            (msg for msg in reversed(conversation_history) if msg["role"] == "user"),
+        # Sub-prompts
+        if "crear cita" in last_user_msg:
+            conversation = prompt_crear_cita(conversation_history)
+        elif "editar cita" in last_user_msg or "modificar cita" in last_user_msg:
+            conversation = prompt_editar_cita(conversation_history)
+        elif "eliminar cita" in last_user_msg or "cancelar cita" in last_user_msg:
+            conversation = prompt_eliminar_cita(conversation_history)
+        else:
+            # Prompt general por defecto (o reasignar tu 'conversation_history' directamente)
+            conversation = conversation_history
+
+        # 2) Insertamos system_prompt si no existe
+        #    (Esto añade reglas base de "prompt.py" que tú tengas: 
+        #     estilo, funciones permitidas, etc.)
+        if not any(msg["role"] == "system" for msg in conversation):
+            conversation = generate_openai_prompt(conversation)
+
+        # 3) Ajuste de idioma (EN vs ES)
+        last_user_msg_dict = next(
+            (msg for msg in reversed(conversation) if msg["role"] == "user"),
             None
         )
-        if last_user_msg and "[EN]" in last_user_msg.get("content", ""):
+        if last_user_msg_dict and "[EN]" in last_user_msg_dict.get("content", ""):
             lang_instruction = " Respond in English only. Keep responses under 50 words."
         else:
             lang_instruction = " Responde en español. Máximo 50 palabras."
-        if conversation_history and conversation_history[0]["role"] == "system":
-            conversation_history[0]["content"] += lang_instruction
-        # -------------------------------------
 
-        # Primer request a GPT, con tool_choice auto
+        # Añadimos la instrucción de idioma al primer system_message
+        if conversation and conversation[0]["role"] == "system":
+            conversation[0]["content"] += lang_instruction
+
+        # 4) PRIMER REQUEST a GPT con tool_choice="auto"
         first_response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=conversation_history,
+            model=model,
+            messages=conversation,
             tools=TOOLS,
             tool_choice="auto",
             max_tokens=150,
@@ -480,38 +435,45 @@ def generate_openai_response(conversation_history: List[Dict]) -> str:
             timeout=10
         )
 
+        # 5) Revisar si GPT usó Tool Calls
         tool_calls = first_response.choices[0].message.tool_calls
         if not tool_calls:
-            # No llamó tools, devuelvo directamente
+            # Sin tools → devolvemos directamente
             return first_response.choices[0].message.content
 
-        # Procesamos tools
+        # 6) Procesar Tools → generamos messages "role=tool"
         tool_messages = []
         for tool_call in tool_calls:
             result = handle_tool_execution(tool_call)
+
+            # Ajuste: si la tool pide terminar la llamada → devolvemos "__END_CALL__"
+            if result.get("status") == "__END_CALL__":
+                return "__END_CALL__"
+
             tool_messages.append({
                 "role": "tool",
                 "content": json.dumps(result),
                 "tool_call_id": tool_call.id
             })
 
-            if result.get("status") == "__END_CALL__":
-                return "__END_CALL__"
+        # 7) Combinamos la historia (primer response + tool_messages)
+        updated_messages = conversation + [first_response.choices[0].message] + tool_messages
 
-        # Combinamos la historia
-        updated_messages = conversation_history + [first_response.choices[0].message] + tool_messages
-
-        # Segunda request, sin tool_choice
+        # 8) SEGUNDO REQUEST a GPT (sin tool_choice), para dar la respuesta final
         second_response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=updated_messages,
+            max_tokens=150,
+            temperature=0.3,
+            timeout=10
         )
 
+        # 9) Si GPT vuelve a pedir tool_calls en la segunda respuesta, ignoramos
         if second_response.choices[0].message.tool_calls:
             logger.warning("⚠️ Segunda respuesta incluyó tool_calls no deseadas. Ignorando.")
 
         return second_response.choices[0].message.content
 
     except Exception as e:
-        logger.error(f"💣 Error crítico: {str(e)}")
+        logger.error(f"💣 Error crítico en generate_openai_response: {str(e)}")
         return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."

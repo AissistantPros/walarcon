@@ -376,7 +376,12 @@ class TwilioWebSocketManager:
         messages_for_gpt = [system_message] + self.conversation_history + [user_input]
 
         # Enviar a GPT
-        gpt_response = generate_openai_response(messages_for_gpt)
+        # Selección dinámica del modelo según input
+        model = await select_model_based_on_input(user_text)
+
+        # Enviar a GPT con modelo seleccionado dinámicamente
+        gpt_response = await generate_openai_response(messages_for_gpt, model=model)
+
 
         # Verificar si la IA pidió terminar la llamada
         if gpt_response == "__END_CALL__":
@@ -511,3 +516,32 @@ class TwilioWebSocketManager:
                 logger.info("🤫 Silencio prolongado. Terminando llamada.")
                 await self._shutdown()
                 break
+
+
+async def select_model_based_on_input(user_input):
+    # Palabras clave para solicitudes complejas
+    complex_keywords = [
+        "próxima semana", "mañana en ocho", "lo antes posible", 
+        "urgente", "en quince días", "en la tarde", "en la mañana",
+        "próximo mes", "de hoy en ocho", "de mañana en ocho"
+    ]
+    
+    # Palabras/frases clave que indican confusión, enojo o frustración
+    negative_sentiment_keywords = [
+        "no me entiendes", "no sirves", "qué porquería", "me frustra",
+        "estás mal", "estás loco", "inútil", "qué pésimo servicio",
+        "haces lo que quieres", "no me estás ayudando", "esto no funciona",
+        "estoy molesto", "estoy enojado", "encabronado", "pésimo", "desepcionado",
+        "desilusionado", "esto es un desastre", "decepcionado", "estoy harto"
+    ]
+    
+    user_lower = user_input.lower()
+
+    if any(keyword in user_lower for keyword in complex_keywords) or \
+       any(keyword in user_lower for keyword in negative_sentiment_keywords):
+        logger.info("🔄 Modelo seleccionado: GPT-4o (completo) por complejidad o malestar.")
+        return "gpt-4o"
+
+    logger.info("🔄 Modelo seleccionado: GPT-4o-mini")
+    return "gpt-4o-mini"
+
