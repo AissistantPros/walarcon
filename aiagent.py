@@ -84,34 +84,6 @@ def generar_system_message_resumen_fecha(original_date_str, original_hour_str, r
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #########################################################
 # 🔹 DEFINICIÓN DE TOOLS
 #########################################################
@@ -236,28 +208,6 @@ TOOLS = [
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #########################################################
 # 🔹 handle_tool_execution
 #########################################################
@@ -334,42 +284,6 @@ def handle_tool_execution(tool_call) -> Dict:
     except Exception as e:
         logger.error(f"Error en ejecución de herramienta {function_name}: {e}")
         return {"error": str(e)}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
