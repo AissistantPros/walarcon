@@ -69,7 +69,16 @@ def create_calendar_event(name: str, phone: str, reason: str, start_time: str, e
 
     except ValueError as ve:
         logger.error(f"❌ Error de validación: {str(ve)}")
-        return {"error": str(ve)}
+        if "Teléfono" in str(ve):
+            return {
+                "error": str(ve),
+                "status": "invalid_phone"
+            }
+        return {
+            "error": str(ve),
+            "status": "validation_error"
+        }
+
     except Exception as e:
         logger.error(f"❌ Error en Google Calendar: {str(e)}")
         return {"error": "CALENDAR_UNAVAILABLE"}
