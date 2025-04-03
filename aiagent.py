@@ -228,26 +228,31 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
     try:
         last_user_msg = conversation_history[-1]["content"]
 
-        # Log fecha y hora actual de Cancún
-        now = get_cancun_time().isoformat()
-        logger.info(f"🕒 Hora actual Cancún: {now}")
-
-        # Step 1: Detect intent
+        # Paso 1: Detectar intención
         intent_response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": last_user_msg}],
             tools=[tool for tool in TOOLS if tool["function"]["name"] == "detect_intent"],
             tool_choice="auto",
-            max_tokens=10,
+            max_tokens=50,  # aumentado de 10 a 50 para evitar finish_reason='length'
             temperature=0
         )
 
-        logger.info(f"📡 INTENT RESPONSE RAW: {intent_response}")
-
         intent_tool_call = intent_response.choices[0].message.tool_calls[0]
-        intent = json.loads(intent_tool_call.function.arguments)["intention"]
+        raw_args = intent_tool_call.function.arguments or '{}'
+
+        logger.info(f"📡 INTENT TOOL ARGS: {raw_args}")
+
+        try:
+            args = json.loads(raw_args)
+            intent = args.get("intention", "unknown")
+        except Exception as e:
+            logger.error(f"❌ No se pudo interpretar intención de tool_call: {e}")
+            intent = "unknown"
+
         logger.info(f"💡 Intención detectada: {intent}")
 
+        # Paso 2: Seleccionar el prompt adecuado
         if intent == "create":
             conversation = prompt_crear_cita(conversation_history)
         elif intent == "edit":
@@ -257,13 +262,24 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
         else:
             conversation = conversation_history
 
+        # Paso 3: Insertar system prompt si no lo tiene
         if not any(msg["role"] == "system" for msg in conversation):
             conversation = generate_openai_prompt(conversation)
 
+        # Paso 4: Agregar hora actual de Cancún como system_message
+        cancun_now = get_cancun_time()
+        logger.info(f"🕒 Hora actual Cancún: {cancun_now.isoformat()}")
+        conversation.insert(0, {
+            "role": "system",
+            "content": f"La hora actual en Cancún es {cancun_now.isoformat()}. Úsala como referencia para interpretar fechas como 'hoy', 'mañana', etc."
+        })
+
+        # Log del historial enviado
         logger.info("📤 Enviando mensajes a GPT (1er request):")
         for i, msg in enumerate(conversation):
-            logger.info(f"[{i}] {msg['role']} → {msg['content'][:150]}")
+            logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
+        # Paso 5: Primer request con tool_choice="auto"
         first_response = client.chat.completions.create(
             model=model,
             messages=conversation,
@@ -273,8 +289,6 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             temperature=0.3,
             timeout=10
         )
-
-        logger.info(f"📡 GPT 1st RESPONSE: {first_response}")
 
         tool_calls = first_response.choices[0].message.tool_calls
         if not tool_calls:
@@ -293,10 +307,12 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
 
         updated_messages = conversation + [first_response.choices[0].message] + tool_messages
 
+        # Log del segundo envío
         logger.info("📤 Enviando mensajes a GPT (2do request):")
         for i, msg in enumerate(updated_messages):
-            logger.info(f"[{i}] {msg['role']} → {msg['content'][:150]}")
+            logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
+        # Paso 6: Segundo request (respuesta final)
         second_response = client.chat.completions.create(
             model=model,
             messages=updated_messages,
@@ -305,10 +321,9 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             timeout=10
         )
 
-        logger.info(f"📡 GPT 2nd RESPONSE: {second_response}")
-
         return second_response.choices[0].message.content
 
     except Exception as e:
         logger.error(f"💥 Error crítico en generate_openai_response: {e}")
         return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
+
