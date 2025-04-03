@@ -382,6 +382,8 @@ class TwilioWebSocketManager:
         # Enviar a GPT con modelo seleccionado dinámicamente
         gpt_response = await generate_openai_response(messages_for_gpt, model=model)
 
+        logger.info(f"⌛ Se utilizará el modelo: {model} para el texto: {user_text}")
+
 
         # Verificar si la IA pidió terminar la llamada
         if gpt_response == "__END_CALL__":

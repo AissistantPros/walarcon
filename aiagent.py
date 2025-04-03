@@ -378,6 +378,7 @@ def handle_tool_execution(tool_call) -> Dict:
 # 🔹 Generación de Respuestas
 #########################################################
 async def generate_openai_response(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+    logger.info(f"[generate_openai_response] Usando modelo: {model}")
     """
     Genera una respuesta del modelo GPT-4o o GPT-4o-mini (según 'model'),
     usando un prompt específico si detecta que el usuario quiere crear/editar/eliminar cita.
