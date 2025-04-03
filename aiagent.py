@@ -198,7 +198,7 @@ TOOLS = [
 
 def handle_tool_execution(tool_call) -> Dict:
     function_name = tool_call.function.name
-    args = json.loads(tool_call.function.arguments)
+    args = json.loads(tool_call.function.arguments or '{}')
     logger.info(f"🛠️ Ejecutando {function_name} con: {args}")
 
     try:
@@ -226,15 +226,15 @@ def handle_tool_execution(tool_call) -> Dict:
 
 async def generate_openai_response(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
     try:
-        last_user_msg = conversation_history[-1]["content"]
+        # Paso 1: Detectar intención (con más contexto)
+        short_context = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
 
-        # Paso 1: Detectar intención
         intent_response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": last_user_msg}],
+            messages=short_context,
             tools=[tool for tool in TOOLS if tool["function"]["name"] == "detect_intent"],
             tool_choice="auto",
-            max_tokens=50,  # aumentado de 10 a 50 para evitar finish_reason='length'
+            max_tokens=50,
             temperature=0
         )
 
@@ -290,9 +290,10 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             timeout=10
         )
 
-        tool_calls = first_response.choices[0].message.tool_calls
+        assistant_msg = first_response.choices[0].message
+        tool_calls = assistant_msg.tool_calls
         if not tool_calls:
-            return first_response.choices[0].message.content
+            return assistant_msg.content
 
         tool_messages = []
         for tool_call in tool_calls:
@@ -305,7 +306,11 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
                 "tool_call_id": tool_call.id
             })
 
-        updated_messages = conversation + [first_response.choices[0].message] + tool_messages
+        updated_messages = conversation + [{
+            "role": assistant_msg.role,
+            "content": assistant_msg.content,
+            "tool_calls": [tc.model_dump() for tc in assistant_msg.tool_calls] if assistant_msg.tool_calls else []
+        }] + tool_messages
 
         # Log del segundo envío
         logger.info("📤 Enviando mensajes a GPT (2do request):")
@@ -327,3 +332,4 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
         logger.error(f"💥 Error crítico en generate_openai_response: {e}")
         return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
 
+# TOOLS se mantiene sin cambios en esta parte del parche (ya lo tienes completo y correcto arriba)
