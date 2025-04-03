@@ -21,32 +21,17 @@ from prompts.prompt_crear_cita import prompt_crear_cita
 from prompts.prompt_editar_cita import prompt_editar_cita
 from prompts.prompt_eliminar_cita import prompt_eliminar_cita
 
-
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
-
-#########################################################
-# 🔹 Funciones para interpretar expresiones de fecha
-#########################################################
 
 def get_next_monday(reference_date: datetime) -> datetime:
     ref = reference_date
-    while ref.weekday() != 0:  # 0 = lunes
+    while ref.weekday() != 0:
         ref += timedelta(days=1)
     if ref.date() == reference_date.date():
         ref += timedelta(days=7)
     return ref
-
-
-
-
-
-#########################################################
-# 🔹 Función para generar system_message de resumen de fechas
-#########################################################
 
 def generar_system_message_resumen_fecha(original_date_str, original_hour_str, result_date_str, result_hour_str):
     dias_semana = {
@@ -61,12 +46,10 @@ def generar_system_message_resumen_fecha(original_date_str, original_hour_str, r
     try:
         original_dt = datetime.strptime(f"{original_date_str} {original_hour_str}", "%Y-%m-%d %H:%M")
         result_dt = datetime.strptime(f"{result_date_str} {result_hour_str}", "%Y-%m-%d %H:%M")
-
         dia_orig = dias_semana[original_dt.weekday()]
         dia_disp = dias_semana[result_dt.weekday()]
         mes_orig = meses[original_dt.month]
         mes_disp = meses[result_dt.month]
-
         fecha_inicio = f"{dia_orig} {original_dt.day} de {mes_orig} del {original_dt.year} a las {original_dt.strftime('%H:%M')}"
         fecha_resultado = f"{dia_disp} {result_dt.day} de {mes_disp} del {result_dt.year} a las {result_dt.strftime('%H:%M')}"
         return {
@@ -80,26 +63,19 @@ def generar_system_message_resumen_fecha(original_date_str, original_hour_str, r
         logger.warning(f"No se pudo generar system_message de fechas: {e}")
         return None
 
-
-
-
-
-#########################################################
-# 🔹 DEFINICIÓN DE TOOLS
-#########################################################
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "read_sheet_data",
-            "description": "Obtener información general del consultorio (precios, horarios, ubicación)",
+            "description": "Obtener información general del consultorio"
         }
     },
     {
         "type": "function",
         "function": {
             "name": "find_next_available_slot",
-            "description": "Buscar próximo horario disponible para citas",
+            "description": "Buscar horario disponible",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -115,7 +91,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "create_calendar_event",
-            "description": "Crear nueva cita médica",
+            "description": "Crear cita médica",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -133,7 +109,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "edit_calendar_event",
-            "description": "Modificar cita existente",
+            "description": "Modificar cita",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -149,19 +125,8 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "get_cancun_time",
-            "description": "Devuelve la fecha y hora actual en Cancún (UTC -5). Úsala como referencia para interpretar expresiones como 'hoy', 'mañana', etc.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "delete_calendar_event",
-            "description": "Eliminar una cita médica",
+            "description": "Eliminar cita médica",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -169,7 +134,7 @@ TOOLS = [
                     "original_start_time": {"type": "string", "format": "date-time"},
                     "patient_name": {"type": "string"}
                 },
-                "required": ["phone"]
+                "required": ["phone", "original_start_time"]
             }
         }
     },
@@ -177,7 +142,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_calendar_event_by_phone",
-            "description": "Buscar citas por número de teléfono",
+            "description": "Buscar citas por número",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -190,8 +155,16 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "get_cancun_time",
+            "description": "Fecha y hora actual en Cancún",
+            "parameters": {"type": "object", "properties": {}}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "end_call",
-            "description": "Termina la llamada con el usuario y cierra la sesión actual",
+            "description": "Finalizar la llamada",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -203,143 +176,88 @@ TOOLS = [
                 "required": ["reason"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "detect_intent",
+            "description": "Detectar intención del usuario",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intention": {
+                        "type": "string",
+                        "enum": ["create", "edit", "delete", "unknown"]
+                    }
+                },
+                "required": ["intention"]
+            }
+        }
     }
 ]
 
-
-
-#########################################################
-# 🔹 handle_tool_execution
-#########################################################
 def handle_tool_execution(tool_call) -> Dict:
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments)
-
     logger.info(f"🛠️ Ejecutando {function_name} con: {args}")
 
     try:
         if function_name == "read_sheet_data":
             return {"data": get_consultorio_data_from_cache()}
-
         elif function_name == "find_next_available_slot":
-            # GPT-4o ya interpreta fecha claramente.
-            target_date = args.get("target_date")
-            target_hour = args.get("target_hour", "09:30")
-            urgent = args.get("urgent", False)
-
-            slot_info = find_next_available_slot(
-                target_date=target_date,
-                target_hour=target_hour,
-                urgent=urgent
-            )
-
-            if "error" in slot_info:
-                return {"slot": slot_info}
-
-            if "start_time" in slot_info:
-                start_iso = slot_info["start_time"][:19]
-                start_dt = datetime.strptime(start_iso, "%Y-%m-%dT%H:%M:%S")
-                tz = pytz.timezone("America/Cancun")
-                start_dt = tz.localize(start_dt)
-
-                dias_semana = {
-                    "Monday": "lunes", "Tuesday": "martes", "Wednesday": "miércoles",
-                    "Thursday": "jueves", "Friday": "viernes", "Saturday": "sábado", "Sunday": "domingo"
-                }
-                meses = {
-                    "January": "enero", "February": "febrero", "March": "marzo", "April": "abril",
-                    "May": "mayo", "June": "junio", "July": "julio", "August": "agosto",
-                    "September": "septiembre", "October": "octubre", "November": "noviembre", "December": "diciembre"
-                }
-
-                fecha_formateada = f"{dias_semana[start_dt.strftime('%A')]} {start_dt.day} de {meses[start_dt.strftime('%B')]} del {start_dt.year} a las {start_dt.strftime('%H:%M')}"
-                slot_info["formatted_description"] = f"Slot disponible: {fecha_formateada}"
-
-            return {"slot": slot_info}
-
+            return {"slot": find_next_available_slot(**args)}
         elif function_name == "create_calendar_event":
-            created_event = create_calendar_event(**args)
-            return {"event_created": created_event}
-
+            return {"event_created": create_calendar_event(**args)}
         elif function_name == "edit_calendar_event":
-            edited_event = edit_calendar_event(**args)
-            return {"event_edited": edited_event}
-
+            return {"event_edited": edit_calendar_event(**args)}
         elif function_name == "delete_calendar_event":
-            deleted_event = delete_calendar_event(**args)
-            return {"event_deleted": deleted_event}
-
+            return {"event_deleted": delete_calendar_event(**args)}
         elif function_name == "search_calendar_event_by_phone":
-            search_results = search_calendar_event_by_phone(args["phone"])
-            return {"search_results": search_results}
-
+            return {"search_results": search_calendar_event_by_phone(**args)}
         elif function_name == "get_cancun_time":
-            current_time = get_cancun_time()
-            return {"cancun_time": current_time.isoformat()}
-
+            return {"cancun_time": get_cancun_time().isoformat()}
         elif function_name == "end_call":
-            reason = args["reason"]
-            return {"call_ended": reason}
-
+            return {"call_ended": args["reason"]}
+        elif function_name == "detect_intent":
+            return {"intent_detected": args["intention"]}
     except Exception as e:
-        logger.error(f"Error en ejecución de herramienta {function_name}: {e}")
+        logger.error(f"❌ Error ejecutando tool {function_name}: {e}")
         return {"error": str(e)}
 
-
-
-
-#########################################################
-# 🔹 Generación de Respuestas
-#########################################################
 async def generate_openai_response(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
-    logger.info(f"[generate_openai_response] Usando modelo: {model}")
-    """
-    Genera una respuesta del modelo GPT-4o o GPT-4o-mini (según 'model'),
-    usando un prompt específico si detecta que el usuario quiere crear/editar/eliminar cita.
-    Integra:
-      - System prompt si no existe (con generate_openai_prompt)
-      - Detección de idioma (lang_instruction)
-      - Primer request con tool_choice auto (para usar las Tools)
-      - Manejo de tool_calls y segundo request
-      - Devolución final, o __END_CALL__ si la IA pide terminar llamada
-    """
-
     try:
-        # 1) Detectar intención para usar sub-prompt
-        last_user_msg = conversation_history[-1]["content"].lower()
+        last_user_msg = conversation_history[-1]["content"]
 
-        # Sub-prompts
-        if "crear cita" in last_user_msg:
+        # Step 1: Detect intent
+        intent_response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": last_user_msg}],
+            tools=[tool for tool in TOOLS if tool["function"]["name"] == "detect_intent"],
+            tool_choice="auto",
+            max_tokens=10,
+            temperature=0
+        )
+
+        intent_tool_call = intent_response.choices[0].message.tool_calls[0]
+        intent = json.loads(intent_tool_call.function.arguments)["intention"]
+        logger.info(f"💡 Intención detectada: {intent}")
+
+        if intent == "create":
             conversation = prompt_crear_cita(conversation_history)
-        elif "editar cita" in last_user_msg or "modificar cita" in last_user_msg:
+        elif intent == "edit":
             conversation = prompt_editar_cita(conversation_history)
-        elif "eliminar cita" in last_user_msg or "cancelar cita" in last_user_msg:
+        elif intent == "delete":
             conversation = prompt_eliminar_cita(conversation_history)
         else:
-            # Prompt general por defecto (o reasignar tu 'conversation_history' directamente)
             conversation = conversation_history
 
-        # 2) Insertamos system_prompt si no existe
-        #    (Esto añade reglas base de "prompt.py" que tú tengas: 
-        #     estilo, funciones permitidas, etc.)
         if not any(msg["role"] == "system" for msg in conversation):
             conversation = generate_openai_prompt(conversation)
 
-        # 3) Ajuste de idioma (EN vs ES)
-        last_user_msg_dict = next(
-            (msg for msg in reversed(conversation) if msg["role"] == "user"),
-            None
-        )
-        if last_user_msg_dict and "[EN]" in last_user_msg_dict.get("content", ""):
-            lang_instruction = " Respond in English only. Keep responses under 50 words."
-        else:
-            lang_instruction = " Responde en español. Máximo 50 palabras."
+        logger.info("📤 Enviando mensajes a GPT (1er request):")
+        for i, msg in enumerate(conversation):
+            logger.info(f"[{i}] {msg['role']} → {msg['content'][:150]}")
 
-        # Añadimos la instrucción de idioma al primer system_message
-        if conversation and conversation[0]["role"] == "system":
-            conversation[0]["content"] += lang_instruction
-
-        # 4) PRIMER REQUEST a GPT con tool_choice="auto"
         first_response = client.chat.completions.create(
             model=model,
             messages=conversation,
@@ -350,31 +268,27 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             timeout=10
         )
 
-        # 5) Revisar si GPT usó Tool Calls
         tool_calls = first_response.choices[0].message.tool_calls
         if not tool_calls:
-            # Sin tools → devolvemos directamente
             return first_response.choices[0].message.content
 
-        # 6) Procesar Tools → generamos messages "role=tool"
         tool_messages = []
         for tool_call in tool_calls:
             result = handle_tool_execution(tool_call)
-
-            # Ajuste: si la tool pide terminar la llamada → devolvemos "__END_CALL__"
             if result.get("status") == "__END_CALL__":
                 return "__END_CALL__"
-
             tool_messages.append({
                 "role": "tool",
                 "content": json.dumps(result),
                 "tool_call_id": tool_call.id
             })
 
-        # 7) Combinamos la historia (primer response + tool_messages)
         updated_messages = conversation + [first_response.choices[0].message] + tool_messages
 
-        # 8) SEGUNDO REQUEST a GPT (sin tool_choice), para dar la respuesta final
+        logger.info("📤 Enviando mensajes a GPT (2do request):")
+        for i, msg in enumerate(updated_messages):
+            logger.info(f"[{i}] {msg['role']} → {msg['content'][:150]}")
+
         second_response = client.chat.completions.create(
             model=model,
             messages=updated_messages,
@@ -383,12 +297,8 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             timeout=10
         )
 
-        # 9) Si GPT vuelve a pedir tool_calls en la segunda respuesta, ignoramos
-        if second_response.choices[0].message.tool_calls:
-            logger.warning("⚠️ Segunda respuesta incluyó tool_calls no deseadas. Ignorando.")
-
         return second_response.choices[0].message.content
 
     except Exception as e:
-        logger.error(f"💣 Error crítico en generate_openai_response: {str(e)}")
+        logger.error(f"💥 Error crítico en generate_openai_response: {e}")
         return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
