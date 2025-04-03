@@ -228,6 +228,10 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
     try:
         last_user_msg = conversation_history[-1]["content"]
 
+        # Log fecha y hora actual de Cancún
+        now = get_cancun_time().isoformat()
+        logger.info(f"🕒 Hora actual Cancún: {now}")
+
         # Step 1: Detect intent
         intent_response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -237,6 +241,8 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             max_tokens=10,
             temperature=0
         )
+
+        logger.info(f"📡 INTENT RESPONSE RAW: {intent_response}")
 
         intent_tool_call = intent_response.choices[0].message.tool_calls[0]
         intent = json.loads(intent_tool_call.function.arguments)["intention"]
@@ -268,6 +274,8 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             timeout=10
         )
 
+        logger.info(f"📡 GPT 1st RESPONSE: {first_response}")
+
         tool_calls = first_response.choices[0].message.tool_calls
         if not tool_calls:
             return first_response.choices[0].message.content
@@ -296,6 +304,8 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             temperature=0.3,
             timeout=10
         )
+
+        logger.info(f"📡 GPT 2nd RESPONSE: {second_response}")
 
         return second_response.choices[0].message.content
 
