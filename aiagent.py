@@ -226,38 +226,27 @@ def handle_tool_execution(tool_call) -> Dict:
 
 async def generate_openai_response(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
     try:
-        # 🕒 Paso 1: Agregar hora actual de Cancún al inicio
+        # 🕒 Log: mostrar hora actual solo para seguimiento
         cancun_now = get_cancun_time()
         logger.info(f"🕒 Hora actual Cancún: {cancun_now.isoformat()}")
-        conversation = [
-            {
-                "role": "system",
-                "content": f"La hora actual en Cancún es {cancun_now.isoformat()}. "
-                           f"Úsala como referencia para interpretar fechas como 'hoy', 'mañana', etc."
-            },
-            *conversation_history
-        ]
 
-        # 💬 Paso 2: Agregar prompt general si no hay ninguno
+        # 💬 Paso 1: Agregar prompt general solo si no hay ninguno
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation = generate_openai_prompt(conversation_history)
-            conversation.insert(0, {
-                "role": "system",
-                "content": f"La hora actual en Cancún es {cancun_now.isoformat()}. "
-                           f"Úsala como referencia para interpretar fechas como 'hoy', 'mañana', etc."
-            })
+        else:
+            conversation = [*conversation_history]
 
         # 📤 Log del historial enviado
         logger.info("📤 Enviando mensajes a GPT (1er request):")
         for i, msg in enumerate(conversation):
             logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
-        # 🧠 Paso 3: Primer request (GPT decide si responde o usa tools)
+        # 🧠 Paso 2: Primer request (GPT decide si responde o usa tools)
         first_response = client.chat.completions.create(
             model=model,
             messages=conversation,
             tools=TOOLS,
-            tool_choice="auto",  # <-- ESTE CAMBIO ACTIVA EL USO DE TOOLS
+            tool_choice="auto",
             max_tokens=150,
             temperature=0.3,
             timeout=10
@@ -266,17 +255,14 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
         assistant_msg = first_response.choices[0].message
         tool_calls = assistant_msg.tool_calls or []
 
-        # 💬 Si solo quiere conversar, regresamos su respuesta y listo
         if not tool_calls:
             return assistant_msg.content or "Disculpe, ¿me podría repetir eso? No le entendí bien."
 
-        # 🔧 Si usó tools, procesamos cada una
         tool_messages = []
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
             args = json.loads(tool_call.function.arguments or '{}')
 
-            # ☎️ Validación previa de teléfono antes de crear cita
             if tool_name == "create_calendar_event":
                 phone = args.get("phone", "")
                 if not phone.isdigit() or len(phone) != 10:
@@ -296,19 +282,16 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
                 "tool_call_id": tool_call.id
             })
 
-        # 🧱 Armamos historial con resultado de herramientas
         updated_messages = conversation + [{
             "role": assistant_msg.role,
             "content": assistant_msg.content,
             "tool_calls": [tc.model_dump() for tc in assistant_msg.tool_calls] if assistant_msg.tool_calls else []
         }] + tool_messages
 
-        # 📤 Log del segundo envío
         logger.info("📤 Enviando mensajes a GPT (2do request):")
         for i, msg in enumerate(updated_messages):
             logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
-        # 💬 Paso 4: Segundo request con tools ya ejecutadas
         second_response = client.chat.completions.create(
             model=model,
             messages=updated_messages,

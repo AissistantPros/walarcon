@@ -51,7 +51,7 @@ class DeepgramSTTStreamer:
                 channels=1,
                 smart_format=True,
                 interim_results=True,
-                endpointing="3500",
+                endpointing="3000",
                 utterance_end_ms="3500",
                 vad_events=True
             )
