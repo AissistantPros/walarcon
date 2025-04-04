@@ -257,6 +257,7 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             model=model,
             messages=conversation,
             tools=TOOLS,
+            tool_choice="auto",  # <-- ESTE CAMBIO ACTIVA EL USO DE TOOLS
             max_tokens=150,
             temperature=0.3,
             timeout=10
