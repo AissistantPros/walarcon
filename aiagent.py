@@ -226,55 +226,33 @@ def handle_tool_execution(tool_call) -> Dict:
 
 async def generate_openai_response(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
     try:
-        # Paso 1: Detectar intención con contexto reciente
-        short_context = conversation_history[-4:] if len(conversation_history) >= 4 else conversation_history
-        intent_response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=short_context,
-            tools=[tool for tool in TOOLS if tool["function"]["name"] == "detect_intent"],
-            tool_choice="auto",
-            max_tokens=50,
-            temperature=0
-        )
-
-        # Leer y parsear intención
-        intent_tool_call = intent_response.choices[0].message.tool_calls[0]
-        raw_args = intent_tool_call.function.arguments or '{}'
-        logger.info(f"📡 INTENT TOOL ARGS: {raw_args}")
-
-        try:
-            args = json.loads(raw_args)
-            intent = args.get("intention", "unknown")
-        except Exception as e:
-            logger.error(f"❌ No se pudo interpretar intención de tool_call: {e}")
-            intent = "unknown"
-
-        logger.info(f"💡 Intención detectada: {intent}")
-
-        # Paso 2: Seleccionar prompt según intención
-        if intent == "create":
-            conversation = prompt_crear_cita(conversation_history)
-        elif intent == "edit":
-            conversation = prompt_editar_cita(conversation_history)
-        elif intent == "delete":
-            conversation = prompt_eliminar_cita(conversation_history)
-        else:
-            conversation = generate_openai_prompt(conversation_history)  # Conversacional libre
-
-        # Paso 3: Insertar hora actual de Cancún
+        # 🕒 Paso 1: Agregar hora actual de Cancún al inicio
         cancun_now = get_cancun_time()
         logger.info(f"🕒 Hora actual Cancún: {cancun_now.isoformat()}")
-        conversation.insert(0, {
-            "role": "system",
-            "content": f"La hora actual en Cancún es {cancun_now.isoformat()}. Úsala como referencia para interpretar fechas como 'hoy', 'mañana', etc."
-        })
+        conversation = [
+            {
+                "role": "system",
+                "content": f"La hora actual en Cancún es {cancun_now.isoformat()}. "
+                           f"Úsala como referencia para interpretar fechas como 'hoy', 'mañana', etc."
+            },
+            *conversation_history
+        ]
 
-        # Log del historial enviado
+        # 💬 Paso 2: Agregar prompt general si no hay ninguno
+        if not any(msg["role"] == "system" for msg in conversation_history):
+            conversation = generate_openai_prompt(conversation_history)
+            conversation.insert(0, {
+                "role": "system",
+                "content": f"La hora actual en Cancún es {cancun_now.isoformat()}. "
+                           f"Úsala como referencia para interpretar fechas como 'hoy', 'mañana', etc."
+            })
+
+        # 📤 Log del historial enviado
         logger.info("📤 Enviando mensajes a GPT (1er request):")
         for i, msg in enumerate(conversation):
             logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
-        # Paso 4: Primer request conversacional (sin obligar tool_choice)
+        # 🧠 Paso 3: Primer request (GPT decide si responde o usa tools)
         first_response = client.chat.completions.create(
             model=model,
             messages=conversation,
@@ -285,24 +263,25 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
         )
 
         assistant_msg = first_response.choices[0].message
-        tool_calls = assistant_msg.tool_calls
-        if not tool_calls:
-            return assistant_msg.content
+        tool_calls = assistant_msg.tool_calls or []
 
-        # Paso 5: Ejecutar tools si fueron llamadas
+        # 💬 Si solo quiere conversar, regresamos su respuesta y listo
+        if not tool_calls:
+            return assistant_msg.content or "Disculpe, ¿me podría repetir eso? No le entendí bien."
+
+        # 🔧 Si usó tools, procesamos cada una
         tool_messages = []
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
             args = json.loads(tool_call.function.arguments or '{}')
 
-            # Validación previa de teléfono
+            # ☎️ Validación previa de teléfono antes de crear cita
             if tool_name == "create_calendar_event":
                 phone = args.get("phone", "")
                 if not phone.isdigit() or len(phone) != 10:
                     logger.warning(f"📛 Teléfono inválido detectado antes de crear cita: {phone}")
                     return (
-                        "El número proporcionado no es válido. "
-                        "Debe tener exactamente diez dígitos numéricos. "
+                        "El número proporcionado no es válido. Debe tener exactamente diez dígitos. "
                         "Por favor, pida nuevamente el número de WhatsApp al usuario y confirme con claridad antes de continuar."
                     )
 
@@ -316,17 +295,19 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
                 "tool_call_id": tool_call.id
             })
 
-        # Paso 6: Segundo request con herramientas ya ejecutadas
+        # 🧱 Armamos historial con resultado de herramientas
         updated_messages = conversation + [{
             "role": assistant_msg.role,
             "content": assistant_msg.content,
             "tool_calls": [tc.model_dump() for tc in assistant_msg.tool_calls] if assistant_msg.tool_calls else []
         }] + tool_messages
 
+        # 📤 Log del segundo envío
         logger.info("📤 Enviando mensajes a GPT (2do request):")
         for i, msg in enumerate(updated_messages):
             logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
+        # 💬 Paso 4: Segundo request con tools ya ejecutadas
         second_response = client.chat.completions.create(
             model=model,
             messages=updated_messages,
@@ -339,4 +320,6 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
 
     except Exception as e:
         logger.error(f"💥 Error crítico en generate_openai_response: {e}")
-        return "Disculpe, estoy teniendo dificultades técnicas. Por favor intente nuevamente."
+        if "NoneType" in str(e):
+            return "Disculpe, hubo un error técnico. ¿Podría repetir su última solicitud?"
+        return "Disculpe, estoy teniendo dificultades técnicas. ¿Necesita ayuda con algo más?"
