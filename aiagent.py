@@ -670,3 +670,5 @@ async def get_response_by_prompt_mode(prompt_mode: str, conversation_history: Li
     else:
         # default al principal
         return await generate_openai_response_main(conversation_history)
+
+generate_openai_response = generate_openai_response_main
