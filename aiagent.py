@@ -230,18 +230,20 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
         cancun_now = get_cancun_time()
         logger.info(f"🕒 Hora actual Cancún: {cancun_now.isoformat()}")
 
-        # 💬 Paso 1: Agregar prompt general solo si no hay ninguno
+        # 💬 Paso 1: Agregar prompt general si el historial no contiene ningún system
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation = generate_openai_prompt(conversation_history)
         else:
             conversation = [*conversation_history]
 
-        # 📤 Log del historial enviado
+        # 📤 Log del historial que enviamos en el primer request
         logger.info("📤 Enviando mensajes a GPT (1er request):")
         for i, msg in enumerate(conversation):
             logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
-        # 🧠 Paso 2: Primer request (GPT decide si responde o usa tools)
+        # ─────────────────────────────────────────────────────────
+        # 1) PRIMER PASE: GPT decide si responde o usa tools
+        # ─────────────────────────────────────────────────────────
         first_response = client.chat.completions.create(
             model=model,
             messages=conversation,
@@ -255,14 +257,32 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
         assistant_msg = first_response.choices[0].message
         tool_calls = assistant_msg.tool_calls or []
 
+        # Log de las herramientas en el primer pase
+        if tool_calls:
+            for tool_call in tool_calls:
+                tool_name = tool_call.function.name
+                tool_args = tool_call.function.arguments
+                logger.info(
+                    f"🛠️ [PRIMER PASE] Herramienta activada por la IA: {tool_name} "
+                    f"con argumentos: {tool_args}"
+                )
+        else:
+            logger.info("🤖 [PRIMER PASE] La IA respondió sin usar herramientas.")
+
+        # ❗ Si NO hay tool_calls, la IA simplemente dio una respuesta conversacional.
+        #    Retornamos esa respuesta y no hacemos segundo pase, para permitir el flujo natural.
         if not tool_calls:
             return assistant_msg.content or "Disculpe, ¿me podría repetir eso? No le entendí bien."
 
+        # ─────────────────────────────────────────────────────────────────
+        # 2) EJECUCIÓN DE LAS TOOLS (si las hay)
+        # ─────────────────────────────────────────────────────────────────
         tool_messages = []
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
             args = json.loads(tool_call.function.arguments or '{}')
 
+            # Valida teléfono en caso de cita
             if tool_name == "create_calendar_event":
                 phone = args.get("phone", "")
                 if not phone.isdigit() or len(phone) != 10:
@@ -272,26 +292,33 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
                         "Por favor, pida nuevamente el número de WhatsApp al usuario y confirme con claridad antes de continuar."
                     )
 
+            # Ejecutar la tool
             result = handle_tool_execution(tool_call)
             if result.get("status") == "__END_CALL__":
                 return "__END_CALL__"
 
+            # Guardar la salida de cada tool como un mensaje
             tool_messages.append({
                 "role": "tool",
                 "content": json.dumps(result),
                 "tool_call_id": tool_call.id
             })
 
+        # Armar updated_messages con la respuesta del 1er pase + tool_messages
         updated_messages = conversation + [{
             "role": assistant_msg.role,
             "content": assistant_msg.content,
             "tool_calls": [tc.model_dump() for tc in assistant_msg.tool_calls] if assistant_msg.tool_calls else []
         }] + tool_messages
 
+        # 📤 Log de lo que enviamos al segundo request
         logger.info("📤 Enviando mensajes a GPT (2do request):")
         for i, msg in enumerate(updated_messages):
             logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
 
+        # ─────────────────────────────────────────────────────────
+        # 3) SEGUNDO PASE: GPT ve resultados y da la respuesta final
+        # ─────────────────────────────────────────────────────────
         second_response = client.chat.completions.create(
             model=model,
             messages=updated_messages,
@@ -300,7 +327,23 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
             timeout=10
         )
 
-        return second_response.choices[0].message.content
+        second_assistant_msg = second_response.choices[0].message
+        second_tool_calls = second_assistant_msg.tool_calls or []
+
+        # Log de las herramientas en el segundo pase
+        if second_tool_calls:
+            for tool_call in second_tool_calls:
+                tool_name = tool_call.function.name
+                tool_args = tool_call.function.arguments
+                logger.info(
+                    f"🛠️ [SEGUNDO PASE] Herramienta activada por la IA: {tool_name} "
+                    f"con argumentos: {tool_args}"
+                )
+        else:
+            logger.info("🤖 [SEGUNDO PASE] La IA respondió sin usar herramientas.")
+
+        # Finalmente, retornamos la respuesta final
+        return second_assistant_msg.content
 
     except Exception as e:
         logger.error(f"💥 Error crítico en generate_openai_response: {e}")
