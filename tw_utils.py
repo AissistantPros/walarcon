@@ -75,6 +75,18 @@ class TwilioWebSocketManager:
 
 
 
+    async def _send_silence_chunk(self):
+        """
+        Envía un pequeño fragmento de silencio (mu-law) a Deepgram para evitar que cierre la conexión.
+        """
+        if self.stt_streamer:
+            try:
+                # 20ms de silencio: 320 bytes a 8kHz mu-law
+                silence = b'\xff' * 320
+                await self.stt_streamer.send_audio(silence)
+                logger.debug("🔈 Silencio enviado a Deepgram para mantener la conexión activa.")
+            except Exception as e:
+                logger.warning(f"⚠️ Error al enviar silencio: {e}")
 
 
 
@@ -518,6 +530,10 @@ class TwilioWebSocketManager:
                 logger.info("🤫 Silencio prolongado. Terminando llamada.")
                 await self._shutdown()
                 break
+
+            # mantener Deepgram activo
+            if now - self.last_partial_time > 5:
+                await self._send_silence_chunk()
 
 
 async def select_model_based_on_input(user_input):
