@@ -1,5 +1,4 @@
 # aiagent.py
-
 # -*- coding: utf-8 -*-
 
 import logging
@@ -8,16 +7,19 @@ import json
 from typing import List, Dict
 from decouple import config
 from openai import OpenAI
+from datetime import datetime, timedelta
+import pytz
+
+# Tus módulos
 from consultarinfo import get_consultorio_data_from_cache
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
-from eliminarcita import delete_calendar_event
 from editarcita import edit_calendar_event
-from utils import search_calendar_event_by_phone, get_cancun_time
-from datetime import datetime, timedelta
-import pytz
-from prompt import generate_openai_prompt
-from prompts.prompt_crear_cita import prompt_crear_cita
+from eliminarcita import delete_calendar_event
+from utils import get_cancun_time, search_calendar_event_by_phone
+
+# Tus prompts
+from prompt import generate_openai_prompt           # Prompt principal (crear)
 from prompts.prompt_editar_cita import prompt_editar_cita
 from prompts.prompt_eliminar_cita import prompt_eliminar_cita
 
@@ -25,50 +27,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 
-def get_next_monday(reference_date: datetime) -> datetime:
-    ref = reference_date
-    while ref.weekday() != 0:
-        ref += timedelta(days=1)
-    if ref.date() == reference_date.date():
-        ref += timedelta(days=7)
-    return ref
 
-def generar_system_message_resumen_fecha(original_date_str, original_hour_str, result_date_str, result_hour_str):
-    dias_semana = {
-        0: "lunes", 1: "martes", 2: "miércoles", 3: "jueves",
-        4: "viernes", 5: "sábado", 6: "domingo"
-    }
-    meses = {
-        1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
-        5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
-        9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre"
-    }
-    try:
-        original_dt = datetime.strptime(f"{original_date_str} {original_hour_str}", "%Y-%m-%d %H:%M")
-        result_dt = datetime.strptime(f"{result_date_str} {result_hour_str}", "%Y-%m-%d %H:%M")
-        dia_orig = dias_semana[original_dt.weekday()]
-        dia_disp = dias_semana[result_dt.weekday()]
-        mes_orig = meses[original_dt.month]
-        mes_disp = meses[result_dt.month]
-        fecha_inicio = f"{dia_orig} {original_dt.day} de {mes_orig} del {original_dt.year} a las {original_dt.strftime('%H:%M')}"
-        fecha_resultado = f"{dia_disp} {result_dt.day} de {mes_disp} del {result_dt.year} a las {result_dt.strftime('%H:%M')}"
-        return {
-            "role": "system",
-            "content": (
-                f"Se comenzó buscando desde el {fecha_inicio}. "
-                f"El sistema encontró espacio el {fecha_resultado}. Explica esto al usuario con claridad, sin inventar intenciones."
-            )
-        }
-    except Exception as e:
-        logger.warning(f"No se pudo generar system_message de fechas: {e}")
-        return None
-
-TOOLS = [
+# ─────────────────────────────────────────────────────────────────
+# 1) MAIN_TOOLS → Para el prompt principal (crear cita + info)
+# ─────────────────────────────────────────────────────────────────
+MAIN_TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "read_sheet_data",
-            "description": "Obtener información general del consultorio"
+            "description": "Obtener información del consultorio"
         }
     },
     {
@@ -108,6 +76,86 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "detect_intent",
+            "description": "Detectar si el usuario quiere editar, eliminar o crear",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intention": {
+                        "type": "string",
+                        "enum": ["create", "edit", "delete", "unknown"]
+                    }
+                },
+                "required": ["intention"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "end_call",
+            "description": "Finalizar la llamada",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "enum": [
+                            "user_request", "silence", "spam", "time_limit", "error"
+                        ]
+                    }
+                },
+                "required": ["reason"]
+            }
+        }
+    }
+]
+
+
+# ─────────────────────────────────────────────────────────────────
+# 2) EDIT_TOOLS → Para prompt_editar_cita
+# ─────────────────────────────────────────────────────────────────
+EDIT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_sheet_data",
+            "description": "Obtener información del consultorio"
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_next_available_slot",
+            "description": "Buscar horario disponible para reprogramar",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target_date": {"type": "string", "format": "date"},
+                    "target_hour": {"type": "string"},
+                    "urgent": {"type": "boolean"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_calendar_event_by_phone",
+            "description": "Buscar citas por número de teléfono",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string"}
+                },
+                "required": ["phone"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "edit_calendar_event",
             "description": "Modificar cita",
             "parameters": {
@@ -119,6 +167,70 @@ TOOLS = [
                     "new_end_time": {"type": "string", "format": "date-time"}
                 },
                 "required": ["phone", "original_start_time"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "detect_intent",
+            "description": "Detectar si el usuario quiere crear, eliminar, etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intention": {
+                        "type": "string",
+                        "enum": ["create", "edit", "delete", "unknown"]
+                    }
+                },
+                "required": ["intention"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "end_call",
+            "description": "Finalizar la llamada",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "enum": [
+                            "user_request", "silence", "spam", "time_limit", "error"
+                        ]
+                    }
+                },
+                "required": ["reason"]
+            }
+        }
+    }
+]
+
+
+# ─────────────────────────────────────────────────────────────────
+# 3) DELETE_TOOLS → Para prompt_eliminar_cita
+# ─────────────────────────────────────────────────────────────────
+DELETE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_sheet_data",
+            "description": "Obtener información del consultorio"
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_calendar_event_by_phone",
+            "description": "Buscar citas por número de teléfono",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "phone": {"type": "string"}
+                },
+                "required": ["phone"]
             }
         }
     },
@@ -141,23 +253,18 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "search_calendar_event_by_phone",
-            "description": "Buscar citas por número",
+            "name": "detect_intent",
+            "description": "Detectar si el usuario quiere crear, editar, etc.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "phone": {"type": "string"}
+                    "intention": {
+                        "type": "string",
+                        "enum": ["create", "edit", "delete", "unknown"]
+                    }
                 },
-                "required": ["phone"]
+                "required": ["intention"]
             }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_cancun_time",
-            "description": "Fecha y hora actual en Cancún",
-            "parameters": {"type": "object", "properties": {}}
         }
     },
     {
@@ -170,86 +277,100 @@ TOOLS = [
                 "properties": {
                     "reason": {
                         "type": "string",
-                        "enum": ["user_request", "silence", "spam", "time_limit", "error"]
+                        "enum": [
+                            "user_request", "silence", "spam", "time_limit", "error"
+                        ]
                     }
                 },
                 "required": ["reason"]
             }
         }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "detect_intent",
-            "description": "Detectar intención del usuario",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "intention": {
-                        "type": "string",
-                        "enum": ["create", "edit", "delete", "unknown"]
-                    }
-                },
-                "required": ["intention"]
-            }
-        }
     }
 ]
 
+# ─────────────────────────────────────────────────────────────────
+# FUNCIONES PARA EJECUTAR LAS TOOLS
+# ─────────────────────────────────────────────────────────────────
 def handle_tool_execution(tool_call) -> Dict:
+    """
+    Ejecuta la herramienta que la IA invoque, 
+    basándose en 'function_name' y 'args'.
+    """
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments or '{}')
-    logger.info(f"🛠️ Ejecutando {function_name} con: {args}")
+
+    logger.info(f"🛠️ Ejecutando tool {function_name} con args: {args}")
 
     try:
         if function_name == "read_sheet_data":
             return {"data": get_consultorio_data_from_cache()}
+
         elif function_name == "find_next_available_slot":
-            return {"slot": find_next_available_slot(**args)}
+            slot = find_next_available_slot(**args)
+            return {"slot": slot}
+
         elif function_name == "create_calendar_event":
-            return {"event_created": create_calendar_event(**args)}
+            phone = args.get("phone", "")
+            if not (phone.isdigit() and len(phone) == 10):
+                return {
+                    "error": "El número de teléfono debe tener 10 dígitos numéricos."
+                }
+            event = create_calendar_event(**args)
+            return {"event_created": event}
+
         elif function_name == "edit_calendar_event":
-            return {"event_edited": edit_calendar_event(**args)}
+            result = edit_calendar_event(**args)
+            return {"event_edited": result}
+
         elif function_name == "delete_calendar_event":
-            return {"event_deleted": delete_calendar_event(**args)}
+            result = delete_calendar_event(**args)
+            return {"event_deleted": result}
+
         elif function_name == "search_calendar_event_by_phone":
-            return {"search_results": search_calendar_event_by_phone(**args)}
-        elif function_name == "get_cancun_time":
-            return {"cancun_time": get_cancun_time().isoformat()}
-        elif function_name == "end_call":
-            return {"call_ended": args["reason"]}
+            found = search_calendar_event_by_phone(**args)
+            return {"search_results": found}
+
         elif function_name == "detect_intent":
             return {"intent_detected": args["intention"]}
+
+        elif function_name == "end_call":
+            return {"call_ended": args["reason"]}
+
+        else:
+            return {"error": f"Herramienta desconocida: {function_name}"}
+
     except Exception as e:
-        logger.error(f"❌ Error ejecutando tool {function_name}: {e}")
+        logger.error(f"❌ Error en tool {function_name}: {e}", exc_info=True)
         return {"error": str(e)}
 
-async def generate_openai_response(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
-    try:
-        # 🕒 Log: mostrar hora actual solo para seguimiento
-        cancun_now = get_cancun_time()
-        logger.info(f"🕒 Hora actual Cancún: {cancun_now.isoformat()}")
 
-        # 💬 Paso 1: Agregar prompt general si el historial no contiene ningún system
+# ─────────────────────────────────────────────────────────────────
+# 4) PROMPT PRINCIPAL -> Manejo principal (crear cita + info)
+# ─────────────────────────────────────────────────────────────────
+async def generate_openai_response_main(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+    """
+    Usa prompt.py, con MAIN_TOOLS (crear cita, read_sheet_data, etc.).
+    Si la IA llama detect_intent(intention='edit'|'delete'),
+    saltamos a generate_openai_response_edit / delete.
+    """
+    try:
+        # 1) Insertar prompt si no hay system
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation = generate_openai_prompt(conversation_history)
         else:
-            conversation = [*conversation_history]
+            conversation = list(conversation_history)
 
-        # 📤 Log del historial que enviamos en el primer request
-        logger.info("📤 Enviando mensajes a GPT (1er request):")
-        for i, msg in enumerate(conversation):
-            logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
+        # Log primer request
+        logger.info("📤 (MAIN 1er PASE) Mensajes:")
+        for i, m in enumerate(conversation):
+            logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
 
-        # ─────────────────────────────────────────────────────────
-        # 1) PRIMER PASE: GPT decide si responde o usa tools
-        # ─────────────────────────────────────────────────────────
         first_response = client.chat.completions.create(
             model=model,
             messages=conversation,
-            tools=TOOLS,
+            tools=MAIN_TOOLS,
             tool_choice="auto",
-            max_tokens=150,
+            max_tokens=200,
             temperature=0.3,
             timeout=10
         )
@@ -257,96 +378,295 @@ async def generate_openai_response(conversation_history: List[Dict], model="gpt-
         assistant_msg = first_response.choices[0].message
         tool_calls = assistant_msg.tool_calls or []
 
-        # Log de las herramientas en el primer pase
+        # Log tools
         if tool_calls:
-            for tool_call in tool_calls:
-                tool_name = tool_call.function.name
-                tool_args = tool_call.function.arguments
-                logger.info(
-                    f"🛠️ [PRIMER PASE] Herramienta activada por la IA: {tool_name} "
-                    f"con argumentos: {tool_args}"
-                )
+            for tc in tool_calls:
+                logger.info(f"🛠️ [MAIN 1] IA llamó {tc.function.name} con args: {tc.function.arguments}")
         else:
-            logger.info("🤖 [PRIMER PASE] La IA respondió sin usar herramientas.")
+            logger.info("🤖 [MAIN 1] Sin tools.")
 
-        # ❗ Si NO hay tool_calls, la IA simplemente dio una respuesta conversacional.
-        #    Retornamos esa respuesta y no hacemos segundo pase, para permitir el flujo natural.
+        # Si no tool_calls => respuesta conversacional
         if not tool_calls:
-            return assistant_msg.content or "Disculpe, ¿me podría repetir eso? No le entendí bien."
+            return assistant_msg.content or "Disculpe, no entendí su última frase."
 
-        # ─────────────────────────────────────────────────────────────────
-        # 2) EJECUCIÓN DE LAS TOOLS (si las hay)
-        # ─────────────────────────────────────────────────────────────────
-        tool_messages = []
-        for tool_call in tool_calls:
-            tool_name = tool_call.function.name
-            args = json.loads(tool_call.function.arguments or '{}')
-
-            # Valida teléfono en caso de cita
-            if tool_name == "create_calendar_event":
-                phone = args.get("phone", "")
-                if not phone.isdigit() or len(phone) != 10:
-                    logger.warning(f"📛 Teléfono inválido detectado antes de crear cita: {phone}")
-                    return (
-                        "El número proporcionado no es válido. Debe tener exactamente diez dígitos. "
-                        "Por favor, pida nuevamente el número de WhatsApp al usuario y confirme con claridad antes de continuar."
-                    )
-
-            # Ejecutar la tool
-            result = handle_tool_execution(tool_call)
-            if result.get("status") == "__END_CALL__":
+        # Ejecutar tools
+        tool_msgs = []
+        for tc in tool_calls:
+            result = handle_tool_execution(tc)
+            # Si es end_call
+            if "call_ended" in result:
                 return "__END_CALL__"
-
-            # Guardar la salida de cada tool como un mensaje
-            tool_messages.append({
+            # Error?
+            if "error" in result:
+                return f"Lo siento, ocurrió un error: {result['error']}"
+            tool_msgs.append({
                 "role": "tool",
                 "content": json.dumps(result),
-                "tool_call_id": tool_call.id
+                "tool_call_id": tc.id
             })
 
-        # Armar updated_messages con la respuesta del 1er pase + tool_messages
-        updated_messages = conversation + [{
-            "role": assistant_msg.role,
-            "content": assistant_msg.content,
-            "tool_calls": [tc.model_dump() for tc in assistant_msg.tool_calls] if assistant_msg.tool_calls else []
-        }] + tool_messages
+        # Actualizamos historial
+        updated_msgs = conversation + [
+            {
+                "role": assistant_msg.role,
+                "content": assistant_msg.content,
+                "tool_calls": [t.model_dump() for t in assistant_msg.tool_calls]
+            }
+        ] + tool_msgs
 
-        # 📤 Log de lo que enviamos al segundo request
-        logger.info("📤 Enviando mensajes a GPT (2do request):")
-        for i, msg in enumerate(updated_messages):
-            logger.info(f"[{i}] {msg['role']} → {msg['content'][:200]}")
+        # SEGUNDO PASE
+        logger.info("📤 (MAIN 2do PASE) Mensajes:")
+        for i, msg in enumerate(updated_msgs):
+            logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
 
-        # ─────────────────────────────────────────────────────────
-        # 3) SEGUNDO PASE: GPT ve resultados y da la respuesta final
-        # ─────────────────────────────────────────────────────────
         second_response = client.chat.completions.create(
             model=model,
-            messages=updated_messages,
-            max_tokens=150,
+            messages=updated_msgs,
+            max_tokens=200,
             temperature=0.3,
             timeout=10
         )
 
-        second_assistant_msg = second_response.choices[0].message
-        second_tool_calls = second_assistant_msg.tool_calls or []
+        second_msg = second_response.choices[0].message
+        second_tool_calls = second_msg.tool_calls or []
 
-        # Log de las herramientas en el segundo pase
         if second_tool_calls:
-            for tool_call in second_tool_calls:
-                tool_name = tool_call.function.name
-                tool_args = tool_call.function.arguments
-                logger.info(
-                    f"🛠️ [SEGUNDO PASE] Herramienta activada por la IA: {tool_name} "
-                    f"con argumentos: {tool_args}"
-                )
+            for tc2 in second_tool_calls:
+                logger.info(f"🛠️ [MAIN 2] IA llamó {tc2.function.name} con args: {tc2.function.arguments}")
+                if tc2.function.name == "detect_intent":
+                    # Revisar si detectó "edit" o "delete"
+                    intent_args = json.loads(tc2.function.arguments or '{}')
+                    intention = intent_args.get("intention")
+                    if intention == "edit":
+                        # Saltar a prompt editar
+                        return await generate_openai_response_edit(updated_msgs, model)
+                    elif intention == "delete":
+                        # Saltar a prompt eliminar
+                        return await generate_openai_response_delete(updated_msgs, model)
+                    # Si es create, no pasa nada (ya estás en main)
+                    # Si unknown, no hacemos nada.
         else:
-            logger.info("🤖 [SEGUNDO PASE] La IA respondió sin usar herramientas.")
+            logger.info("🤖 [MAIN 2] Sin tools.")
 
-        # Finalmente, retornamos la respuesta final
-        return second_assistant_msg.content
+        return second_msg.content
 
     except Exception as e:
-        logger.error(f"💥 Error crítico en generate_openai_response: {e}")
-        if "NoneType" in str(e):
-            return "Disculpe, hubo un error técnico. ¿Podría repetir su última solicitud?"
-        return "Disculpe, estoy teniendo dificultades técnicas. ¿Necesita ayuda con algo más?"
+        logger.error(f"💥 Error en generate_openai_response_main: {e}", exc_info=True)
+        return "Lo siento, ocurrió un error técnico en el prompt principal."
+
+
+# ─────────────────────────────────────────────────────────────────
+# 5) PROMPT EDITAR -> Manejo de editar cita
+# ─────────────────────────────────────────────────────────────────
+async def generate_openai_response_edit(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+    """
+    Usa prompt_editar_cita.py con EDIT_TOOLS.
+    Si detecta intención "create" -> regresa a main,
+    o "delete" -> pasa a delete, etc.
+    """
+    from prompts.prompt_editar_cita import prompt_editar_cita
+
+    try:
+        # Insertar prompt si no hay system
+        if not any(msg["role"] == "system" for msg in conversation_history):
+            conversation = prompt_editar_cita(conversation_history)
+        else:
+            conversation = list(conversation_history)
+
+        logger.info("📤 (EDIT 1er PASE):")
+        for i, m in enumerate(conversation):
+            logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
+
+        first_response = client.chat.completions.create(
+            model=model,
+            messages=conversation,
+            tools=EDIT_TOOLS,
+            tool_choice="auto",
+            max_tokens=200,
+            temperature=0.3,
+            timeout=10
+        )
+        assistant_msg = first_response.choices[0].message
+        tool_calls = assistant_msg.tool_calls or []
+
+        if tool_calls:
+            for tc in tool_calls:
+                logger.info(f"🛠️ [EDIT 1] {tc.function.name} args: {tc.function.arguments}")
+        else:
+            logger.info("🤖 [EDIT 1] Sin tools.")
+
+        if not tool_calls:
+            return assistant_msg.content
+
+        tool_msgs = []
+        for tc in tool_calls:
+            result = handle_tool_execution(tc)
+            if "call_ended" in result:
+                return "__END_CALL__"
+            if "error" in result:
+                return f"Error al editar cita: {result['error']}"
+            tool_msgs.append({
+                "role": "tool",
+                "content": json.dumps(result),
+                "tool_call_id": tc.id
+            })
+
+        updated_msgs = conversation + [
+            {
+                "role": assistant_msg.role,
+                "content": assistant_msg.content,
+                "tool_calls": [t.model_dump() for t in assistant_msg.tool_calls]
+            }
+        ] + tool_msgs
+
+        logger.info("📤 (EDIT 2do PASE):")
+        for i, msg in enumerate(updated_msgs):
+            logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
+
+        second_response = client.chat.completions.create(
+            model=model,
+            messages=updated_msgs,
+            max_tokens=200,
+            temperature=0.3,
+            timeout=10
+        )
+
+        second_msg = second_response.choices[0].message
+        second_tool_calls = second_msg.tool_calls or []
+
+        if second_tool_calls:
+            for tc2 in second_tool_calls:
+                logger.info(f"🛠️ [EDIT 2] {tc2.function.name}, args: {tc2.function.arguments}")
+                if tc2.function.name == "detect_intent":
+                    intent_args = json.loads(tc2.function.arguments or '{}')
+                    intention = intent_args.get("intention")
+                    if intention == "create":
+                        # Volver a prompt principal
+                        return await generate_openai_response_main(updated_msgs, model)
+                    elif intention == "delete":
+                        return await generate_openai_response_delete(updated_msgs, model)
+                    # etc
+        else:
+            logger.info("🤖 [EDIT 2] Sin tools.")
+
+        return second_msg.content
+
+    except Exception as e:
+        logger.error(f"💥 Error en generate_openai_response_edit: {e}", exc_info=True)
+        return "Lo siento, ocurrió un error técnico al editar la cita."
+
+
+# ─────────────────────────────────────────────────────────────────
+# 6) PROMPT ELIMINAR -> Manejo de eliminar cita
+# ─────────────────────────────────────────────────────────────────
+async def generate_openai_response_delete(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+    """
+    Usa prompt_eliminar_cita.py con DELETE_TOOLS.
+    Si detecta intención "create" -> main,
+    "edit" -> edit, etc.
+    """
+    from prompts.prompt_eliminar_cita import prompt_eliminar_cita
+
+    try:
+        if not any(msg["role"] == "system" for msg in conversation_history):
+            conversation = prompt_eliminar_cita(conversation_history)
+        else:
+            conversation = list(conversation_history)
+
+        logger.info("📤 (DELETE 1er PASE):")
+        for i, m in enumerate(conversation):
+            logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
+
+        first_response = client.chat.completions.create(
+            model=model,
+            messages=conversation,
+            tools=DELETE_TOOLS,
+            tool_choice="auto",
+            max_tokens=200,
+            temperature=0.3,
+            timeout=10
+        )
+
+        assistant_msg = first_response.choices[0].message
+        tool_calls = assistant_msg.tool_calls or []
+
+        if tool_calls:
+            for tc in tool_calls:
+                logger.info(f"🛠️ [DELETE 1] {tc.function.name}, args: {tc.function.arguments}")
+        else:
+            logger.info("🤖 [DELETE 1] Sin tools.")
+
+        if not tool_calls:
+            return assistant_msg.content
+
+        tool_msgs = []
+        for tc in tool_calls:
+            result = handle_tool_execution(tc)
+            if "call_ended" in result:
+                return "__END_CALL__"
+            if "error" in result:
+                return f"Error al eliminar cita: {result['error']}"
+            tool_msgs.append({
+                "role": "tool",
+                "content": json.dumps(result),
+                "tool_call_id": tc.id
+            })
+
+        updated_msgs = conversation + [
+            {
+                "role": assistant_msg.role,
+                "content": assistant_msg.content,
+                "tool_calls": [t.model_dump() for t in assistant_msg.tool_calls]
+            }
+        ] + tool_msgs
+
+        logger.info("📤 (DELETE 2do PASE):")
+        for i, msg in enumerate(updated_msgs):
+            logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
+
+        second_response = client.chat.completions.create(
+            model=model,
+            messages=updated_msgs,
+            max_tokens=200,
+            temperature=0.3,
+            timeout=10
+        )
+
+        second_msg = second_response.choices[0].message
+        second_tool_calls = second_msg.tool_calls or []
+
+        if second_tool_calls:
+            for tc2 in second_tool_calls:
+                logger.info(f"🛠️ [DELETE 2] {tc2.function.name}, args: {tc2.function.arguments}")
+                if tc2.function.name == "detect_intent":
+                    intent_args = json.loads(tc2.function.arguments or '{}')
+                    intention = intent_args.get("intention")
+                    if intention == "create":
+                        return await generate_openai_response_main(updated_msgs, model)
+                    elif intention == "edit":
+                        return await generate_openai_response_edit(updated_msgs, model)
+        else:
+            logger.info("🤖 [DELETE 2] Sin tools.")
+
+        return second_msg.content
+
+    except Exception as e:
+        logger.error(f"💥 Error en generate_openai_response_delete: {e}", exc_info=True)
+        return "Lo siento, ocurrió un error técnico al eliminar la cita."
+
+# ─────────────────────────────────────────────────────────────────
+# Opcional: Un “router” que tú llamas con un param prompt_mode
+# ─────────────────────────────────────────────────────────────────
+async def get_response_by_prompt_mode(prompt_mode: str, conversation_history: List[Dict]) -> str:
+    """
+    Llamar esta función con 'main', 'edit', o 'delete'.
+    """
+    if prompt_mode == "main":
+        return await generate_openai_response_main(conversation_history)
+    elif prompt_mode == "edit":
+        return await generate_openai_response_edit(conversation_history)
+    elif prompt_mode == "delete":
+        return await generate_openai_response_delete(conversation_history)
+    else:
+        # default al principal
+        return await generate_openai_response_main(conversation_history)
