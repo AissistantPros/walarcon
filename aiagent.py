@@ -10,7 +10,7 @@ from openai import OpenAI
 from datetime import datetime, timedelta
 import pytz
 
-# Tus módulos
+# Módulos
 from consultarinfo import get_consultorio_data_from_cache
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
@@ -18,8 +18,11 @@ from editarcita import edit_calendar_event
 from eliminarcita import delete_calendar_event
 from utils import get_cancun_time, search_calendar_event_by_phone
 
-# Tus prompts
-from prompt import generate_openai_prompt           # Prompt principal (crear)
+# Bandera global: indica si estamos en “modo crear cita” (GPT-4o en vez de GPT-4o-mini)
+CREATING_CITA = False
+
+# Prompts
+from prompt import generate_openai_prompt
 from prompts.prompt_editar_cita import prompt_editar_cita
 from prompts.prompt_eliminar_cita import prompt_eliminar_cita
 
@@ -27,9 +30,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 
-
 # ─────────────────────────────────────────────────────────────────
-# 1) MAIN_TOOLS → Para el prompt principal (crear cita + info)
+# 1) MAIN_TOOLS
 # ─────────────────────────────────────────────────────────────────
 MAIN_TOOLS = [
     {
@@ -111,9 +113,8 @@ MAIN_TOOLS = [
     }
 ]
 
-
 # ─────────────────────────────────────────────────────────────────
-# 2) EDIT_TOOLS → Para prompt_editar_cita
+# 2) EDIT_TOOLS
 # ─────────────────────────────────────────────────────────────────
 EDIT_TOOLS = [
     {
@@ -208,9 +209,8 @@ EDIT_TOOLS = [
     }
 ]
 
-
 # ─────────────────────────────────────────────────────────────────
-# 3) DELETE_TOOLS → Para prompt_eliminar_cita
+# 3) DELETE_TOOLS
 # ─────────────────────────────────────────────────────────────────
 DELETE_TOOLS = [
     {
@@ -288,14 +288,13 @@ DELETE_TOOLS = [
     }
 ]
 
+
 # ─────────────────────────────────────────────────────────────────
-# FUNCIONES PARA EJECUTAR LAS TOOLS
+# Ejecutar las tools, manejando la bandera CREATING_CITA
 # ─────────────────────────────────────────────────────────────────
 def handle_tool_execution(tool_call) -> Dict:
-    """
-    Ejecuta la herramienta que la IA invoque, 
-    basándose en 'function_name' y 'args'.
-    """
+    global CREATING_CITA
+
     function_name = tool_call.function.name
     args = json.loads(tool_call.function.arguments or '{}')
 
@@ -316,6 +315,8 @@ def handle_tool_execution(tool_call) -> Dict:
                     "error": "El número de teléfono debe tener 10 dígitos numéricos."
                 }
             event = create_calendar_event(**args)
+            logger.info("🔴 Creación de cita completada => volver a gpt-4o-mini")
+            CREATING_CITA = False  # Apagar bandera
             return {"event_created": event}
 
         elif function_name == "edit_calendar_event":
@@ -331,7 +332,13 @@ def handle_tool_execution(tool_call) -> Dict:
             return {"search_results": found}
 
         elif function_name == "detect_intent":
-            return {"intent_detected": args["intention"]}
+            intention = args.get("intention")
+            if intention == "create":
+                logger.info("🟢 Modo crear cita => GPT-4o")
+                CREATING_CITA = True
+            else:
+                CREATING_CITA = False
+            return {"intent_detected": intention}
 
         elif function_name == "end_call":
             return {"call_ended": args["reason"]}
@@ -345,28 +352,33 @@ def handle_tool_execution(tool_call) -> Dict:
 
 
 # ─────────────────────────────────────────────────────────────────
-# 4) PROMPT PRINCIPAL -> Manejo principal (crear cita + info)
+# PROMPT PRINCIPAL (MAIN)
 # ─────────────────────────────────────────────────────────────────
 async def generate_openai_response_main(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
     """
-    Usa prompt.py, con MAIN_TOOLS (crear cita, read_sheet_data, etc.).
-    Si la IA llama detect_intent(intention='edit'|'delete'),
-    saltamos a generate_openai_response_edit / delete.
+    Usa prompt.py con MAIN_TOOLS.
+    Por defecto gpt-4o-mini, si la IA usa detect_intent(intention='create'), 
+    entonces se enciende la bandera CREATING_CITA, 
+    y en el segundo request se usará gpt-4o.
     """
+    global CREATING_CITA
+
     try:
-        # 1) Insertar prompt si no hay system
+        # Elige modelo en base a CREATING_CITA
+        chosen_model = "gpt-4o" if CREATING_CITA else model
+
+        # Insertar prompt si no hay system
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation = generate_openai_prompt(conversation_history)
         else:
             conversation = list(conversation_history)
 
-        # Log primer request
         logger.info("📤 (MAIN 1er PASE) Mensajes:")
         for i, m in enumerate(conversation):
             logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
 
         first_response = client.chat.completions.create(
-            model=model,
+            model=chosen_model,
             messages=conversation,
             tools=MAIN_TOOLS,
             tool_choice="auto",
@@ -378,14 +390,12 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
         assistant_msg = first_response.choices[0].message
         tool_calls = assistant_msg.tool_calls or []
 
-        # Log tools
         if tool_calls:
             for tc in tool_calls:
                 logger.info(f"🛠️ [MAIN 1] IA llamó {tc.function.name} con args: {tc.function.arguments}")
         else:
             logger.info("🤖 [MAIN 1] Sin tools.")
 
-        # Si no tool_calls => respuesta conversacional
         if not tool_calls:
             return assistant_msg.content or "Disculpe, no entendí su última frase."
 
@@ -393,10 +403,8 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
         tool_msgs = []
         for tc in tool_calls:
             result = handle_tool_execution(tc)
-            # Si es end_call
             if "call_ended" in result:
                 return "__END_CALL__"
-            # Error?
             if "error" in result:
                 return f"Lo siento, ocurrió un error: {result['error']}"
             tool_msgs.append({
@@ -405,7 +413,6 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
                 "tool_call_id": tc.id
             })
 
-        # Actualizamos historial
         updated_msgs = conversation + [
             {
                 "role": assistant_msg.role,
@@ -414,13 +421,15 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
             }
         ] + tool_msgs
 
-        # SEGUNDO PASE
+        # Para el segundo request, verificamos si la bandera se prendió
+        chosen_model_2 = "gpt-4o" if CREATING_CITA else model
+
         logger.info("📤 (MAIN 2do PASE) Mensajes:")
         for i, msg in enumerate(updated_msgs):
             logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
 
         second_response = client.chat.completions.create(
-            model=model,
+            model=chosen_model_2,
             messages=updated_msgs,
             max_tokens=200,
             temperature=0.3,
@@ -434,17 +443,14 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
             for tc2 in second_tool_calls:
                 logger.info(f"🛠️ [MAIN 2] IA llamó {tc2.function.name} con args: {tc2.function.arguments}")
                 if tc2.function.name == "detect_intent":
-                    # Revisar si detectó "edit" o "delete"
                     intent_args = json.loads(tc2.function.arguments or '{}')
                     intention = intent_args.get("intention")
                     if intention == "edit":
-                        # Saltar a prompt editar
                         return await generate_openai_response_edit(updated_msgs, model)
                     elif intention == "delete":
-                        # Saltar a prompt eliminar
                         return await generate_openai_response_delete(updated_msgs, model)
-                    # Si es create, no pasa nada (ya estás en main)
-                    # Si unknown, no hacemos nada.
+                    # si es "create", la bandera se pone True, 
+                    # y este request ya es gpt-4o
         else:
             logger.info("🤖 [MAIN 2] Sin tools.")
 
@@ -456,18 +462,18 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
 
 
 # ─────────────────────────────────────────────────────────────────
-# 5) PROMPT EDITAR -> Manejo de editar cita
+# EDIT (gpt-4o-mini por defecto)
 # ─────────────────────────────────────────────────────────────────
 async def generate_openai_response_edit(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
     """
     Usa prompt_editar_cita.py con EDIT_TOOLS.
-    Si detecta intención "create" -> regresa a main,
-    o "delete" -> pasa a delete, etc.
     """
     from prompts.prompt_editar_cita import prompt_editar_cita
+    global CREATING_CITA
 
     try:
-        # Insertar prompt si no hay system
+        chosen_model = "gpt-4o" if CREATING_CITA else model
+
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation = prompt_editar_cita(conversation_history)
         else:
@@ -478,7 +484,7 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
             logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
 
         first_response = client.chat.completions.create(
-            model=model,
+            model=chosen_model,
             messages=conversation,
             tools=EDIT_TOOLS,
             tool_choice="auto",
@@ -523,8 +529,9 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
         for i, msg in enumerate(updated_msgs):
             logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
 
+        chosen_model_2 = "gpt-4o" if CREATING_CITA else model
         second_response = client.chat.completions.create(
-            model=model,
+            model=chosen_model_2,
             messages=updated_msgs,
             max_tokens=200,
             temperature=0.3,
@@ -541,11 +548,9 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
                     intent_args = json.loads(tc2.function.arguments or '{}')
                     intention = intent_args.get("intention")
                     if intention == "create":
-                        # Volver a prompt principal
                         return await generate_openai_response_main(updated_msgs, model)
                     elif intention == "delete":
                         return await generate_openai_response_delete(updated_msgs, model)
-                    # etc
         else:
             logger.info("🤖 [EDIT 2] Sin tools.")
 
@@ -557,17 +562,18 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
 
 
 # ─────────────────────────────────────────────────────────────────
-# 6) PROMPT ELIMINAR -> Manejo de eliminar cita
+# DELETE
 # ─────────────────────────────────────────────────────────────────
 async def generate_openai_response_delete(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
     """
     Usa prompt_eliminar_cita.py con DELETE_TOOLS.
-    Si detecta intención "create" -> main,
-    "edit" -> edit, etc.
     """
     from prompts.prompt_eliminar_cita import prompt_eliminar_cita
+    global CREATING_CITA
 
     try:
+        chosen_model = "gpt-4o" if CREATING_CITA else model
+
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation = prompt_eliminar_cita(conversation_history)
         else:
@@ -578,7 +584,7 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
             logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
 
         first_response = client.chat.completions.create(
-            model=model,
+            model=chosen_model,
             messages=conversation,
             tools=DELETE_TOOLS,
             tool_choice="auto",
@@ -624,8 +630,9 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
         for i, msg in enumerate(updated_msgs):
             logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
 
+        chosen_model_2 = "gpt-4o" if CREATING_CITA else model
         second_response = client.chat.completions.create(
-            model=model,
+            model=chosen_model_2,
             messages=updated_msgs,
             max_tokens=200,
             temperature=0.3,
@@ -654,12 +661,15 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
         logger.error(f"💥 Error en generate_openai_response_delete: {e}", exc_info=True)
         return "Lo siento, ocurrió un error técnico al eliminar la cita."
 
+
 # ─────────────────────────────────────────────────────────────────
-# Opcional: Un “router” que tú llamas con un param prompt_mode
+# OPCIONAL: “router”
 # ─────────────────────────────────────────────────────────────────
 async def get_response_by_prompt_mode(prompt_mode: str, conversation_history: List[Dict]) -> str:
     """
-    Llamar esta función con 'main', 'edit', o 'delete'.
+    Llamar esta función con 'main', 'edit', 'delete'.
+    Si no la usas ahora, no pasa nada, 
+    pero no estorba y podría servir en otro momento.
     """
     if prompt_mode == "main":
         return await generate_openai_response_main(conversation_history)
@@ -668,7 +678,7 @@ async def get_response_by_prompt_mode(prompt_mode: str, conversation_history: Li
     elif prompt_mode == "delete":
         return await generate_openai_response_delete(conversation_history)
     else:
-        # default al principal
         return await generate_openai_response_main(conversation_history)
 
+# Alias
 generate_openai_response = generate_openai_response_main

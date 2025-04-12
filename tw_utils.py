@@ -537,27 +537,24 @@ class TwilioWebSocketManager:
 
 
 async def select_model_based_on_input(user_input):
-    # Palabras clave para solicitudes complejas
-    complex_keywords = [
-        "próxima semana", "mañana en ocho", "lo antes posible", 
-        "urgente", "en quince días", "en la tarde", "en la mañana",
-        "próximo mes", "de hoy en ocho", "de mañana en ocho"
-    ]
-    
-    # Palabras/frases clave que indican confusión, enojo o frustración
+    """
+    Mantén la detección de frustración para usar GPT-4o,
+    pero quita lo de 'mañana en ocho', 'próxima semana', etc.
+    """
     negative_sentiment_keywords = [
         "no me entiendes", "no sirves", "qué porquería", "me frustra",
         "estás mal", "estás loco", "inútil", "qué pésimo servicio",
         "haces lo que quieres", "no me estás ayudando", "esto no funciona",
-        "estoy molesto", "estoy enojado", "encabronado", "pésimo", "desepcionado",
-        "desilusionado", "esto es un desastre", "decepcionado", "estoy harto"
+        "estoy molesto", "estoy enojado", "encabronado", "pésimo", "decepcionado",
+        "desilusionado", "esto es un desastre", "estoy harto"
     ]
-    
+
     user_lower = user_input.lower()
 
-    if any(keyword in user_lower for keyword in complex_keywords) or \
-       any(keyword in user_lower for keyword in negative_sentiment_keywords):
-        logger.info("🔄 Modelo seleccionado: GPT-4o (completo) por complejidad o malestar.")
+    for kw in negative_sentiment_keywords:
+        if kw in user_lower:
+            # Con enojo => gpt-4o
+         logger.info("🔄 Modelo seleccionado: GPT-4o (completo) por complejidad o malestar.")
         return "gpt-4o"
 
     logger.info("🔄 Modelo seleccionado: GPT-4o-mini")
