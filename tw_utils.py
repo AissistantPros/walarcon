@@ -236,7 +236,7 @@ class TwilioWebSocketManager:
         system_message = self._generate_system_message_datetime()
         messages_for_gpt = [system_message] + self.conversation_history + [user_input]
 
-        model = "gpt-4o-mini"
+        model = "gpt-4.1-mini"
         logger.info(f"⌛ Se utilizará el modelo: {model} para el texto: {user_text}")
 
         gpt_response = await generate_openai_response_main(messages_for_gpt, model=model)

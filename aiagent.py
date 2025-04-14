@@ -351,7 +351,7 @@ def handle_tool_execution(tool_call) -> Dict:
 # ─────────────────────────────────────────────────────────────────
 # PROMPT PRINCIPAL (MAIN): SIEMPRE usa gpt-4o-mini
 # ─────────────────────────────────────────────────────────────────
-async def generate_openai_response_main(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+async def generate_openai_response_main(conversation_history: List[Dict], model="gpt-4.1-mini") -> str:
     """
     Usa prompt.py con MAIN_TOOLS.
     No hay banderas ni cambio a gpt-4o.
@@ -451,13 +451,13 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
 # ─────────────────────────────────────────────────────────────────
 # EDIT: SIEMPRE gpt-4o-mini
 # ─────────────────────────────────────────────────────────────────
-async def generate_openai_response_edit(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+async def generate_openai_response_edit(conversation_history: List[Dict], model="gpt-4.1-mini") -> str:
     """
     Usa prompt_editar_cita.py con EDIT_TOOLS.
     """
     from prompts.prompt_editar_cita import prompt_editar_cita
     try:
-        chosen_model = model  # gpt-4o-mini
+        chosen_model = model  
 
         if not any(msg["role"] == "system" for msg in conversation_history):
             conversation = prompt_editar_cita(conversation_history)
@@ -549,7 +549,7 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
 # ─────────────────────────────────────────────────────────────────
 # DELETE: SIEMPRE gpt-4o-mini
 # ─────────────────────────────────────────────────────────────────
-async def generate_openai_response_delete(conversation_history: List[Dict], model="gpt-4o-mini") -> str:
+async def generate_openai_response_delete(conversation_history: List[Dict], model="gpt-4.1-mini") -> str:
     """
     Usa prompt_eliminar_cita.py con DELETE_TOOLS.
     """
