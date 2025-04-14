@@ -367,7 +367,8 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
 
         logger.info("📤 (MAIN 1er PASE) Mensajes:")
         for i, m in enumerate(conversation):
-            logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
+            logger.info(f"[{i}] {msg['role']} -> {msg.get('content', '[SIN CONTENIDO]')[:200]}")
+
 
         first_response = client.chat.completions.create(
             model=chosen_model,
@@ -415,7 +416,8 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
 
         logger.info("📤 (MAIN 2do PASE) Mensajes:")
         for i, msg in enumerate(updated_msgs):
-            logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
+            logger.info(f"[{i}] {msg['role']} -> {msg.get('content', '[SIN CONTENIDO]')[:200]}")
+
 
         second_response = client.chat.completions.create(
             model=chosen_model,
@@ -466,7 +468,8 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
 
         logger.info("📤 (EDIT 1er PASE):")
         for i, m in enumerate(conversation):
-            logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
+            logger.info(f"[{i}] {msg['role']} -> {msg.get('content', '[SIN CONTENIDO]')[:200]}")
+
 
         first_response = client.chat.completions.create(
             model=chosen_model,
@@ -512,7 +515,8 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
 
         logger.info("📤 (EDIT 2do PASE):")
         for i, msg in enumerate(updated_msgs):
-            logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
+            logger.info(f"[{i}] {msg['role']} -> {msg.get('content', '[SIN CONTENIDO]')[:200]}")
+
 
         chosen_model_2 = model
         second_response = client.chat.completions.create(
@@ -564,7 +568,8 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
 
         logger.info("📤 (DELETE 1er PASE):")
         for i, m in enumerate(conversation):
-            logger.info(f"[{i}] {m['role']} -> {m['content'][:200]}")
+            logger.info(f"[{i}] {msg['role']} -> {msg.get('content', '[SIN CONTENIDO]')[:200]}")
+
 
         first_response = client.chat.completions.create(
             model=chosen_model,
@@ -610,7 +615,8 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
 
         logger.info("📤 (DELETE 2do PASE):")
         for i, msg in enumerate(updated_msgs):
-            logger.info(f"[{i}] {msg['role']} -> {msg['content'][:200]}")
+            logger.info(f"[{i}] {msg['role']} -> {msg.get('content', '[SIN CONTENIDO]')[:200]}")
+
 
         chosen_model_2 = model
         second_response = client.chat.completions.create(
