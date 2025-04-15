@@ -81,59 +81,62 @@ class TwilioWebSocketManager:
         except Exception:
             return "es"
 
-    async def handle_twilio_websocket(self, websocket: WebSocket):
-        self.websocket = websocket
-        await websocket.accept()
+async def handle_twilio_websocket(self, websocket: WebSocket):
+    self.websocket = websocket
+    await websocket.accept()
 
-        global CURRENT_CALL_MANAGER
-        CURRENT_CALL_MANAGER = self
+    global CURRENT_CALL_MANAGER
+    CURRENT_CALL_MANAGER = self
 
-        logger.info("📞 Llamada iniciada.")
+    self.conversation_history = []  # 👈 Limpieza total del historial aquí (crítico)
 
-        try:
-            load_free_slots_to_cache(90)
-            load_consultorio_data_to_cache()
-        except Exception as e:
-            logger.error(f"❌ Error precargando datos: {e}", exc_info=True)
+    logger.info("📞 Llamada iniciada.")
 
-        try:
-            self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
-            await self.stt_streamer.start_streaming()
-        except Exception as e:
-            logger.error(f"❌ Error iniciando STT: {e}", exc_info=True)
-            await websocket.close(code=1011)
-            return
+    try:
+        load_free_slots_to_cache(90)
+        load_consultorio_data_to_cache()
+    except Exception as e:
+        logger.error(f"❌ Error precargando datos: {e}", exc_info=True)
 
-        asyncio.create_task(self._monitor_call_timeout())
+    try:
+        self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
+        await self.stt_streamer.start_streaming()
+    except Exception as e:
+        logger.error(f"❌ Error iniciando STT: {e}", exc_info=True)
+        await websocket.close(code=1011)
+        return
 
-        try:
-            while True:
-                raw_msg = await websocket.receive_text()
-                data = json.loads(raw_msg)
-                event_type = data.get("event")
+    asyncio.create_task(self._monitor_call_timeout())
 
-                if event_type == "start":
-                    self.stream_sid = data.get("streamSid", "")
-                    saludo = self._get_greeting_by_time()
-                    saludo_audio = text_to_speech(saludo)
-                    await self._play_audio_bytes(saludo_audio)
+    try:
+        while True:
+            raw_msg = await websocket.receive_text()
+            data = json.loads(raw_msg)
+            event_type = data.get("event")
 
-                elif event_type == "media":
-                    if self.is_speaking:
-                        continue
-                    payload = data["media"].get("payload")
-                    if payload:
-                        audio_chunk = base64.b64decode(payload)
-                        await self.stt_streamer.send_audio(audio_chunk)
+            if event_type == "start":
+                self.stream_sid = data.get("streamSid", "")
+                saludo = self._get_greeting_by_time()
+                saludo_audio = text_to_speech(saludo)
+                await self._play_audio_bytes(saludo_audio)
 
-                elif event_type == "stop":
-                    logger.info("🛑 Evento 'stop' recibido desde Twilio.")
-                    break
+            elif event_type == "media":
+                if self.is_speaking:
+                    continue
+                payload = data["media"].get("payload")
+                if payload:
+                    audio_chunk = base64.b64decode(payload)
+                    await self.stt_streamer.send_audio(audio_chunk)
 
-        except Exception as e:
-            logger.error(f"❌ WebSocket error: {e}", exc_info=True)
-        finally:
-            await self._shutdown()
+            elif event_type == "stop":
+                logger.info("🛑 Evento 'stop' recibido desde Twilio.")
+                break
+
+    except Exception as e:
+        logger.error(f"❌ WebSocket error: {e}", exc_info=True)
+    finally:
+        await self._shutdown()
+
 
     def _get_greeting_by_time(self):
         now = get_cancun_time()
@@ -229,10 +232,11 @@ class TwilioWebSocketManager:
     async def process_gpt_response(self, user_text: str):
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
-        user_lang = self._detect_language(user_text)
+    
+        user_lang = "ES"  # 👈 Forzado siempre español
         self.current_language = user_lang
 
-        user_input = {"role": "user", "content": f"[{user_lang.upper()}] {user_text}"}
+        user_input = {"role": "user", "content": f"[{user_lang}] {user_text}"}
         system_message = self._generate_system_message_datetime()
         messages_for_gpt = [system_message] + self.conversation_history + [user_input]
 
@@ -274,6 +278,7 @@ class TwilioWebSocketManager:
         await self._play_audio_bytes(tts_audio)
         await asyncio.sleep(len(tts_audio) / 6400)
         self.is_speaking = False
+
 
     async def _play_audio_bytes(self, audio_data: bytes):
         if not audio_data or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
