@@ -25,7 +25,6 @@ import asyncio
 import logging
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
-from langdetect import detect
 from consultarinfo import load_consultorio_data_to_cache
 from deepgram_stt_streamer import DeepgramSTTStreamer
 from aiagent import generate_openai_response_main
@@ -65,78 +64,71 @@ class TwilioWebSocketManager:
         self.accumulating_timer_task = None
 
         self.accumulating_timeout_general = 1.5
-        self.accumulating_timeout_phone = 3.5  # 4.0 + 2.5 extra para modo número
+        self.accumulating_timeout_phone = 3.5
 
-    async def _send_silence_chunk(self):
+    async def handle_twilio_websocket(self, websocket: WebSocket):
+        self.websocket = websocket
+        await websocket.accept()
+
+        global CURRENT_CALL_MANAGER
+        CURRENT_CALL_MANAGER = self
+
+        self.conversation_history = []
+
+        logger.info("📞 Llamada iniciada.")
+
+        try:
+            load_free_slots_to_cache(90)
+            load_consultorio_data_to_cache()
+        except Exception as e:
+            logger.error(f"❌ Error precargando datos: {e}", exc_info=True)
+
+        try:
+            self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
+            await self.stt_streamer.start_streaming()
+        except Exception as e:
+            logger.error(f"❌ Error iniciando STT: {e}", exc_info=True)
+            await websocket.close(code=1011)
+            return
+
+        asyncio.create_task(self._monitor_call_timeout())
+
+        try:
+            while True:
+                raw_msg = await websocket.receive_text()
+                data = json.loads(raw_msg)
+                event_type = data.get("event")
+
+                if event_type == "start":
+                    self.stream_sid = data.get("streamSid", "")
+                    saludo = self._get_greeting_by_time()
+                    saludo_audio = text_to_speech(saludo)
+                    await self._play_audio_bytes(saludo_audio)
+
+                elif event_type == "media":
+                    if self.is_speaking:
+                        continue
+                    payload = data["media"].get("payload")
+                    if payload:
+                        audio_chunk = base64.b64decode(payload)
+                        await self.stt_streamer.send_audio(audio_chunk)
+
+                elif event_type == "stop":
+                    logger.info("🛑 Evento 'stop' recibido desde Twilio.")
+                    break
+
+        except Exception as e:
+            logger.error(f"❌ WebSocket error: {e}", exc_info=True)
+        finally:
+            await self._shutdown()
+
+    def _send_silence_chunk(self):
         if self.stt_streamer:
             try:
                 silence = b'\xff' * 320
-                await self.stt_streamer.send_audio(silence)
+                asyncio.create_task(self.stt_streamer.send_audio(silence))
             except Exception as e:
                 logger.warning(f"⚠️ Error al enviar silencio: {e}")
-
-    def _detect_language(self, text):
-        try:
-            return detect(text)
-        except Exception:
-            return "es"
-
-async def handle_twilio_websocket(self, websocket: WebSocket):
-    self.websocket = websocket
-    await websocket.accept()
-
-    global CURRENT_CALL_MANAGER
-    CURRENT_CALL_MANAGER = self
-
-    self.conversation_history = []  # 👈 Limpieza total del historial aquí (crítico)
-
-    logger.info("📞 Llamada iniciada.")
-
-    try:
-        load_free_slots_to_cache(90)
-        load_consultorio_data_to_cache()
-    except Exception as e:
-        logger.error(f"❌ Error precargando datos: {e}", exc_info=True)
-
-    try:
-        self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
-        await self.stt_streamer.start_streaming()
-    except Exception as e:
-        logger.error(f"❌ Error iniciando STT: {e}", exc_info=True)
-        await websocket.close(code=1011)
-        return
-
-    asyncio.create_task(self._monitor_call_timeout())
-
-    try:
-        while True:
-            raw_msg = await websocket.receive_text()
-            data = json.loads(raw_msg)
-            event_type = data.get("event")
-
-            if event_type == "start":
-                self.stream_sid = data.get("streamSid", "")
-                saludo = self._get_greeting_by_time()
-                saludo_audio = text_to_speech(saludo)
-                await self._play_audio_bytes(saludo_audio)
-
-            elif event_type == "media":
-                if self.is_speaking:
-                    continue
-                payload = data["media"].get("payload")
-                if payload:
-                    audio_chunk = base64.b64decode(payload)
-                    await self.stt_streamer.send_audio(audio_chunk)
-
-            elif event_type == "stop":
-                logger.info("🛑 Evento 'stop' recibido desde Twilio.")
-                break
-
-    except Exception as e:
-        logger.error(f"❌ WebSocket error: {e}", exc_info=True)
-    finally:
-        await self._shutdown()
-
 
     def _get_greeting_by_time(self):
         now = get_cancun_time()
@@ -232,8 +224,8 @@ async def handle_twilio_websocket(self, websocket: WebSocket):
     async def process_gpt_response(self, user_text: str):
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
-    
-        user_lang = "ES"  # 👈 Forzado siempre español
+
+        user_lang = "ES"
         self.current_language = user_lang
 
         user_input = {"role": "user", "content": f"[{user_lang}] {user_text}"}
@@ -279,7 +271,6 @@ async def handle_twilio_websocket(self, websocket: WebSocket):
         await asyncio.sleep(len(tts_audio) / 6400)
         self.is_speaking = False
 
-
     async def _play_audio_bytes(self, audio_data: bytes):
         if not audio_data or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
@@ -292,7 +283,7 @@ async def handle_twilio_websocket(self, websocket: WebSocket):
             base64_chunk = base64.b64encode(chunk).decode('utf-8')
             message = {
                 "event": "media",
-                "streamSid": self.stream_sid,  # IMPORTANTE para reproducir en Twilio
+                "streamSid": self.stream_sid,
                 "media": {"payload": base64_chunk}
             }
             try:
@@ -325,4 +316,4 @@ async def handle_twilio_websocket(self, websocket: WebSocket):
                 logger.info("🛑 Silencio prolongado. Terminando llamada.")
                 await self._shutdown()
                 return
-            await self._send_silence_chunk()
+            self._send_silence_chunk()
