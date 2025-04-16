@@ -42,29 +42,29 @@ CALL_SILENCE_TIMEOUT = 30
 
 class TwilioWebSocketManager:
     def __init__(self):
-        self.call_ended = False
-        self.stream_sid = None
-        self.stt_streamer = None
-
-        self.stream_start_time = time.time()
-        self.last_partial_time = time.time()
-        self.last_final_time = time.time()
-
-        self.websocket = None
-        self.is_speaking = False
-        self.conversation_history = []
-        self.current_gpt_task = None
-
-        self.expecting_number = False
-        self.expecting_name = False
-        self.current_language = "es"
-
-        self.accumulating_mode = False
-        self.accumulated_transcripts = []
-        self.accumulating_timer_task = None
-
         self.accumulating_timeout_general = 1.5
         self.accumulating_timeout_phone = 3.5
+        self._reset_all_state()
+
+    def _reset_all_state(self):
+        logger.info("🧼 Reiniciando TODAS las variables internas del sistema.")
+        self.call_ended = False
+        self.conversation_history = []
+        self.current_language = "es"
+        self.expecting_number = False
+        self.expecting_name = False
+        self.accumulating_mode = False
+        self.accumulated_transcripts = []
+        self._cancel_accumulating_timer()
+        self.current_gpt_task = None
+        self.stream_sid = None
+        self.is_speaking = False
+        self.websocket = None
+        self.stt_streamer = None
+        now = time.time()
+        self.stream_start_time = now
+        self.last_partial_time = now
+        self.last_final_time = now
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
@@ -73,9 +73,8 @@ class TwilioWebSocketManager:
         global CURRENT_CALL_MANAGER
         CURRENT_CALL_MANAGER = self
 
-        self.conversation_history = []
-
         logger.info("📞 Llamada iniciada.")
+        self._reset_all_state()
 
         try:
             load_free_slots_to_cache(90)
@@ -302,6 +301,8 @@ class TwilioWebSocketManager:
             await self.stt_streamer.close()
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
             await self.websocket.close()
+        logger.info("🧹 Ejecutando limpieza total de variables tras finalizar la llamada.")
+        self._reset_all_state()
 
     async def _monitor_call_timeout(self):
         while not self.call_ended:
@@ -317,3 +318,4 @@ class TwilioWebSocketManager:
                 await self._shutdown()
                 return
             self._send_silence_chunk()
+
