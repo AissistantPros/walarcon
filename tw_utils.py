@@ -54,14 +54,17 @@ class TwilioWebSocketManager:
         self.current_language = "es"
         self.expecting_number = False
         self.expecting_name = False
+
         self.accumulating_mode = False
         self.accumulated_transcripts = []
         self._cancel_accumulating_timer()
+
         self.current_gpt_task = None
-        self.stream_sid = None
-        self.is_speaking = False
-        self.websocket = None
         self.stt_streamer = None
+        self.is_speaking = False
+        self.stream_sid = None
+    # 👇 NO BORRAR el websocket aquí, ya está asignado externamente
+    # self.websocket = None  ❌ ¡No lo borres o pierdes conexión!
         now = time.time()
         self.stream_start_time = now
         self.last_partial_time = now
@@ -70,12 +73,13 @@ class TwilioWebSocketManager:
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
         await websocket.accept()
+        self._reset_all_state()
 
         global CURRENT_CALL_MANAGER
         CURRENT_CALL_MANAGER = self
 
         logger.info("📞 Llamada iniciada.")
-        self._reset_all_state()
+        
 
         try:
             load_free_slots_to_cache(90)
@@ -122,13 +126,34 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
-    def _send_silence_chunk(self):
+
+
+
+
+
+
+
+
+    async def _send_silence_chunk(self):
         if self.stt_streamer:
             try:
                 silence = b'\xff' * 320
-                asyncio.create_task(self.stt_streamer.send_audio(silence))
+                await self.stt_streamer.send_audio(silence)
             except Exception as e:
                 logger.warning(f"⚠️ Error al enviar silencio: {e}")
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     def _get_greeting_by_time(self):
         now = get_cancun_time()
@@ -139,6 +164,17 @@ class TwilioWebSocketManager:
             return "¡Buenas noches!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
         else:
             return "¡Buenas tardes!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+
+
+
+
+
+
+
+
+
+
+
 
     def _stt_callback(self, transcript, is_final):
         if not transcript:
@@ -157,6 +193,17 @@ class TwilioWebSocketManager:
                     self.process_gpt_response(transcript)
                 )
 
+
+
+
+
+
+
+
+
+
+
+
     def _activate_accumulating_mode(self):
         logger.info("🔵 Activando modo ACUMULACIÓN DE TRANSCRIPCIONES (NÚMERO TELEFÓNICO)")
         self.accumulating_mode = True
@@ -164,11 +211,28 @@ class TwilioWebSocketManager:
         self._cancel_accumulating_timer()
         self._start_accumulating_timer(phone_mode=True)
 
+
+
+
+
+
+
+
+
     def _accumulate_transcript(self, transcript):
         self.accumulated_transcripts.append(transcript)
         logger.info(f"🔄 Fragmento acumulado: {transcript} | Total: {len(self.accumulated_transcripts)}")
         self._cancel_accumulating_timer()
         self._start_accumulating_timer(phone_mode=self.expecting_number)
+
+
+
+
+
+
+
+
+
 
     def _start_accumulating_timer(self, phone_mode=False):
         loop = asyncio.get_event_loop()
@@ -176,10 +240,28 @@ class TwilioWebSocketManager:
         self.accumulating_timer_task = loop.create_task(self._accumulating_timer(timeout))
         logger.info(f"⏳ Temporizador iniciado ({timeout}s).")
 
+
+
+
+
+
+
+
+
     def _cancel_accumulating_timer(self):
         if self.accumulating_timer_task and not self.accumulating_timer_task.done():
             self.accumulating_timer_task.cancel()
             self.accumulating_timer_task = None
+
+
+
+
+
+
+
+
+
+
 
     async def _accumulating_timer(self, timeout):
         try:
@@ -188,6 +270,16 @@ class TwilioWebSocketManager:
             self._flush_accumulated_transcripts()
         except asyncio.CancelledError:
             logger.debug("🔁 Temporizador de acumulación cancelado (nuevo fragmento llegó).")
+
+
+
+
+
+
+
+
+
+
 
     def _flush_accumulated_transcripts(self):
         if not self.accumulating_mode:
@@ -202,6 +294,16 @@ class TwilioWebSocketManager:
             self.current_gpt_task = asyncio.create_task(
                 self.process_gpt_response(final_text)
             )
+
+
+
+
+
+
+
+
+
+
 
     def _generate_system_message_datetime(self):
         now = get_cancun_time()
@@ -220,6 +322,20 @@ class TwilioWebSocketManager:
             "role": "system",
             "content": f"{formatted}. Utiliza esta fecha y hora para todos tus cálculos e interacciones con el usuario. No alucines ni uses otra zona horaria."
         }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     async def process_gpt_response(self, user_text: str):
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
@@ -271,6 +387,14 @@ class TwilioWebSocketManager:
         await asyncio.sleep(len(tts_audio) / 6400)
         self.is_speaking = False
 
+
+
+
+
+
+
+
+
     async def _play_audio_bytes(self, audio_data: bytes):
         if not audio_data:
             logger.warning("❌ No hay audio para reproducir.")
@@ -280,8 +404,6 @@ class TwilioWebSocketManager:
             return
 
         logger.info(f"📤 Enviando audio a Twilio ({len(audio_data)} bytes)...")
-        
-        
         
         chunk_size = 1024
         total_len = len(audio_data)
@@ -302,6 +424,15 @@ class TwilioWebSocketManager:
                 logger.error(f"Error enviando audio: {e}")
                 break
 
+
+
+
+
+
+
+
+
+
     async def _shutdown(self):
         if self.call_ended:
             return
@@ -313,6 +444,14 @@ class TwilioWebSocketManager:
             await self.websocket.close()
         logger.info("🧹 Ejecutando limpieza total de variables tras finalizar la llamada.")
         self._reset_all_state()
+
+
+
+
+
+
+
+
 
     async def _monitor_call_timeout(self):
         while not self.call_ended:
