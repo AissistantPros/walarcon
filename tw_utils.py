@@ -272,8 +272,17 @@ class TwilioWebSocketManager:
         self.is_speaking = False
 
     async def _play_audio_bytes(self, audio_data: bytes):
-        if not audio_data or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
+        if not audio_data:
+            logger.warning("❌ No hay audio para reproducir.")
             return
+        if not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
+            logger.warning("❌ WebSocket no conectado. No se puede enviar audio.")
+            return
+
+        logger.info(f"📤 Enviando audio a Twilio ({len(audio_data)} bytes)...")
+        
+        
+        
         chunk_size = 1024
         total_len = len(audio_data)
         offset = 0
@@ -318,5 +327,5 @@ class TwilioWebSocketManager:
                 logger.info("🛑 Silencio prolongado. Terminando llamada.")
                 await self._shutdown()
                 return
-            self._send_silence_chunk()
+            await self._send_silence_chunk()
 
