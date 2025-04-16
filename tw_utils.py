@@ -31,6 +31,7 @@ from aiagent import generate_openai_response_main
 from tts_utils import text_to_speech
 from utils import get_cancun_time
 from buscarslot import load_free_slots_to_cache
+from prompt import generate_openai_prompt
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -305,33 +306,6 @@ class TwilioWebSocketManager:
 
 
 
-    def _generate_system_message_datetime(self):
-        now = get_cancun_time()
-        formatted = now.strftime("Hoy es %A %d de %B del %Y, son las %H:%M en Cancún.")
-        traducciones = {
-            "Monday": "lunes", "Tuesday": "martes", "Wednesday": "miércoles",
-            "Thursday": "jueves", "Friday": "viernes", "Saturday": "sábado",
-            "Sunday": "domingo", "January": "enero", "February": "febrero",
-            "March": "marzo", "April": "abril", "May": "mayo", "June": "junio",
-            "July": "julio", "August": "agosto", "September": "septiembre",
-            "October": "octubre", "November": "noviembre", "December": "diciembre"
-        }
-        for en, es in traducciones.items():
-            formatted = formatted.replace(en, es)
-        return {
-            "role": "system",
-            "content": f"{formatted}. Utiliza esta fecha y hora para todos tus cálculos e interacciones con el usuario. No alucines ni uses otra zona horaria."
-        }
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -345,8 +319,8 @@ class TwilioWebSocketManager:
         self.current_language = user_lang
 
         user_input = {"role": "user", "content": f"[{user_lang}] {user_text}"}
-        system_message = self._generate_system_message_datetime()
-        messages_for_gpt = [system_message] + self.conversation_history + [user_input]
+        messages_for_gpt = generate_openai_prompt(self.conversation_history + [user_input])
+       
 
         model = "gpt-4.1-mini"
         logger.info(f"⌛ Se utilizará el modelo: {model} para el texto: {user_text}")
