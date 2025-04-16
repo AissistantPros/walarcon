@@ -44,6 +44,7 @@ class TwilioWebSocketManager:
     def __init__(self):
         self.accumulating_timeout_general = 1.5
         self.accumulating_timeout_phone = 3.5
+        self.accumulating_timer_task = None
         self._reset_all_state()
 
     def _reset_all_state(self):
