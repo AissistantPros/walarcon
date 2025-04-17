@@ -184,15 +184,15 @@ class TwilioWebSocketManager:
         if is_final:
             logger.info(f"🎙️ USUARIO (final): {transcript}")
             self.last_final_time = time.time()
+        
             if self.current_gpt_task and not self.current_gpt_task.done():
                 self.current_gpt_task.cancel()
                 logger.info("🧹 GPT anterior cancelado.")
-            if self.accumulating_mode:
-                self._accumulate_transcript(transcript)
-            else:
-                self.current_gpt_task = asyncio.create_task(
-                    self.process_gpt_response(transcript)
-                )
+        
+        # 🔕 Acumulación desactivada temporalmente
+            self.current_gpt_task = asyncio.create_task(
+                self.process_gpt_response(transcript)
+            )
 
 
 
@@ -206,11 +206,8 @@ class TwilioWebSocketManager:
 
 
     def _activate_accumulating_mode(self):
-        logger.info("🔵 Activando modo ACUMULACIÓN DE TRANSCRIPCIONES (NÚMERO TELEFÓNICO)")
-        self.accumulating_mode = True
-        self.accumulated_transcripts = []
-        self._cancel_accumulating_timer()
-        self._start_accumulating_timer(phone_mode=True)
+        logger.info("🛑 Acumulación desactivada temporalmente. Ignorando activación.")
+        return
 
 
 
@@ -221,10 +218,8 @@ class TwilioWebSocketManager:
 
 
     def _accumulate_transcript(self, transcript):
-        self.accumulated_transcripts.append(transcript)
-        logger.info(f"🔄 Fragmento acumulado: {transcript} | Total: {len(self.accumulated_transcripts)}")
-        self._cancel_accumulating_timer()
-        self._start_accumulating_timer(phone_mode=self.expecting_number)
+        logger.info("🛑 Acumulación desactivada temporalmente. Ignorando fragmento.")
+        return
 
 
 
@@ -283,18 +278,8 @@ class TwilioWebSocketManager:
 
 
     def _flush_accumulated_transcripts(self):
-        if not self.accumulating_mode:
-            return
-        raw_text = " ".join(self.accumulated_transcripts).strip()
-        self.accumulating_mode = False
-        self.accumulated_transcripts = []
-        self._cancel_accumulating_timer()
-        final_text = raw_text.replace(',', '').replace('.', '')
-        if final_text:
-            logger.info(f"🟡 Enviando texto acumulado a GPT: {final_text}")
-            self.current_gpt_task = asyncio.create_task(
-                self.process_gpt_response(final_text)
-            )
+        logger.info("🛑 Acumulación desactivada temporalmente. Ignorando flush.")
+        return
 
 
 
