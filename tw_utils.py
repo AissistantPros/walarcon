@@ -340,11 +340,16 @@ class TwilioWebSocketManager:
             await self._shutdown()
             return
 
+
         self.is_speaking = True
         tts_audio = text_to_speech(gpt_response)
         await self._play_audio_bytes(tts_audio)
         await asyncio.sleep(len(tts_audio) / 6400)
         self.is_speaking = False
+
+        # 🧠 Mandar chunk de silencio para reactivar Deepgram inmediatamente
+        await self._send_silence_chunk()
+
 
 
 
