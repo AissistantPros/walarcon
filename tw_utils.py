@@ -50,37 +50,56 @@ GOODBYE_PHRASE = (
 
 class TwilioWebSocketManager:
     def __init__(self):
-        self.accumulating_timeout_general = 1.0
-        self.accumulating_timeout_phone = 3.5
+        # ­── timeouts configurables
+        self.accumulating_timeout_general = 1.0   # conversación normal
+        self.accumulating_timeout_phone   = 3.5   # modo teléfono
+        self.grace_ms = 0.6                      # margen anticípate-cortes Deepgram
+
+        # temporizadores/tareas
         self.accumulating_timer_task = None
+        self.final_grace_task        = None
+
+        # inicializa todo lo demás
         self._reset_all_state()
 
+    # ---------------------------------------------------------
+    # Re-inicializa **todas** las variables internas
+    # ---------------------------------------------------------
     def _reset_all_state(self):
         logger.info("🧼 Reiniciando TODAS las variables internas del sistema.")
-        self.call_ended = False
+
+        # ­── estado global de la llamada
+        self.call_ended        = False
         self.conversation_history = []
-        self.current_language = "es"
-        self.expecting_number = False
-        self.expecting_name = False
+        self.current_language  = "es"
 
-        self.accumulating_mode = False
+        # ­── flags de la lógica de pasos
+        self.expecting_number  = False
+        self.expecting_name    = False
+
+        # ­── anticípate-cortes (Deepgram)
+        if self.final_grace_task and not self.final_grace_task.done():
+            self.final_grace_task.cancel()
+        self.final_grace_task = None
+        self.pending_final    = None   # texto final que está “a prueba”
+
+        # ­── modo acumulación teléfono
+        self.accumulating_mode      = False
         self.accumulated_transcripts = []
-        self._cancel_accumulating_timer()
+        self._cancel_accumulating_timer()  # cancela si existía
 
+        # ­── referencias a tareas/objetos activos
         self.current_gpt_task = None
-        self.stt_streamer = None
-        self.is_speaking = False
-        self.stream_sid = None
-    # 👇 NO BORRAR el websocket aquí, ya está asignado externamente
-    # self.websocket = None  ❌ ¡No lo borres o pierdes conexión!
+        self.stt_streamer     = None
+        self.is_speaking      = False
+        self.stream_sid       = None
+        self.websocket        = getattr(self, "websocket", None)  # puede no existir
+
+        # ­── control de tiempos
         now = time.time()
         self.stream_start_time = now
         self.last_partial_time = now
-        self.last_final_time = now
-
-
-
-
+        self.last_final_time   = now
 
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
@@ -203,43 +222,81 @@ class TwilioWebSocketManager:
 
 
 
+       # ──────────────────────────────────────────────────────────
+    #  CALLBACK DE DEEPGRAM  (partial / final)
     # ──────────────────────────────────────────────────────────
-    #  CALLBACK DE DEEPGRAM
-    # ──────────────────────────────────────────────────────────
-    def _stt_callback(self, transcript, is_final):
+    def _stt_callback(self, transcript: str, is_final: bool) -> None:
         """
-        Recibe parciales/finales de Deepgram.
-        ▸ Guarda el timestamp del último fragmento.
-        ▸ Si es final:
-            • Si estamos en modo acumulación → lo añade al buffer.
-            • Si no, lo envía directo a GPT (cancelando cualquier solicitud previa en curso).
+        Recibe eventos de Deepgram:
+          • partial  → actualiza last_partial_time y, si hay un final “en-gracia”,
+                        lo cancela y concatena el nuevo texto.
+          • final    → inicia (o reinicia) temporizador de gracia; si llega otro 
+                        fragmento dentro del margen, se juntan antes de procesar.
         """
         if not transcript:
             return
 
+        # Timestamp del último audio recibido
         self.last_partial_time = time.time()
 
+        # ── Caso: llega un partial mientras hay final pendiente ────────────
+        if not is_final and self.pending_final:
+            # cancela el temporizador de gracia
+            if self.final_grace_task and not self.final_grace_task.done():
+                self.final_grace_task.cancel()
+
+            # concatena el texto nuevo
+            self.pending_final += " " + transcript.strip()
+            return  # no hacemos nada más hasta que vuelva un final
+
+        # ── Caso: llega un final ───────────────────────────────────────────
         if is_final:
-            logger.info(f"🎙️ USUARIO (final): {transcript}")
-            self.last_final_time = time.time()
+            if self.pending_final:
+                # ya había un final en espera → lo extendemos
+                self.pending_final += " " + transcript.strip()
+                if self.final_grace_task and not self.final_grace_task.done():
+                    self.final_grace_task.cancel()
+            else:
+                # primer final recibido
+                self.pending_final = transcript.strip()
 
-            if self.accumulating_mode:
-                # ── Modo teléfono: juntar trozos ───────────────────────────
-                self._accumulate_transcript(transcript)
-                return
-
-            # ── Conversación normal ───────────────────────────────────────
-            if self.current_gpt_task and not self.current_gpt_task.done():
-                self.current_gpt_task.cancel()
-                logger.info("🧹 GPT anterior cancelado.")
-
-            self.current_gpt_task = asyncio.create_task(
-                self.process_gpt_response(transcript)
+            # inicia / reinicia el temporizador de gracia
+            loop = asyncio.get_event_loop()
+            self.final_grace_task = loop.create_task(
+                self._commit_final_after_grace()
             )
 
+    async def _commit_final_after_grace(self) -> None:
+        """
+        Se ejecuta si pasa self.grace_ms sin que llegue otro fragmento.
+        Considera la frase como final definitiva y la envía a GPT
+        (o al acumulador de teléfono, según corresponda).
+        """
+        try:
+            await asyncio.sleep(self.grace_ms)
+        except asyncio.CancelledError:
+            return  # interrumpido porque llegó texto adicional
 
+        # — final consolidado —
+        final_text = self.pending_final
+        self.pending_final = None
+        self.last_final_time = time.time()
 
+        logger.info(f"🎙️ USUARIO (final + grace): {final_text}")
 
+        # Si estamos recogiendo número de teléfono, acumular
+        if self.accumulating_mode:
+            self._accumulate_transcript(final_text)
+            return
+
+        # Cancela cualquier request GPT en curso
+        if self.current_gpt_task and not self.current_gpt_task.done():
+            self.current_gpt_task.cancel()
+
+        # Lanza nueva petición GPT
+        self.current_gpt_task = asyncio.create_task(
+            self.process_gpt_response(final_text)
+        )
 
 
 
@@ -249,11 +306,12 @@ class TwilioWebSocketManager:
     # ──────────────────────────────────────────────────────────
     #  MODO ACUMULACIÓN PARA NÚMEROS DE TELÉFONO
     # ──────────────────────────────────────────────────────────
-    def _activate_accumulating_mode(self):
+    def _activate_accumulating_mode(self) -> None:
         """
-        Activa un modo temporal en el que concatenamos varios finals de
-        Deepgram (ej. “nueve”, “noventa y ocho…”) antes de enviarlos a GPT.
-        Se usa cuando la IA pide un número de WhatsApp.
+        Activa un modo temporal para capturar números con pausas.
+        • Deshabilita endpointing por silencio.
+        • Alarga utterance_end_ms a 6 s.
+        • Inicia el temporizador de 3.5 s (self.accumulating_timeout_phone).
         """
         if self.accumulating_mode:
             return  # ya estaba activo
@@ -262,7 +320,7 @@ class TwilioWebSocketManager:
         self.accumulating_mode = True
         self.accumulated_transcripts = []
 
-        # ► Ajusta Deepgram: más paciencia, sin endpointing por silencio
+        # Ajustar configuración de Deepgram “en caliente”
         asyncio.create_task(
             self.stt_streamer.dg_connection.configure(
                 endpointing=False,          # no cortes por VAD-silencio
@@ -270,113 +328,83 @@ class TwilioWebSocketManager:
             )
         )
 
+        # Primer temporizador
+        self._start_accumulating_timer(phone_mode=True)
 
-
-
-
-    def _accumulate_transcript(self, transcript):
+    # ----------------------------------------------------------------------
+    def _accumulate_transcript(self, fragment: str) -> None:
         """
-        Agrega un fragmento y (re)inicia el temporizador; si es el primero,
-        arranca el timer por primera vez.
+        Guarda fragmentos finales y reinicia el temporizador cada vez.
         """
-        self.accumulated_transcripts.append(transcript.strip())
-        logger.debug(f"➕ Fragmento acumulado: {transcript.strip()}")
+        self.accumulated_transcripts.append(fragment.strip())
+        logger.debug(f"➕ Fragmento acumulado: {fragment.strip()}")
 
-        # Si es el primer fragmento, el timer aún no existe
-        if not self.accumulating_timer_task:
-            self._start_accumulating_timer(phone_mode=True)
-        else:
-            # Reinicia el timer para dar margen a que siga dictando
-            self._cancel_accumulating_timer()
-            self._start_accumulating_timer(phone_mode=True)
+        # Reinicia temporizador
+        self._cancel_accumulating_timer()
+        self._start_accumulating_timer(phone_mode=True)
 
-
-
-
-
-    def _start_accumulating_timer(self, phone_mode=False):
+    # ----------------------------------------------------------------------
+    def _start_accumulating_timer(self, phone_mode: bool) -> None:
         loop = asyncio.get_event_loop()
-        timeout = self.accumulating_timeout_phone if phone_mode else self.accumulating_timeout_general
-        self.accumulating_timer_task = loop.create_task(self._accumulating_timer(timeout))
-        logger.info(f"⏳ Temporizador iniciado ({timeout}s).")
+        timeout = (
+            self.accumulating_timeout_phone
+            if phone_mode
+            else self.accumulating_timeout_general
+        )
+        self.accumulating_timer_task = loop.create_task(
+            self._accumulating_timer(timeout)
+        )
+        logger.info(f"⏳ Temporizador acumulación iniciado ({timeout}s).")
 
-
-
-
-
-
-
-
-
-    def _cancel_accumulating_timer(self):
+    def _cancel_accumulating_timer(self) -> None:
         if self.accumulating_timer_task and not self.accumulating_timer_task.done():
             self.accumulating_timer_task.cancel()
-            self.accumulating_timer_task = None
+        self.accumulating_timer_task = None
 
-
-
-
-
-
-
-
-
-
-
-    async def _accumulating_timer(self, timeout):
+    # ----------------------------------------------------------------------
+    async def _accumulating_timer(self, timeout: float) -> None:
         try:
             await asyncio.sleep(timeout)
-            logger.info("🟠 Tiempo agotado. Flusheando...")
+            logger.info("🟠 Timeout acumulación: flusheando…")
             self._flush_accumulated_transcripts()
         except asyncio.CancelledError:
-            logger.debug("🔁 Temporizador de acumulación cancelado (nuevo fragmento llegó).")
+            logger.debug("🔁 Temporizador acumulación cancelado/reiniciado.")
 
-
-
-
-
-
-
-
-
-
-    def _flush_accumulated_transcripts(self):
+    # ----------------------------------------------------------------------
+    def _flush_accumulated_transcripts(self) -> None:
         """
-        Procesa lo acumulado en modo teléfono:
+        Lógica de salida del modo teléfono.
 
-        1. Si detecta una pregunta/comentario (signo '?' o texto sin suficientes
-           dígitos) cancela el modo teléfono y reenvía la frase a GPT.
-        2. Si hay <10 dígitos y no es pregunta, reinicia el temporizador
-           (sigue esperando).
-        3. Si hay ≥10 dígitos, envía el número limpio a GPT y sale del modo.
+        • Si detecta signos de pregunta o texto no-numérico predominante,
+          sale del modo teléfono y re-envía la frase a GPT como conversación.
+        • Si tiene <10 dígitos → sigue esperando (reinicia temporizador).
+        • Si ≥10 dígitos → envía el número limpio a GPT y vuelve al modo normal.
         """
         if not self.accumulating_mode:
             return
 
-        # ── Detener temporizador actual ─────────────────────────────────────
+        # Detiene temporizador
         self._cancel_accumulating_timer()
 
-        # Texto bruto acumulado
         raw_text = " ".join(self.accumulated_transcripts).strip()
-
-        # Separar dígitos y no dígitos
         digits_only = "".join(ch for ch in raw_text if ch.isdigit())
-        non_digits  = "".join(ch for ch in raw_text if not ch.isdigit()).strip()
+        non_digits = "".join(ch for ch in raw_text if not ch.isdigit()).strip()
 
-        # ── 1) ¿Pregunta o comentario? ──────────────────────────────────────
+        # 1) Pregunta / comentario
         if "?" in non_digits or (non_digits and len(digits_only) < 4):
-            logger.info("❓ Pregunta/comentario detectado; salgo de modo teléfono.")
+            logger.info("❓ Comentario/pregunta detectado → salgo de modo teléfono.")
             self.accumulating_mode = False
             self.accumulated_transcripts = []
 
-            # Restaurar configuración normal de Deepgram
+            # Restaurar configuración estándar de Deepgram
             asyncio.create_task(
                 self.stt_streamer.dg_connection.configure(
-                    endpointing=False, utterance_end_ms="4000"
+                    endpointing=False,
+                    utterance_end_ms="4000",
                 )
             )
 
-            # Cancelar GPT pendiente y reenviar la frase completa
+            # Reenviar al flujo normal de GPT
             if self.current_gpt_task and not self.current_gpt_task.done():
                 self.current_gpt_task.cancel()
             self.current_gpt_task = asyncio.create_task(
@@ -384,41 +412,33 @@ class TwilioWebSocketManager:
             )
             return
 
-        # ── 2) Aún no hay 10 dígitos ────────────────────────────────────────
+        # 2) Aún no hay número completo
         if len(digits_only) < 10:
-            logger.info("🔄 Menos de 10 dígitos; sigo esperando.")
-            # Reiniciar temporizador para otro intento (3.5 s)
+            logger.info("🔄 Aún <10 dígitos; sigo esperando…")
             self._start_accumulating_timer(phone_mode=True)
             return
 
-        # ── 3) Número completo ─────────────────────────────────────────────
+        # 3) Número completo
         self.accumulating_mode = False
+        numero_formateado = " ".join(digits_only)
+        logger.info(f"📞 Número capturado: {numero_formateado}")
 
-        # Formatear: “9982137477” → “9 9 8 2 1 3 7 4 7 7”
-        numero_completo = " ".join(digits_only)
-        logger.info(f"📞 Número capturado: {numero_completo}")
-
-        # Cancelar GPT previo si existe
+        # Cancelar GPT previo si existía
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
 
         # Enviar número a GPT
         self.current_gpt_task = asyncio.create_task(
-            self.process_gpt_response(numero_completo)
+            self.process_gpt_response(numero_formateado)
         )
 
-        # Restaurar Deepgram a modo normal
+        # Restaurar Deepgram a configuración estándar
         asyncio.create_task(
             self.stt_streamer.dg_connection.configure(
-                endpointing=False, utterance_end_ms="4000"
+                endpointing=False,
+                utterance_end_ms="4000",
             )
         )
-
-
-
-
-
-
 
 
 
