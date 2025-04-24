@@ -41,6 +41,13 @@ CURRENT_CALL_MANAGER = None
 CALL_MAX_DURATION = 600
 CALL_SILENCE_TIMEOUT = 30
 
+# ── Despedida obligatoria ───────────────────────────────────────────
+GOODBYE_PHRASE = (
+    "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
+)
+
+
+
 class TwilioWebSocketManager:
     def __init__(self):
         self.accumulating_timeout_general = 1.0
@@ -149,7 +156,21 @@ class TwilioWebSocketManager:
                 logger.warning(f"⚠️ Error al enviar silencio: {e}")
 
 
-
+    # ──────────────────────────────────────────────────────────
+    #  Helper: ¿ya se dijo la despedida?
+    # ──────────────────────────────────────────────────────────
+    def _farewell_already_sent(self) -> bool:
+        """
+        Revisa las últimas intervenciones de la IA para saber
+        si ya pronunció la frase de despedida obligatoria.
+        """
+        for msg in reversed(self.conversation_history[-6:]):  # mira los últimos 6 turnos
+            if (
+                msg["role"] == "assistant"
+                and GOODBYE_PHRASE.lower() in msg["content"].lower()
+            ):
+                return True
+        return False
 
 
 
@@ -241,7 +262,13 @@ class TwilioWebSocketManager:
         self.accumulating_mode = True
         self.accumulated_transcripts = []
 
-
+        # ► Ajusta Deepgram: más paciencia, sin endpointing por silencio
+        asyncio.create_task(
+            self.stt_streamer.dg_connection.configure(
+                endpointing=False,          # no cortes por VAD-silencio
+                utterance_end_ms="6000"     # 6 s sin tokens = final
+            )
+        )
 
 
 
@@ -345,7 +372,7 @@ class TwilioWebSocketManager:
             # Restaurar configuración normal de Deepgram
             asyncio.create_task(
                 self.stt_streamer.dg_connection.configure(
-                    endpointing=False, utterance_end_ms="3500"
+                    endpointing=False, utterance_end_ms="4000"
                 )
             )
 
@@ -383,7 +410,7 @@ class TwilioWebSocketManager:
         # Restaurar Deepgram a modo normal
         asyncio.create_task(
             self.stt_streamer.dg_connection.configure(
-                endpointing=False, utterance_end_ms="3500"
+                endpointing=False, utterance_end_ms="4000"
             )
         )
 
@@ -545,6 +572,15 @@ class TwilioWebSocketManager:
 
         self.call_ended = True
         self.accumulating_mode = False   # ← garantizamos que el modo teléfono quede inactivo
+
+        # ── Reproducir despedida si aún no se dijo ─────────────
+        if not self._farewell_already_sent():
+            logger.info("🔊 Despedida no encontrada; reproduciendo antes de colgar.")
+            self.is_speaking = True
+            bye_audio = text_to_speech(GOODBYE_PHRASE)
+            await self._play_audio_bytes(bye_audio)
+            await asyncio.sleep(0.2)   # colchón corto
+            self.is_speaking = False
 
         logger.info("🔻 Terminando la llamada...")
 
