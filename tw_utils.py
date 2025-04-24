@@ -24,6 +24,17 @@ from prompt import generate_openai_prompt
 from tts_utils import text_to_speech
 from utils import get_cancun_time
 
+# --- utilitario de verbosidad ----------------------------------------
+def set_debug(active: bool = True) -> None:
+    """
+    Activa o desactiva los logs DEBUG de nuestros módulos sin
+    mostrar la verbosidad de librerías externas.
+    """
+    level = logging.DEBUG if active else logging.INFO
+    for name in ("tw_utils", "aiagent", "buscarslot"):
+        logging.getLogger(name).setLevel(level)
+
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # ← sube el nivel para ver todo
 
