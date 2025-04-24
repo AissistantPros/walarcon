@@ -44,7 +44,7 @@ CALL_SILENCE_TIMEOUT = 30
 class TwilioWebSocketManager:
     def __init__(self):
         self.accumulating_timeout_general = 1.0
-        self.accumulating_timeout_phone = 2.5
+        self.accumulating_timeout_phone = 3.5
         self.accumulating_timer_task = None
         self._reset_all_state()
 
@@ -313,36 +313,79 @@ class TwilioWebSocketManager:
 
 
 
-
     def _flush_accumulated_transcripts(self):
         """
-        Une los fragmentos acumulados y los manda como un solo mensaje.
-        Después desactiva el modo acumulación.
+        Procesa lo acumulado en modo teléfono:
+
+        1. Si detecta una pregunta/comentario (signo '?' o texto sin suficientes
+           dígitos) cancela el modo teléfono y reenvía la frase a GPT.
+        2. Si hay <10 dígitos y no es pregunta, reinicia el temporizador
+           (sigue esperando).
+        3. Si hay ≥10 dígitos, envía el número limpio a GPT y sale del modo.
         """
         if not self.accumulating_mode:
             return
 
+        # ── Detener temporizador actual ─────────────────────────────────────
         self._cancel_accumulating_timer()
-        self.accumulating_mode = False
 
-        if not self.accumulated_transcripts:
-            logger.debug("ℹ️ Flush llamado sin fragmentos.")
+        # Texto bruto acumulado
+        raw_text = " ".join(self.accumulated_transcripts).strip()
+
+        # Separar dígitos y no dígitos
+        digits_only = "".join(ch for ch in raw_text if ch.isdigit())
+        non_digits  = "".join(ch for ch in raw_text if not ch.isdigit()).strip()
+
+        # ── 1) ¿Pregunta o comentario? ──────────────────────────────────────
+        if "?" in non_digits or (non_digits and len(digits_only) < 4):
+            logger.info("❓ Pregunta/comentario detectado; salgo de modo teléfono.")
+            self.accumulating_mode = False
+            self.accumulated_transcripts = []
+
+            # Restaurar configuración normal de Deepgram
+            asyncio.create_task(
+                self.stt_streamer.dg_connection.configure(
+                    endpointing="2000", utterance_end_ms="3000"
+                )
+            )
+
+            # Cancelar GPT pendiente y reenviar la frase completa
+            if self.current_gpt_task and not self.current_gpt_task.done():
+                self.current_gpt_task.cancel()
+            self.current_gpt_task = asyncio.create_task(
+                self.process_gpt_response(raw_text)
+            )
             return
 
-        numero_completo = " ".join(self.accumulated_transcripts)
+        # ── 2) Aún no hay 10 dígitos ────────────────────────────────────────
+        if len(digits_only) < 10:
+            logger.info("🔄 Menos de 10 dígitos; sigo esperando.")
+            # Reiniciar temporizador para otro intento (3.5 s)
+            self._start_accumulating_timer(phone_mode=True)
+            return
+
+        # ── 3) Número completo ─────────────────────────────────────────────
+        self.accumulating_mode = False
+
+        # Formatear: “9982137477” → “9 9 8 2 1 3 7 4 7 7”
+        numero_completo = " ".join(digits_only)
         logger.info(f"📞 Número capturado: {numero_completo}")
 
-        # ¡Enviamos el número completo a GPT!
+        # Cancelar GPT previo si existe
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
 
+        # Enviar número a GPT
         self.current_gpt_task = asyncio.create_task(
             self.process_gpt_response(numero_completo)
         )
 
-
-
-
+        # Restaurar Deepgram a modo normal
+        asyncio.create_task(
+            self.stt_streamer.dg_connection.configure(
+                endpointing="2000", utterance_end_ms="3000"
+            )
+        )
 
 
 
