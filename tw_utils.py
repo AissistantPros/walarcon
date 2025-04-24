@@ -240,7 +240,6 @@ class TwilioWebSocketManager:
         logger.info("📞 Activando modo acumulación (teléfono).")
         self.accumulating_mode = True
         self.accumulated_transcripts = []
-        self._start_accumulating_timer(phone_mode=True)
 
 
 
@@ -250,16 +249,19 @@ class TwilioWebSocketManager:
 
     def _accumulate_transcript(self, transcript):
         """
-        Agrega un nuevo fragmento final al buffer y reinicia el temporizador.
+        Agrega un fragmento y (re)inicia el temporizador; si es el primero,
+        arranca el timer por primera vez.
         """
         self.accumulated_transcripts.append(transcript.strip())
         logger.debug(f"➕ Fragmento acumulado: {transcript.strip()}")
-        # Reinicia el timer para dar oportunidad a que el usuario siga dictando
-        self._cancel_accumulating_timer()
-        self._start_accumulating_timer(phone_mode=True)
 
-
-
+        # Si es el primer fragmento, el timer aún no existe
+        if not self.accumulating_timer_task:
+            self._start_accumulating_timer(phone_mode=True)
+        else:
+            # Reinicia el timer para dar margen a que siga dictando
+            self._cancel_accumulating_timer()
+            self._start_accumulating_timer(phone_mode=True)
 
 
 
