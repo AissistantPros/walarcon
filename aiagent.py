@@ -365,9 +365,9 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
         else:
             conversation = list(conversation_history)
 
-        logger.info("📤 (MAIN 1er PASE) Mensajes:")
-        for i, m in enumerate(conversation):
-            logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
+        #logger.info("📤 (MAIN 1er PASE) Mensajes:")
+        #for i, m in enumerate(conversation):
+            #logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
         first_response = client.chat.completions.create(
@@ -386,8 +386,8 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
         if tool_calls:
             for tc in tool_calls:
                 logger.info(f"🛠️ [MAIN 1] IA llamó {tc.function.name} con args: {tc.function.arguments}")
-        else:
-            logger.info("🤖 [MAIN 1] Sin tools.")
+        #else:
+            #logger.info("🤖 [MAIN 1] Sin tools.")
 
         if not tool_calls:
             return assistant_msg.content or "Disculpe, no entendí su última frase."
@@ -415,7 +415,7 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
         ] + tool_msgs
 
         logger.info("📤 (MAIN 2do PASE) Mensajes:")
-        for i, msg in enumerate(updated_msgs):
+        for i, m in enumerate(updated_msgs):
             logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
@@ -440,8 +440,8 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
                         return await generate_openai_response_edit(updated_msgs, model)
                     elif intention == "delete":
                         return await generate_openai_response_delete(updated_msgs, model)
-        else:
-            logger.info("🤖 [MAIN 2] Sin tools.")
+        #else:
+            #logger.info("🤖 [MAIN 2] Sin tools.")
 
         return second_msg.content
 
@@ -486,8 +486,8 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
         if tool_calls:
             for tc in tool_calls:
                 logger.info(f"🛠️ [EDIT 1] {tc.function.name} args: {tc.function.arguments}")
-        else:
-            logger.info("🤖 [EDIT 1] Sin tools.")
+        #else:
+            #logger.info("🤖 [EDIT 1] Sin tools.")
 
         if not tool_calls:
             return assistant_msg.content
@@ -540,8 +540,8 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
                         return await generate_openai_response_main(updated_msgs, model)
                     elif intention == "delete":
                         return await generate_openai_response_delete(updated_msgs, model)
-        else:
-            logger.info("🤖 [EDIT 2] Sin tools.")
+        #else:
+            #logger.info("🤖 [EDIT 2] Sin tools.")
 
         return second_msg.content
 
@@ -586,8 +586,8 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
         if tool_calls:
             for tc in tool_calls:
                 logger.info(f"🛠️ [DELETE 1] {tc.function.name} args: {tc.function.arguments}")
-        else:
-            logger.info("🤖 [DELETE 1] Sin tools.")
+        #else:
+            #logger.info("🤖 [DELETE 1] Sin tools.")
 
         if not tool_calls:
             return assistant_msg.content
@@ -640,8 +640,8 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
                         return await generate_openai_response_main(updated_msgs, model)
                     elif intention == "edit":
                         return await generate_openai_response_edit(updated_msgs, model)
-        else:
-            logger.info("🤖 [DELETE 2] Sin tools.")
+        #else:
+            #logger.info("🤖 [DELETE 2] Sin tools.")
 
         return second_msg.content
 
