@@ -71,6 +71,11 @@ class TwilioWebSocketManager:
         self.last_partial_time = now
         self.last_final_time = now
 
+
+
+
+
+
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
         await websocket.accept()
@@ -177,19 +182,36 @@ class TwilioWebSocketManager:
 
 
 
+    # ──────────────────────────────────────────────────────────
+    #  CALLBACK DE DEEPGRAM
+    # ──────────────────────────────────────────────────────────
     def _stt_callback(self, transcript, is_final):
+        """
+        Recibe parciales/finales de Deepgram.
+        ▸ Guarda el timestamp del último fragmento.
+        ▸ Si es final:
+            • Si estamos en modo acumulación → lo añade al buffer.
+            • Si no, lo envía directo a GPT (cancelando cualquier solicitud previa en curso).
+        """
         if not transcript:
             return
+
         self.last_partial_time = time.time()
+
         if is_final:
             logger.info(f"🎙️ USUARIO (final): {transcript}")
             self.last_final_time = time.time()
-        
+
+            if self.accumulating_mode:
+                # ── Modo teléfono: juntar trozos ───────────────────────────
+                self._accumulate_transcript(transcript)
+                return
+
+            # ── Conversación normal ───────────────────────────────────────
             if self.current_gpt_task and not self.current_gpt_task.done():
                 self.current_gpt_task.cancel()
                 logger.info("🧹 GPT anterior cancelado.")
-        
-        # 🔕 Acumulación desactivada temporalmente
+
             self.current_gpt_task = asyncio.create_task(
                 self.process_gpt_response(transcript)
             )
@@ -203,13 +225,22 @@ class TwilioWebSocketManager:
 
 
 
-
-
+    # ──────────────────────────────────────────────────────────
+    #  MODO ACUMULACIÓN PARA NÚMEROS DE TELÉFONO
+    # ──────────────────────────────────────────────────────────
     def _activate_accumulating_mode(self):
-        logger.info("🛑 Acumulación desactivada temporalmente. Ignorando activación.")
-        return
+        """
+        Activa un modo temporal en el que concatenamos varios finals de
+        Deepgram (ej. “nueve”, “noventa y ocho…”) antes de enviarlos a GPT.
+        Se usa cuando la IA pide un número de WhatsApp.
+        """
+        if self.accumulating_mode:
+            return  # ya estaba activo
 
-
+        logger.info("📞 Activando modo acumulación (teléfono).")
+        self.accumulating_mode = True
+        self.accumulated_transcripts = []
+        self._start_accumulating_timer(phone_mode=True)
 
 
 
@@ -218,10 +249,14 @@ class TwilioWebSocketManager:
 
 
     def _accumulate_transcript(self, transcript):
-        logger.info("🛑 Acumulación desactivada temporalmente. Ignorando fragmento.")
-        return
-
-
+        """
+        Agrega un nuevo fragmento final al buffer y reinicia el temporizador.
+        """
+        self.accumulated_transcripts.append(transcript.strip())
+        logger.debug(f"➕ Fragmento acumulado: {transcript.strip()}")
+        # Reinicia el timer para dar oportunidad a que el usuario siga dictando
+        self._cancel_accumulating_timer()
+        self._start_accumulating_timer(phone_mode=True)
 
 
 
@@ -278,11 +313,30 @@ class TwilioWebSocketManager:
 
 
     def _flush_accumulated_transcripts(self):
-        logger.info("🛑 Acumulación desactivada temporalmente. Ignorando flush.")
-        return
+        """
+        Une los fragmentos acumulados y los manda como un solo mensaje.
+        Después desactiva el modo acumulación.
+        """
+        if not self.accumulating_mode:
+            return
 
+        self._cancel_accumulating_timer()
+        self.accumulating_mode = False
 
+        if not self.accumulated_transcripts:
+            logger.debug("ℹ️ Flush llamado sin fragmentos.")
+            return
 
+        numero_completo = " ".join(self.accumulated_transcripts)
+        logger.info(f"📞 Número capturado: {numero_completo}")
+
+        # ¡Enviamos el número completo a GPT!
+        if self.current_gpt_task and not self.current_gpt_task.done():
+            self.current_gpt_task.cancel()
+
+        self.current_gpt_task = asyncio.create_task(
+            self.process_gpt_response(numero_completo)
+        )
 
 
 
@@ -297,6 +351,18 @@ class TwilioWebSocketManager:
 
 
     async def process_gpt_response(self, user_text: str):
+        """
+        Envía el texto del usuario al modelo, reproduce la respuesta con TTS
+        y reactiva la escucha inmediatamente después de terminar de enviar el
+        audio a Twilio (se elimina la espera proporcional al tamaño del audio).
+
+        Cambios clave:
+        ▸ Se sustituye el sleep basado en len(audio)/6400 por un colchón fijo de 200 ms.
+        ▸ El divisor erróneo 6400 se descarta: el bucle _play_audio_bytes ya
+          envía en tiempo real (1024 B → 128 ms).  
+        ▸ Después del colchón se baja is_speaking y se envía un frame de silencio
+          para que Deepgram abra un nuevo endpoint sin latencia.
+        """
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
 
@@ -305,7 +371,6 @@ class TwilioWebSocketManager:
 
         user_input = {"role": "user", "content": f"[{user_lang}] {user_text}"}
         messages_for_gpt = generate_openai_prompt(self.conversation_history + [user_input])
-       
 
         model = "gpt-4.1-mini"
         logger.info(f"⌛ Se utilizará el modelo: {model} para el texto: {user_text}")
@@ -316,12 +381,14 @@ class TwilioWebSocketManager:
             await self._shutdown()
             return
 
+        # ── Guardar en historial ───────────────────────────────────────────────
         self.conversation_history.append(user_input)
         self.conversation_history.append({"role": "assistant", "content": gpt_response})
 
         logger.info(f"🤖 IA (texto completo): {gpt_response}")
         resp_lower = gpt_response.lower()
 
+        # ── Flags para modo teléfono (número) ──────────────────────────────────
         if "número de whatsapp" in resp_lower:
             self._activate_accumulating_mode()
             self.expecting_number = True
@@ -330,24 +397,29 @@ class TwilioWebSocketManager:
             self.expecting_number = False
             self.expecting_name = False
 
+        # ── Despedida final ────────────────────────────────────────────────────
         if "fue un placer atenderle. que tenga un excelente día. ¡hasta luego!" in resp_lower:
             logger.info("🧼 Frase de cierre detectada. Reproduciendo y terminando llamada.")
             self.is_speaking = True
             tts_audio = text_to_speech(gpt_response)
             await self._play_audio_bytes(tts_audio)
-            await asyncio.sleep(5)
+            await asyncio.sleep(0.2)            # pequeño colchón
             self.is_speaking = False
             await self._shutdown()
             return
 
-
+        # ── Reproducir respuesta normal ───────────────────────────────────────
         self.is_speaking = True
         tts_audio = text_to_speech(gpt_response)
         await self._play_audio_bytes(tts_audio)
-        await asyncio.sleep(len(tts_audio) / 6400)
+
+        # colchón corto para no cortar la última sílaba
+        await asyncio.sleep(0.2)
+
+        # volver a escuchar
         self.is_speaking = False
 
-        # 🧠 Mandar chunk de silencio para reactivar Deepgram inmediatamente
+        # frame de silencio → Deepgram detecta fin de locución y reabre endpoint
         await self._send_silence_chunk()
 
 
@@ -360,6 +432,17 @@ class TwilioWebSocketManager:
 
 
     async def _play_audio_bytes(self, audio_data: bytes):
+        """
+        Envía audio TTS a Twilio en chunks de 1024 B.
+
+        ▸ Si el audio completo es ≤ 24 000 B (≈ 3 s a 8 kHz mu-law),
+          lo subimos 4× más rápido (delay = 0.03 s) para minimizar
+          la latencia de respuesta percibida.
+
+        ▸ Para audios más largos usamos tiempo-real
+          (delay = chunk_size / 8000 ≈ 0.128 s) para no saturar
+          ancho de banda ni memoria en Twilio.
+        """
         if not audio_data:
             logger.warning("❌ No hay audio para reproducir.")
             return
@@ -367,25 +450,32 @@ class TwilioWebSocketManager:
             logger.warning("❌ WebSocket no conectado. No se puede enviar audio.")
             return
 
-        logger.info(f"📤 Enviando audio a Twilio ({len(audio_data)} bytes)...")
-        
-        chunk_size = 1024
         total_len = len(audio_data)
+        logger.info(f"📤 Enviando audio a Twilio ({total_len} bytes)...")
+
+        chunk_size = 1024
+        # ── Delay adaptativo ───────────────────────────────────────────────
+        if total_len <= 24000:                 # ≈ 3 s de audio
+            per_chunk_delay = 0.03             # 4 × más rápido
+        else:
+            per_chunk_delay = chunk_size / 8000.0   # tiempo-real ≈ 0.128 s
+
+        # ── Envío de chunks ───────────────────────────────────────────────
         offset = 0
         while offset < total_len and not self.call_ended:
-            chunk = audio_data[offset:offset+chunk_size]
+            chunk = audio_data[offset:offset + chunk_size]
             offset += chunk_size
-            base64_chunk = base64.b64encode(chunk).decode('utf-8')
+            base64_chunk = base64.b64encode(chunk).decode("utf-8")
             message = {
                 "event": "media",
                 "streamSid": self.stream_sid,
-                "media": {"payload": base64_chunk}
+                "media": {"payload": base64_chunk},
             }
             try:
                 await self.websocket.send_text(json.dumps(message))
-                await asyncio.sleep(0.03)
+                await asyncio.sleep(per_chunk_delay)
             except Exception as e:
-                logger.error(f"Error enviando audio: {e}")
+                logger.error(f"⚠️ Error enviando audio: {e}")
                 break
 
 
@@ -398,19 +488,38 @@ class TwilioWebSocketManager:
 
 
     async def _shutdown(self):
+        """
+        Cierra de forma ordenada la llamada:
+        ▸ Detiene el streamer de Deepgram.
+        ▸ Cierra el WebSocket de Twilio (si sigue abierto).
+        ▸ Limpia todas las variables internas.
+        """
+        # Evita doble ejecución
         if self.call_ended:
             return
+
         self.call_ended = True
+        self.accumulating_mode = False   # ← garantizamos que el modo teléfono quede inactivo
+
         logger.info("🔻 Terminando la llamada...")
+
+        # 1. Cerrar Deepgram
         if self.stt_streamer:
-            await self.stt_streamer.close()
+            try:
+                await self.stt_streamer.close()
+            except Exception as e:
+                logger.warning(f"⚠️ Error cerrando Deepgram: {e}")
+
+        # 2. Cerrar WebSocket con Twilio
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
-            await self.websocket.close()
+            try:
+                await self.websocket.close()
+            except Exception as e:
+                logger.warning(f"⚠️ Error cerrando WebSocket: {e}")
+
+        # 3. Limpiar variables
         logger.info("🧹 Ejecutando limpieza total de variables tras finalizar la llamada.")
         self._reset_all_state()
-
-
-
 
 
 
