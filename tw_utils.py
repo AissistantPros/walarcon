@@ -345,7 +345,7 @@ class TwilioWebSocketManager:
             # Restaurar configuración normal de Deepgram
             asyncio.create_task(
                 self.stt_streamer.dg_connection.configure(
-                    endpointing="2000", utterance_end_ms="3000"
+                    endpointing=False, utterance_end_ms="3500"
                 )
             )
 
@@ -383,7 +383,7 @@ class TwilioWebSocketManager:
         # Restaurar Deepgram a modo normal
         asyncio.create_task(
             self.stt_streamer.dg_connection.configure(
-                endpointing="2000", utterance_end_ms="3000"
+                endpointing=False, utterance_end_ms="3500"
             )
         )
 
