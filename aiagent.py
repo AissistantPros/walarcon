@@ -365,9 +365,11 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
         else:
             conversation = list(conversation_history)
 
-        #logger.info("📤 (MAIN 1er PASE) Mensajes:")
-        #for i, m in enumerate(conversation):
-            #logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
+        logger.info("📤 (MAIN 1er PASE) Mensajes:")
+        for i, m in enumerate(conversation):
+            if not m:
+                continue
+            logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
         first_response = client.chat.completions.create(
@@ -416,6 +418,8 @@ async def generate_openai_response_main(conversation_history: List[Dict], model=
 
         logger.info("📤 (MAIN 2do PASE) Mensajes:")
         for i, m in enumerate(updated_msgs):
+            if not m:
+                continue
             logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
@@ -468,6 +472,8 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
 
         logger.info("📤 (EDIT 1er PASE):")
         for i, m in enumerate(conversation):
+            if not m:
+                continue
             logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
@@ -514,7 +520,9 @@ async def generate_openai_response_edit(conversation_history: List[Dict], model=
         ] + tool_msgs
 
         logger.info("📤 (EDIT 2do PASE):")
-        for i, msg in enumerate(updated_msgs):
+        for i, m in enumerate(updated_msgs):
+            if not m:
+                continue
             logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
@@ -568,6 +576,8 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
 
         logger.info("📤 (DELETE 1er PASE):")
         for i, m in enumerate(conversation):
+            if not m:
+                continue
             logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
@@ -614,7 +624,9 @@ async def generate_openai_response_delete(conversation_history: List[Dict], mode
         ] + tool_msgs
 
         logger.info("📤 (DELETE 2do PASE):")
-        for i, msg in enumerate(updated_msgs):
+        for i, m in enumerate(updated_msgs):
+            if not m:
+                continue
             logger.info(f"[{i}] {m['role']} -> {m.get('content', '[SIN CONTENIDO]')[:200]}")
 
 
