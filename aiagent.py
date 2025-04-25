@@ -16,7 +16,6 @@ import json
 import logging
 from time import perf_counter
 from typing import Dict, List
-
 from decouple import config
 from openai import OpenAI
 
@@ -33,10 +32,7 @@ logger = logging.getLogger("aiagent")
 client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 
 # ────────────────── IMPORTS DE TOOLS DE NEGOCIO ───────────────────
-from utils import (
-    parse_relative_date,
-    search_calendar_event_by_phone,
-)
+from utils import search_calendar_event_by_phone
 from consultarinfo import get_consultorio_data_from_cache
 from buscarslot import find_next_available_slot
 from crearcita import create_calendar_event
@@ -54,18 +50,7 @@ def _t(start: float) -> str:
 
 # ══════════════════ TOOLS DEFINITIONS ═════════════════════════════
 MAIN_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "parse_relative_date",
-            "description": "Convierte expresiones de fecha relativas en español a ISO YYYY-MM-DD",
-            "parameters": {
-                "type": "object",
-                "properties": {"expression": {"type": "string"}},
-                "required": ["expression"],
-            },
-        },
-    },
+  
     {
         "type": "function",
         "function": {"name": "read_sheet_data", "description": "Obtener información del consultorio"},
@@ -198,12 +183,6 @@ def handle_tool_execution(tc) -> Dict:
     try:
         if fn == "read_sheet_data":
             return {"data": get_consultorio_data_from_cache()}
-
-        if fn == "parse_relative_date":
-            try:
-                return {"date": parse_relative_date(args["expression"])}
-            except Exception as e:
-                return {"error": str(e)}
 
         if fn == "find_next_available_slot":
             return {"slot": find_next_available_slot(**args)}
