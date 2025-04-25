@@ -11,8 +11,23 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 # Silenciamos verbosidad de librerías externas
-for noisy in ("httpcore", "httpx", "websockets"):
+# NIVEL PARA LIBRERÍAS EXTERNAS “NOISY”
+for noisy in (
+    "openai._base_client",    # peticiones HTTP a OpenAI
+    "httpcore.http11",        # tráfico httpx-httpcore
+    "httpcore.connection",
+    "httpx",
+    "websockets.client",
+    "websockets.server",
+    # Añade aquí cualquier otro módulo que genere ruido que quieras eliminar:
+    "urllib3.connectionpool",
+    "asyncio",
+    "uvicorn.access",
+    "uvicorn.error",
+    "fastapi",
+):
     logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 # ───────── FASTAPI ─────────────────────────────────────────────
 app = FastAPI()
