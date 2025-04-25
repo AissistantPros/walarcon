@@ -206,18 +206,37 @@ def convert_utc_to_cancun(utc_str):
 
 def parse_relative_date(expression: str) -> str:
     """
-    Parsea expresiones de fecha en español a fecha ISO YYYY-MM-DD
-    tomando como base la hora actual de Cancún.
+    Convierte expresiones de fecha en español a YYYY-MM-DD (zona Cancún).
+    Ej.: “próximo martes”, “martes de la próxima semana”, “dentro de 10 días”.
     """
     base = get_cancun_time()
+
+    # --- normalizaciones mínimas ------------------------------------
+    expr = expression.lower().strip()
+
+    # 1) quita “de la / del / de” que suele colarse
+    expr = expr.replace(" de la ", " ").replace(" del ", " ").replace(" de ", " ")
+
+    # 2) reemplaza “próxima semana” por “la próxima semana”
+    #    (dateparser entiende mejor con el artículo)
+    expr = expr.replace("próxima semana", "la próxima semana")\
+               .replace("siguiente semana", "la próxima semana")
+
+    # 3) si la frase empieza con día sin artículo, anteponemos “el”
+    if expr.split()[0] in [
+        "lunes","martes","miércoles","miercoles","jueves","viernes","sábado","sabado","domingo"
+    ] and not expr.startswith("el "):
+        expr = "el " + expr
+
+    # ----------------------------------------------------------------
     dt = dateparser.parse(
-        expression,
+        expr,
         languages=["es"],
-       settings={
+        settings={
             "RELATIVE_BASE": base,
             "TIMEZONE": "America/Cancun",
-            "RETURN_AS_TIMEZONE_AWARE": True
-        }
+            "RETURN_AS_TIMEZONE_AWARE": True,
+        },
     )
     if not dt:
         raise ValueError(f"No se pudo parsear la fecha: {expression}")
