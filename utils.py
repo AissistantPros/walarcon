@@ -15,6 +15,7 @@ from decouple import config
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from dateutil.parser import parse
+import dateparser
 
 # Cargar variables de entorno
 load_dotenv()
@@ -201,3 +202,23 @@ def convert_utc_to_cancun(utc_str):
     utc_dt = datetime.fromisoformat(utc_str.replace("Z", "+00:00"))
     cancun_tz = pytz.timezone("America/Cancun")
     return utc_dt.astimezone(cancun_tz)
+
+
+def parse_relative_date(expression: str) -> str:
+    """
+    Parsea expresiones de fecha en español a fecha ISO YYYY-MM-DD
+    tomando como base la hora actual de Cancún.
+    """
+    base = get_cancun_time()
+    dt = dateparser.parse(
+        expression,
+        languages=["es"],
+       settings={
+            "RELATIVE_BASE": base,
+            "TIMEZONE": "America/Cancun",
+            "RETURN_AS_TIMEZONE_AWARE": True
+        }
+    )
+    if not dt:
+        raise ValueError(f"No se pudo parsear la fecha: {expression}")
+    return dt.date().isoformat()

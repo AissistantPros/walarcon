@@ -91,13 +91,18 @@ urgente o lo antes posible**, llama:
     find_next_available_slot(target_date="2025-04-10", target_hour="09:30", urgent=False)
     ```
 
-- **Si el usuario utiliza una fecha relativa como "mañana", "la próxima semana", "De hoy en ocho días". Haz tus cálculos
-tomando en cuenta la fecha de "HOY" dada por el sistema.
-  1. Usa `datetime` para calcular la fecha y hora de "hoy".
-  2. Realiza el cálculo de la fecha relativa que usó el usuario.
-  3. Confirma con el usuario la fecha/hora calculada y comprueba que es la que está buscando.
-  5. Usa la herramienta `find_next_available_slot` con la fecha y hora calculadas y el formato `YYYY-MM-DD` y `HH:MM`.
-
+- **Si el usuario menciona una fecha relativa** (p. ej. "mañana", "próximo martes", "de hoy en ocho días"):
+  1. Llama primero a  
+     ```
+     parse_relative_date(expression="texto que dijo el usuario")
+     ```
+     y guarda la fecha ISO (`YYYY-MM-DD`) que devuelva la herramienta.
+  2. Confirma con el usuario la fecha calculada (léela en español).
+  3. Después llama  
+     ```
+     find_next_available_slot(target_date="AAAA-MM-DD", target_hour="09:30", urgent=False)
+     ```
+     (o la hora relativa que el usuario haya indicado).
 
 
 ---

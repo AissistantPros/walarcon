@@ -319,7 +319,9 @@ class TwilioWebSocketManager:
         logger.debug("⏱️ ElevenLabs %.0f ms", (self._now() - t1) * 1000)
 
         if "número de whatsapp" in gpt_response.lower():
-            self._activate_accumulating_mode()
+            # Espera a que termine de hablar antes de activar modo teléfono
+            asyncio.create_task(self._activate_accumulating_mode_after_audio())
+
 
         self.is_speaking = True
         await self._play_audio_bytes(audio)
@@ -330,6 +332,16 @@ class TwilioWebSocketManager:
 
         await asyncio.sleep(0.2)  # colchón
         await self._send_silence_chunk()
+
+
+
+    async def _activate_accumulating_mode_after_audio(self):
+        while self.is_speaking:
+            await asyncio.sleep(0.1)  # espera que acabe de hablar
+        self._activate_accumulating_mode()
+
+
+
 
     # ------------------------------------------------------------------ audio → Twilio
     async def _play_audio_bytes(self, audio_data: bytes):
