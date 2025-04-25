@@ -226,11 +226,6 @@ class TwilioWebSocketManager:
         logger.info("📞 Modo teléfono ON")
         self.accumulating_mode = True
         self.accumulated_transcripts = []
-        asyncio.create_task(
-            self.stt_streamer.dg_connection.update_options(
-                {"endpointing": False, "utterance_end_ms": "6000"}
-            )
-        )
         self._start_accumulating_timer()
 
     def _accumulate_transcript(self, fragment: str):
@@ -264,34 +259,28 @@ class TwilioWebSocketManager:
         raw = " ".join(self.accumulated_transcripts).strip()
         digits = "".join(ch for ch in raw if ch.isdigit())
         non_digits = "".join(ch for ch in raw if not ch.isdigit()).strip()
+
         if "?" in non_digits or (non_digits and len(digits) < 4):
             logger.info("❓ Comentario ⇒ salgo de modo teléfono")
             self.accumulating_mode = False
             self.accumulated_transcripts = []
-            asyncio.create_task(
-                self.stt_streamer.dg_connection.update_options(
-                    {"endpointing": False, "utterance_end_ms": "4000"}
-                )
-            )
             if self.current_gpt_task and not self.current_gpt_task.done():
                 self.current_gpt_task.cancel()
             self.current_gpt_task = asyncio.create_task(self.process_gpt_response(raw))
             return
+
         if len(digits) < 10:
             logger.info("🔄 <10 dígitos ➜ sigo esperando")
             self._start_accumulating_timer()
             return
+
         numero = " ".join(digits)
         logger.info("📞 Número capturado: %s", numero)
         self.accumulating_mode = False
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
         self.current_gpt_task = asyncio.create_task(self.process_gpt_response(numero))
-        asyncio.create_task(
-            self.stt_streamer.dg_connection.update_options(
-                {"endpointing": False, "utterance_end_ms": "4000"}
-            )
-        )
+
 
     # ------------------------------------------------------------------ GPT round‑trip
     async def process_gpt_response(self, user_text: str):
