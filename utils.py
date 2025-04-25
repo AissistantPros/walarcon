@@ -206,29 +206,39 @@ def convert_utc_to_cancun(utc_str):
 
 def parse_relative_date(expression: str) -> str:
     """
-    Convierte expresiones de fecha en español a YYYY-MM-DD (zona Cancún).
-    Ej.: “próximo martes”, “martes de la próxima semana”, “dentro de 10 días”.
+    Convierte expresiones de fecha en español a YYYY-MM-DD tomando la hora
+    actual de Cancún como base. Maneja casos como:
+      • “próximo martes”
+      • “martes de la próxima semana”
+      • “martes próxima semana”
+      • “el viernes siguiente”
+      • “dentro de 10 días”
     """
     base = get_cancun_time()
-
-    # --- normalizaciones mínimas ------------------------------------
     expr = expression.lower().strip()
 
-    # 1) quita “de la / del / de” que suele colarse
-    expr = expr.replace(" de la ", " ").replace(" del ", " ").replace(" de ", " ")
+    # 1) normalizaciones genéricas ------------------------------------------------
+    expr = (
+        expr.replace(" del ", " ")
+            .replace(" de la ", " ")
+            .replace(" de ", " ")
+    )
 
-    # 2) reemplaza “próxima semana” por “la próxima semana”
-    #    (dateparser entiende mejor con el artículo)
+    # 2) garantiza artículo en “la próxima semana / el siguiente …” --------------
     expr = expr.replace("próxima semana", "la próxima semana")\
                .replace("siguiente semana", "la próxima semana")
 
-    # 3) si la frase empieza con día sin artículo, anteponemos “el”
-    if expr.split()[0] in [
-        "lunes","martes","miércoles","miercoles","jueves","viernes","sábado","sabado","domingo"
-    ] and not expr.startswith("el "):
+    # 3) si comienza por día sin “el”, añádelo
+    dias = ["lunes","martes","miércoles","miercoles","jueves","viernes","sábado","sabado","domingo"]
+    if expr.split()[0] in dias and not expr.startswith("el "):
         expr = "el " + expr
 
-    # ----------------------------------------------------------------
+    # 4) patrón “<día> próxima semana”  →  “el <día> de la próxima semana”
+    for d in dias:
+        expr = expr.replace(f"{d} la próxima", f"{d} de la próxima")\
+                   .replace(f"{d} próxima semana", f"{d} de la próxima semana")
+
+    # ---------------------------------------------------------------------------
     dt = dateparser.parse(
         expr,
         languages=["es"],
