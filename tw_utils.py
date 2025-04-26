@@ -15,7 +15,6 @@ from typing import Optional
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
-
 from aiagent import generate_openai_response_main
 from buscarslot import load_free_slots_to_cache
 from consultarinfo import load_consultorio_data_to_cache
@@ -52,9 +51,9 @@ class TwilioWebSocketManager:
 
     def __init__(self) -> None:
         # margen de gracia para pegar finals de Deepgram (seg)
-        self.grace_ms = 0.8
+        self.grace_ms = 0.7
         # tiempo que damos al paciente para dictar su número (seg)
-        self.accumulating_timeout_phone = 3.5
+        self.accumulating_timeout_phone = 3.0
 
         # punteros / tareas
         self.accumulating_timer_task = None
@@ -257,29 +256,16 @@ class TwilioWebSocketManager:
             return
         self._cancel_accumulating_timer()
         raw = " ".join(self.accumulated_transcripts).strip()
-        digits = "".join(ch for ch in raw if ch.isdigit())
-        non_digits = "".join(ch for ch in raw if not ch.isdigit()).strip()
 
-        if "?" in non_digits or (non_digits and len(digits) < 4):
-            logger.info("❓ Comentario ⇒ salgo de modo teléfono")
-            self.accumulating_mode = False
-            self.accumulated_transcripts = []
-            if self.current_gpt_task and not self.current_gpt_task.done():
-                self.current_gpt_task.cancel()
-            self.current_gpt_task = asyncio.create_task(self.process_gpt_response(raw))
-            return
-
-        if len(digits) < 10:
-            logger.info("🔄 <10 dígitos ➜ sigo esperando")
-            self._start_accumulating_timer()
-            return
-
-        numero = " ".join(digits)
-        logger.info("📞 Número capturado: %s", numero)
+        # 🚀 Eliminamos validación de 10 dígitos.
+        logger.info("\U0001f4f2 Captura teléfono (texto crudo): %s", raw)
         self.accumulating_mode = False
+
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
-        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(numero))
+
+        # Mandamos TODO el texto capturado tal cual a la IA
+        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(raw))
 
 
     # ------------------------------------------------------------------ GPT round‑trip
@@ -337,16 +323,16 @@ class TwilioWebSocketManager:
         if not audio_data or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
         total_len = len(audio_data)
-        logger.debug("📤 Audio %d B", total_len)
+        logger.debug("\U0001f4e4 Audio %d\u00a0B", total_len)
 
-        chunk_size = 1024
+        chunk_size = 512
         fast = total_len <= 24000
         per_chunk_delay = 0.03 if fast else chunk_size / 8000.0
 
         t_send = self._now()
         offset = 0
         while offset < total_len and not self.call_ended:
-            chunk = audio_data[offset : offset + chunk_size]
+            chunk = audio_data[offset: offset + chunk_size]
             offset += chunk_size
             await self.websocket.send_text(
                 json.dumps({
@@ -357,6 +343,11 @@ class TwilioWebSocketManager:
             )
             await asyncio.sleep(per_chunk_delay)
         logger.debug("⏱️ Audio enviado %.0f ms", (self._now() - t_send) * 1000)
+
+
+        # ⚡ Esperar un poquito menos de lo normal
+        await asyncio.sleep(max(0, 1.0 - per_chunk_delay))  # <= Liberamos 1 seg antes de terminar "completamente"
+
 
     # ------------------------------------------------------------------ shutdown & watchdog
     async def _shutdown(self):
