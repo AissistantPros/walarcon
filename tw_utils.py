@@ -268,6 +268,37 @@ class TwilioWebSocketManager:
         self.current_gpt_task = asyncio.create_task(self.process_gpt_response(raw))
 
 
+
+
+    # ------------------------------------------------------------------ bucle detector (opcional)
+    def _detectar_bucle(self, gpt_response: str) -> bool:
+        """
+        Revisa si la IA está repitiendo demasiado seguido una frase o patrón.
+        Por ahora se usa una comparación simple de las últimas 3 respuestas.
+        """
+        if len(self.conversation_history) < 6:
+            return False  # Aún no hay suficiente historial
+
+        ultimas_ia = [
+            m["content"].strip().lower()
+            for m in self.conversation_history
+            if m["role"] == "assistant"
+        ][-3:]  # últimas 3 respuestas de IA
+
+        # si las 3 últimas son iguales (o muy parecidas), hay bucle
+        if len(set(ultimas_ia)) <= 1:
+            logger.warning("🔁 Posible bucle detectado: misma respuesta repetida")
+            return True
+
+        return False
+
+
+
+
+
+
+
+
     # ------------------------------------------------------------------ GPT round‑trip
     async def process_gpt_response(self, user_text: str):
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
@@ -289,13 +320,29 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "assistant", "content": gpt_response})
         logger.info("🤖 IA: %s", gpt_response)
 
+        if self._detectar_bucle(gpt_response):
+            await self._shutdown()
+            return
+
+
         t1 = self._now()
         audio = text_to_speech(gpt_response)
         logger.debug("⏱️ ElevenLabs %.0f ms", (self._now() - t1) * 1000)
 
-        if "número de whatsapp" in gpt_response.lower():
-            # Espera a que termine de hablar antes de activar modo teléfono
-            asyncio.create_task(self._activate_accumulating_mode_after_audio())
+        respuesta = gpt_response.lower().strip()
+
+        # Frases clave que activan modo teléfono
+        phone_trigger_phrases = [
+            "¿me puede compartir el número de whatsapp para enviarle la confirmación, por favor?",
+            "me podría repetir el número de teléfono por favor?",
+            "me podría compartir el número de teléfono con el que se hizo la cita originalmente por favor, de esta manera puedo localizar la cita en el calendario?"
+        ]
+
+        for phrase in phone_trigger_phrases:
+            if phrase in gpt_response.lower():
+                logger.info(f"📞 Activación modo teléfono: frase detectada → “{phrase}”")
+                asyncio.create_task(self._activate_accumulating_mode_after_audio())
+                break
 
 
         self.is_speaking = True
