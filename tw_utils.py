@@ -22,6 +22,7 @@ from deepgram_stt_streamer import DeepgramSTTStreamer
 from prompt import generate_openai_prompt
 from tts_utils import text_to_speech
 from utils import get_cancun_time
+import re
 
 # --- utilitario de verbosidad ----------------------------------------
 def set_debug(active: bool = True) -> None:
@@ -50,10 +51,12 @@ class TwilioWebSocketManager:
     """Gestiona toda la llamada RTC"""
 
     def __init__(self) -> None:
-        # margen de gracia para pegar finals de Deepgram (seg)
+       # margen de gracia para pegar finals de Deepgram (seg)
         self.grace_ms = 0.7
-        # tiempo que damos al paciente para dictar su número (seg)
-        self.accumulating_timeout_phone = 3.0
+        # pausa máxima SIN audio entre finales para flush (teléfono)
+        self.accumulating_timeout_phone = 3.5
+        # contador de intentos de dictado
+        self.phone_attempts = 0
 
         # punteros / tareas
         self.accumulating_timer_task = None
@@ -93,6 +96,10 @@ class TwilioWebSocketManager:
         self._dg_prev_final_ts = now      # latencia entre finals
         self._dg_first_final_ts = None    # latencia del 1er final vs envío audio
         self._dg_final_started_ts = None  # inicio ventana de gracia
+
+
+
+
 
     # ------------------------------------------------------------------
     async def handle_twilio_websocket(self, websocket: WebSocket):
@@ -142,6 +149,12 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
+
+
+
+
+
+
     # ------------------------------------------------------------------ helpers
     async def _send_silence_chunk(self):
         if self.stt_streamer:
@@ -149,6 +162,11 @@ class TwilioWebSocketManager:
                 await self.stt_streamer.send_audio(b"\xff" * 320)
             except Exception as e:
                 logger.debug("⚠️ No se pudo enviar silencio: %s", e)
+
+
+
+
+
 
     def _greeting(self):
         now = get_cancun_time(); h = now.hour; m = now.minute
@@ -158,23 +176,34 @@ class TwilioWebSocketManager:
             return "¡Buenas noches!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
         return "¡Buenas tardes!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
 
+
+
+
+
+
     # ------------------------------------------------------------------ Deepgram callback
     def _stt_callback(self, transcript: str, is_final: bool):
         if not transcript:
             return
         now = self._now()
+
+    # Primera final de Deepgram
         if is_final and self._dg_first_final_ts is None:
             self._dg_first_final_ts = now
-            logger.debug("⏱️ Deepgram 1ª final tras %.0f ms", (now - self.stream_start_time) * 1000)
+            logger.debug(
+                "⏱️ Deepgram 1ª final tras %.0f ms",
+                (now - self.stream_start_time) * 1000
+            )
 
-        # latencia entre finals
+    # Latencia entre finals
         if is_final:
             logger.debug(
-                "⏱️ Deepgram Δ final %.0f ms", (now - self._dg_prev_final_ts) * 1000
-            )
+                "⏱️ Deepgram Δ final %.0f ms",
+                (now - self._dg_prev_final_ts) * 1000
+            )   
             self._dg_prev_final_ts = now
 
-        # pegar partial en ventana de gracia
+        # Si hay partials pendientes (ventana de gracia)
         if not is_final and self.pending_final:
             if self.final_grace_task and not self.final_grace_task.done():
                 self.final_grace_task.cancel()
@@ -184,7 +213,13 @@ class TwilioWebSocketManager:
                 logger.debug("🟡 añadido → %s", new)
             return
 
+        # Si es final, reinicia timer si estamos en modo teléfono
         if is_final:
+            if self.accumulating_mode:
+                self._cancel_accumulating_timer()
+                self._start_accumulating_timer()
+
+        # Construye o añade al pending_final
             if self.pending_final:
                 new = transcript.strip()
                 if new not in self.pending_final:
@@ -192,11 +227,17 @@ class TwilioWebSocketManager:
                     logger.debug("🟡 añadido → %s", new)
             else:
                 self.pending_final = transcript.strip()
+
+            # Programa el commit tras la ventana de gracia
             self._dg_final_started_ts = now
             loop = asyncio.get_event_loop()
             if self.final_grace_task and not self.final_grace_task.done():
                 self.final_grace_task.cancel()
-            self.final_grace_task = loop.create_task(self._commit_final_after_grace())
+            self.final_grace_task = loop.create_task(
+                self._commit_final_after_grace()
+            )
+
+
 
     async def _commit_final_after_grace(self):
         try:
@@ -216,21 +257,41 @@ class TwilioWebSocketManager:
             return
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
-        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(final_text))
+        if self.accumulating_mode:
+            asyncio.create_task(self._confirm_or_retry_phone(final_text))
+        else:
+            self.current_gpt_task = asyncio.create_task(self.process_gpt_response(final_text))
 
-    # ------------------------------------------------------------------ modo teléfono
+
+    # ---
+    # 
+    # 
+    # 
+    # 
+    # 
+    # --------------------------------------------------------------- modo teléfono
     def _activate_accumulating_mode(self):
+        """Entra en modo captura-teléfono y reinicia temporizador."""
         if self.accumulating_mode:
             return
         logger.info("📞 Modo teléfono ON")
         self.accumulating_mode = True
+        self.phone_attempts = 0
         self.accumulated_transcripts = []
+        self._cancel_accumulating_timer()
         self._start_accumulating_timer()
+
+
+
 
     def _accumulate_transcript(self, fragment: str):
         self.accumulated_transcripts.append(fragment.strip())
         self._cancel_accumulating_timer()
         self._start_accumulating_timer()
+
+
+
+
 
     def _start_accumulating_timer(self):
         loop = asyncio.get_event_loop()
@@ -255,19 +316,47 @@ class TwilioWebSocketManager:
         if not self.accumulating_mode:
             return
         self._cancel_accumulating_timer()
+
         raw = " ".join(self.accumulated_transcripts).strip()
+        self.accumulated_transcripts = []
+        logger.info("📲 Captura teléfono (raw): %s", raw)
 
-        # 🚀 Eliminamos validación de 10 dígitos.
-        logger.info("\U0001f4f2 Captura teléfono (texto crudo): %s", raw)
-        self.accumulating_mode = False
-
-        if self.current_gpt_task and not self.current_gpt_task.done():
-            self.current_gpt_task.cancel()
-
-        # Mandamos TODO el texto capturado tal cual a la IA
-        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(raw))
+        # Envío al validador de 10 dígitos
+        asyncio.create_task(self._confirm_or_retry_phone(raw))
 
 
+
+    async def _confirm_or_retry_phone(self, texto_usuario: str):
+        """Valida si hay 10 dígitos; si no, pide reintento."""
+        digits = re.sub(r"\D", "", texto_usuario)
+        if len(digits) == 10:
+            fmt = ", ".join([digits[i:i+2] for i in range(0, 10, 2)])
+            await self._play_audio_bytes(
+                text_to_speech(f"¿Es correcto el número {fmt}?")
+            )
+            self.accumulating_mode = False
+            return
+
+        # Sin 10 dígitos -> reintento o fallback
+        self.phone_attempts += 1
+        if self.phone_attempts >= 3:
+            await self._play_audio_bytes(
+                text_to_speech(
+                    "No logré entender el número. "
+                    "¿Podría enviarlo por WhatsApp al nueve, nueve, ocho, dos, trece, setenta y cuatro, setenta y siete, por favor?"
+                )
+            )
+            self.accumulating_mode = False
+            return
+
+        # Mensaje adaptativo según intento
+        prompts = [
+            "¿Podría repetir el número en dígitos corridos, por favor?",
+            "Intente decirlo sin pausas o en pares, por ejemplo: noventa y nueve, ochenta y dos..."
+        ]
+        await self._play_audio_bytes(text_to_speech(prompts[self.phone_attempts-1]))
+        await asyncio.sleep(0.5)
+        self._start_accumulating_timer()
 
 
     # ------------------------------------------------------------------ bucle detector (opcional)
@@ -304,65 +393,66 @@ class TwilioWebSocketManager:
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
 
+        # 1. Añadimos el mensaje del usuario al historial
         user_input = {"role": "user", "content": f"[ES] {user_text}"}
         if not self.conversation_history or self.conversation_history[-1]["content"] != user_input["content"]:
             self.conversation_history.append(user_input)
 
+        # 2. Construimos el prompt y llamamos a GPT
         messages_for_gpt = generate_openai_prompt(self.conversation_history)
-
         t0 = self._now()
         gpt_response = await generate_openai_response_main(messages_for_gpt, model="gpt-4.1-mini")
-        logger.debug("⏱️ GPT %.0f ms", (self._now() - t0) * 1000)
 
+        # 3. Si la IA ya pregunta por el motivo, salimos de modo teléfono
+        if "motivo" in gpt_response.lower():
+            self.accumulating_mode = False
+
+        logger.debug("⏱️ GPT %.0f ms", (self._now() - t0) * 1000)
+
+        # 4. Si es llamada a colgar, cerramos todo
         if gpt_response == "__END_CALL__":
-            await self._shutdown(); return
+            await self._shutdown()
+            return
 
+        # 5. Almacenamos la respuesta de la IA en el historial
         self.conversation_history.append({"role": "assistant", "content": gpt_response})
         logger.info("🤖 IA: %s", gpt_response)
 
+    # 6. Prevención de bucles
         if self._detectar_bucle(gpt_response):
             await self._shutdown()
             return
 
-
+    # 7. Generamos audio con ElevenLabs
         t1 = self._now()
         audio = text_to_speech(gpt_response)
-        logger.debug("⏱️ ElevenLabs %.0f ms", (self._now() - t1) * 1000)
+        logger.debug("⏱️ ElevenLabs %.0f ms", (self._now() - t1) * 1000)
 
-        respuesta = gpt_response.lower().strip()
-
-        # Frases clave que activan modo teléfono
+    # 8. Detectar frase que activa modo teléfono
         phone_trigger_phrases = [
             "¿me puede compartir el número de whatsapp para enviarle la confirmación, por favor?",
             "me podría repetir el número de teléfono por favor?",
             "me podría compartir el número de teléfono con el que se hizo la cita originalmente por favor, de esta manera puedo localizar la cita en el calendario?"
         ]
-
         for phrase in phone_trigger_phrases:
             if phrase in gpt_response.lower():
                 logger.info(f"📞 Activación modo teléfono: frase detectada → “{phrase}”")
                 asyncio.create_task(self._activate_accumulating_mode_after_audio())
                 break
 
-
+    # 9. Enviamos el audio a Twilio
         self.is_speaking = True
         await self._play_audio_bytes(audio)
         self.is_speaking = False
 
+    # 10. Si la IA se despide, colgamos
         if GOODBYE_PHRASE.lower() in gpt_response.lower():
-            await self._shutdown(); return
+            await self._shutdown()
+            return
 
-        await asyncio.sleep(0.2)  # colchón
+    # 11. Un pequeño colchón de silencio para el STT
+        await asyncio.sleep(0.2)
         await self._send_silence_chunk()
-
-
-
-    async def _activate_accumulating_mode_after_audio(self):
-        while self.is_speaking:
-            await asyncio.sleep(0.1)  # espera que acabe de hablar
-        self._activate_accumulating_mode()
-
-
 
 
     # ------------------------------------------------------------------ audio → Twilio
@@ -404,7 +494,10 @@ class TwilioWebSocketManager:
         logger.info("🔻 Cuelga llamada")
 
         if not any(GOODBYE_PHRASE.lower() in m["content"].lower() for m in self.conversation_history if m["role"] == "assistant"):
-            await self._play_audio_bytes(text_to_speech(GOODBYE_PHRASE))
+            logger.info("📢 Despedida no detectada, enviando mensaje personalizado antes de colgar.")
+            despedida_final = "Gracias por comunicarte al consultorio del doctor Wilfrido Alarcón. ¡Hasta pronto!"
+            await self._play_audio_bytes(text_to_speech(despedida_final))
+
 
         if self.stt_streamer:
             await self.stt_streamer.close()
