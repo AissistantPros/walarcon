@@ -257,10 +257,8 @@ class TwilioWebSocketManager:
             return
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
-        if self.accumulating_mode:
-            asyncio.create_task(self._confirm_or_retry_phone(final_text))
-        else:
-            self.current_gpt_task = asyncio.create_task(self.process_gpt_response(final_text))
+       
+        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(final_text))
 
 
     # ---
@@ -453,6 +451,13 @@ class TwilioWebSocketManager:
     # 11. Un pequeño colchón de silencio para el STT
         await asyncio.sleep(0.2)
         await self._send_silence_chunk()
+
+
+
+
+
+
+
 
 
     # ------------------------------------------------------------------ audio → Twilio
