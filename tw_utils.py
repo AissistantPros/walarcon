@@ -179,3 +179,17 @@ class TwilioWebSocketManager:
         if self.ws and self.ws.client_state==WebSocketState.CONNECTED:
             await self.ws.close()
         self._reset_state()
+
+
+
+# ────────────────────────────────────────────────────────────────
+# FUNCIÓN set_debug (para main.py)
+# ────────────────────────────────────────────────────────────────
+def set_debug(active: bool = True) -> None:
+    """
+    Activa o desactiva los logs DEBUG de los módulos internos.
+    Se mantiene por compatibilidad con main.py
+    """
+    level = logging.DEBUG if active else logging.INFO
+    for name in ("tw_utils", "aiagent", "buscarslot"):
+        logging.getLogger(name).setLevel(level)
