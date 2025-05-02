@@ -48,35 +48,42 @@ class TwilioWebSocketManager:
         self.stream_start_time = self._now()   # ← faltaba
 
     # ───────── entrada WebSocket ───────────────────────────────
-    async def handle_twilio_websocket(self, websocket: WebSocket):
-        self.websocket = websocket
-        await websocket.accept()
+    async def handle_twilio_websocket(self, ws: WebSocket):
+        self.websocket = ws
+        await ws.accept()
         self._reset_state()
         logger.info("📞 llamada iniciada")
 
-        # precarga negocio
+        # Precarga de negocio
         load_free_slots_to_cache(90)
         load_consultorio_data_to_cache()
 
-        # Deepgram
-        self.stt = DeepgramSTTStreamer(self._dg_cb)
-        await self.stt.start_streaming()
+        try:
+            # Inicializar Deepgram
+            self.stt = DeepgramSTTStreamer(self._dg_cb)
+            await self.stt.start_streaming()
+            logger.info("✅ STT iniciado correctamente")
+        except Exception as e:
+            logger.error("❌ No se pudo iniciar Deepgram: %s", e)
+            await self._shutdown()
+            return
 
         asyncio.create_task(self._watchdog())
 
         try:
             while True:
-                raw = await websocket.receive_text()
-                data = json.loads(raw)
-                event = data.get("event")
-
-                if event == "start":
+                data = json.loads(await ws.receive_text())
+                evt = data.get("event")
+                if evt == "start":
                     self.stream_sid = data["streamSid"]
                     await self._play_tts(self._greeting())
-                elif event == "media" and not self.speaking:
+                elif evt == "media":
                     payload = base64.b64decode(data["media"]["payload"])
-                    await self.stt.send_audio(payload)
-                elif event == "stop":
+                    if not self.speaking and self.stt:
+                        await self.stt.send_audio(payload)
+                    else:
+                        logger.warning("⚠️ Audio ignorado: STT no iniciado o hablando")
+                elif evt == "stop":
                     break
         finally:
             await self._shutdown()
@@ -161,7 +168,7 @@ class TwilioWebSocketManager:
 
     # ───────── enviar audio a Twilio ──────────────────────────
     async def _play_tts(self, text: str):
-        if not self.websocket:
+        if not self.websocket or self.call_ended:
             return
         audio = text_to_speech(text)
         self.speaking = True
