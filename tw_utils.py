@@ -1,12 +1,5 @@
-"""
-WebSocket manager para Twilio <-> Deepgram <-> GPT‑4o‑mini  (versión simplificada y revisada)
-----------------------------------------------------------------
-• Modo teléfono con acumulación de finals y ventana de gracia extendida.
-• Sin parsing local: la IA recibe la transcripción cruda y extrae el número.
-• Soluciona bug de websocket None.
-"""
-
-import asyncio, base64, json, logging, re, time
+# tw_utils.py  ← versión simplificada pero estable
+import asyncio, base64, json, logging, time
 from typing import Optional
 
 from fastapi import WebSocket
@@ -20,100 +13,95 @@ from prompt import generate_openai_prompt
 from tts_utils import text_to_speech
 from utils import get_cancun_time
 
-# ───────── LOGGING ─────────
+# ───────── LOGGING ─────────────────────────────────────────────
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-# ───────── CONSTANTES ──────
-CALL_MAX_DURATION   = 600      # 10 min
-CALL_SILENCE_TIMEOUT = 30      # 30 s sin finals
-GOODBYE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
+# ───────── CONSTANTES ─────────────────────────────────────────
+CALL_MAX_DURATION    = 600   # seg
+CALL_SILENCE_TIMEOUT = 30    # seg sin finals
+GOODBYE              = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
 
-# ────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
 class TwilioWebSocketManager:
-    """Gestor de toda la sesión RTC"""
-
     def __init__(self):
-        self.grace_ms      = 0.7   # ventana normal de partial glue
-        self.phone_timeout = 3.5   # silencio para mandar final acumulado
+        self.grace_ms      = 0.7   # ventana normal
+        self.phone_timeout = 3.5   # silencio para enviar final acumul.
         self._reset_state()
 
-    # ───────── STATE helpers ─────
-    def _now(self):
-        return time.perf_counter()
+    # ───────── helpers de tiempo/estado ────────────────────────
+    def _now(self): return time.perf_counter()
 
     def _reset_state(self):
-        """Deja todo limpio sin perder la referencia del websocket."""
         self.call_ended     = False
         self.conversation   = []
         self.pending_final  = None
-        self.acc_mode       = False     # modo teléfono activo
+        self.acc_mode       = False      # modo teléfono
         self.acc_finals     = []
         self.acc_timer_task = None
-        self.prev_grace     = 0.7
+        self.prev_grace     = self.grace_ms
         self.speaking       = False
         self.stt            = None
-        # self.websocket     se conserva
+        self.websocket      = None       # ← siempre presente
         self.stream_sid     = None
         self.dg_last_final  = self._now()
+        self.stream_start_time = self._now()   # ← faltaba
 
-    # ───────── WEBSOCKET entry ───
-    async def handle_twilio_websocket(self, ws: WebSocket):
-        await ws.accept()
-        self._reset_state()      # limpia pero no borra websocket
-        self.websocket = ws      # guarda referencia
+    # ───────── entrada WebSocket ───────────────────────────────
+    async def handle_twilio_websocket(self, websocket: WebSocket):
+        self.websocket = websocket
+        await websocket.accept()
+        self._reset_state()
         logger.info("📞 llamada iniciada")
 
-        # Precarga datos negocio
-        try:
-            load_free_slots_to_cache(90)
-            load_consultorio_data_to_cache()
-        except Exception as e:
-            logger.warning("⚠️ Precarga fallida: %s", e, exc_info=True)
+        # precarga negocio
+        load_free_slots_to_cache(90)
+        load_consultorio_data_to_cache()
 
         # Deepgram
         self.stt = DeepgramSTTStreamer(self._dg_cb)
         await self.stt.start_streaming()
+
         asyncio.create_task(self._watchdog())
 
         try:
             while True:
-                data = json.loads(await ws.receive_text())
-                evt  = data.get("event")
-                if evt == "start":
+                raw = await websocket.receive_text()
+                data = json.loads(raw)
+                event = data.get("event")
+
+                if event == "start":
                     self.stream_sid = data["streamSid"]
                     await self._play_tts(self._greeting())
-                elif evt == "media":
-                    if not self.speaking:
-                        await self.stt.send_audio(base64.b64decode(data["media"]["payload"]))
-                elif evt == "stop":
+                elif event == "media" and not self.speaking:
+                    payload = base64.b64decode(data["media"]["payload"])
+                    await self.stt.send_audio(payload)
+                elif event == "stop":
                     break
         finally:
             await self._shutdown()
 
-    # ───────── GREETING ──────────
+    # ───────── frases de saludo ────────────────────────────────
     def _greeting(self):
         h = get_cancun_time().hour
-        if 3 <= h < 12:
-            return "¡Buenos días! Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
-        if h >= 20 or h < 3:
-            return "¡Buenas noches! Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+        if 3 <= h < 12:  return "¡Buenos días! Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+        if h >= 20 or h < 3:  return "¡Buenas noches! Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
         return "¡Buenas tardes! Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
 
-    # ───────── DEEPGRAM callback ─
+    # ───────── CALLBACK Deepgram ───────────────────────────────
     def _dg_cb(self, txt: str, final: bool):
         if not txt.strip() or self.call_ended:
             return
         self.dg_last_final = self._now()
 
-        # ----- modo teléfono -----
+        # — modo teléfono —
         if self.acc_mode:
             if final:
                 self.acc_finals.append(txt.strip())
                 self._restart_acc_timer()
             return
 
-        # ----- modo normal --------
+        # — modo normal —
         if final:
             self.pending_final = txt.strip()
             asyncio.create_task(self._commit_final())
@@ -126,14 +114,13 @@ class TwilioWebSocketManager:
         self.pending_final = None
         await self._send_to_gpt(text)
 
-    # ───────── PHONE MODE helpers ─
+    # ───────── helpers modo teléfono ───────────────────────────
     async def _enter_phone_mode(self):
         if self.acc_mode:
             return
         logger.info("📞 modo teléfono ON")
-        self.acc_mode   = True
-        self.prev_grace = self.grace_ms
-        self.grace_ms   = 3.5          # más paciencia
+        self.acc_mode, self.prev_grace = True, self.grace_ms
+        self.grace_ms   = 3.5
         self.acc_finals = []
         self._restart_acc_timer()
 
@@ -147,11 +134,10 @@ class TwilioWebSocketManager:
         if not self.acc_mode:
             return
         full = " ".join(self.acc_finals).strip()
-        self.acc_mode = False
-        self.grace_ms = self.prev_grace
+        self.acc_mode, self.grace_ms = False, self.prev_grace
         await self._send_to_gpt(full)
 
-    # ───────── GPT round‑trip ────
+    # ───────── GPT round-trip ─────────────────────────────────
     async def _send_to_gpt(self, user_text: str):
         self.conversation.append({"role": "user", "content": f"[ES] {user_text}"})
         resp = await generate_openai_response_main(
@@ -160,36 +146,37 @@ class TwilioWebSocketManager:
         if resp == "__END_CALL__":
             await self._shutdown()
             return
+
         self.conversation.append({"role": "assistant", "content": resp})
         logger.info("🤖 %s", resp)
 
-        # Triggers modo teléfono
+        # trigger modo teléfono
         if any(k in resp.lower() for k in ("número de whatsapp", "número de teléfono", "compartir el número")):
             asyncio.create_task(self._enter_phone_mode())
-
-        # Salir modo teléfono cuando IA pregunte motivo
+        # salir cuando IA pregunte motivo
         if "¿cuál es el motivo" in resp.lower():
-            self.acc_mode = False
-            self.grace_ms = self.prev_grace
+            self.acc_mode, self.grace_ms = False, self.prev_grace
 
         await self._play_tts(resp)
 
-    # ───────── AUDIO a Twilio ────
+    # ───────── enviar audio a Twilio ──────────────────────────
     async def _play_tts(self, text: str):
+        if not self.websocket:
+            return
         audio = text_to_speech(text)
         self.speaking = True
-        chunk = 512
-        for offset in range(0, len(audio), chunk):
-            piece = audio[offset: offset + chunk]
+        chunk, off = 512, 0
+        while off < len(audio) and not self.call_ended:
             await self.websocket.send_text(json.dumps({
                 "event": "media",
                 "streamSid": self.stream_sid,
-                "media": {"payload": base64.b64encode(piece).decode()},
+                "media": {"payload": base64.b64encode(audio[off:off+chunk]).decode()}
             }))
+            off += chunk
             await asyncio.sleep(chunk / 8000)
         self.speaking = False
 
-    # ───────── WATCHDOG ──────────
+    # ───────── watchdog (tiempo / silencio) ───────────────────
     async def _watchdog(self):
         while not self.call_ended:
             await asyncio.sleep(2)
@@ -200,23 +187,28 @@ class TwilioWebSocketManager:
                 break
         await self._shutdown()
 
-    # ───────── SHUTDOWN ──────────
+    # ───────── cierre limpio ─────────────────────────────────
     async def _shutdown(self):
         if self.call_ended:
             return
         self.call_ended = True
-        if not any(GOODBYE.lower() in m["content"].lower() for m in self.conversation if m["role"] == "assistant"):
-            await self._play_tts(GOODBYE)
+
+        try:
+            if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
+                # despedida si falta
+                if not any(GOODBYE.lower() in m["content"].lower() for m in self.conversation if m["role"] == "assistant"):
+                    await self._play_tts(GOODBYE)
+        except Exception:
+            pass  # el cliente puede haberse desconectado
+
         if self.stt:
             await self.stt.close()
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
             await self.websocket.close()
+
         self._reset_state()
 
-
-# ────────────────────────────────────────────────────────────────
-# FUNCIÓN set_debug (compatibilidad con main.py)
-# ────────────────────────────────────────────────────────────────
+# ───────── función set_debug (para main.py) ──────────────────
 def set_debug(active: bool = True) -> None:
     level = logging.DEBUG if active else logging.INFO
     for name in ("tw_utils", "aiagent", "buscarslot"):
