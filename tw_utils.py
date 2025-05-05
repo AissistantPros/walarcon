@@ -101,10 +101,18 @@ class TwilioWebSocketManager:
         finally:
             await self._shutdown()
 
+
+
+
+
+
+
+
     def _stt_callback(self, transcript: str, is_final: bool):
         if not transcript or not is_final:
             return
 
+        self.last_final_ts = self._now()
         self.final_accumulated.append(transcript.strip())
 
         if self.final_timer_task and not self.final_timer_task.done():
@@ -112,10 +120,20 @@ class TwilioWebSocketManager:
 
         self.final_timer_task = asyncio.create_task(self._send_final_to_ai_after_delay())
 
+
+
+
+
+
     async def _send_final_to_ai_after_delay(self):
         try:
             await asyncio.sleep(self.grace_ms)
         except asyncio.CancelledError:
+            return
+
+        # Solo la tarea activa puede ejecutar esto
+        if self.final_timer_task is not None and self.final_timer_task != asyncio.current_task():
+            logger.debug("⛔ Tarea desactualizada, abortando consolidación.")
             return
 
         if not self.final_accumulated:
@@ -131,12 +149,24 @@ class TwilioWebSocketManager:
 
         self.current_gpt_task = asyncio.create_task(self.process_gpt_response(full_text))
 
+
+
+
+
+
+
+
     def _activate_phone_mode(self):
         if self.accumulating_mode:
             return
         logger.info("📞 Modo teléfono ON")
         self.accumulating_mode = True
         self.grace_ms = GRACE_MS_PHONE
+
+
+
+
+
 
     def _exit_phone_mode(self):
         if not self.accumulating_mode:
