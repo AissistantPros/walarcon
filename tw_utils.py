@@ -141,6 +141,8 @@ class TwilioWebSocketManager:
         if self.final_timer_task and not self.final_timer_task.done():
             logger.debug("⏳ Cancelando timer previo.")
             self.final_timer_task.cancel()
+        self.final_timer_task = None  # ← CLAVE: aseguramos que se libere y reemplace con el nuevo
+
 
         logger.debug("🕓 Nuevo timer de %.2f s (modo teléfono=%s)", self.grace_ms, self.accumulating_mode)
         self.final_timer_task = asyncio.create_task(self._cronometro_de_gracia())
