@@ -32,8 +32,8 @@ logger.setLevel(logging.DEBUG)
 CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
 CALL_MAX_DURATION = 600
 CALL_SILENCE_TIMEOUT = 30
-GRACE_MS_NORMAL = 0.7
-GRACE_MS_PHONE = 3.5
+GRACE_MS_NORMAL = 1.5
+GRACE_MS_PHONE = 7
 GOODBYE_PHRASE = "Fue un placer atenderle. ¡Hasta luego!"
 
 
