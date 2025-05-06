@@ -32,8 +32,8 @@ logger.setLevel(logging.DEBUG)
 CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
 CALL_MAX_DURATION = 600
 CALL_SILENCE_TIMEOUT = 30
-GRACE_MS_NORMAL = 1.5
-GRACE_MS_PHONE = 7
+GRACE_MS_NORMAL = .7
+GRACE_MS_PHONE = 3.5
 GOODBYE_PHRASE = "Fue un placer atenderle. ¡Hasta luego!"
 
 
@@ -158,37 +158,46 @@ class TwilioWebSocketManager:
 
 
     async def _cronometro_de_gracia(self):
+        """
+        Espera hasta que transcurra 'grace_ms' SIN recibir nuevos finales de Deepgram.
+        Si llega otro final antes de que se cumpla el tiempo, otro timer reemplazará
+        a este (self.final_timer_task) y este coroutine se abortará silenciosamente.
+        """
         grace = self.grace_ms
-        try:
-            await asyncio.sleep(grace)
-            logger.debug("✅ Timer %.2f s completado sin nuevos finales. Consolidando...", grace)
-        except asyncio.CancelledError:
-            logger.debug("❌ Timer %.2f s cancelado antes de tiempo por nuevo final.", grace)
-            return
+        current_task = asyncio.current_task()
+        # Registramos este timer como el “activo”
+        self.final_timer_task = current_task
+        logger.debug("🕓 Iniciando cronómetro de gracia (%.2f s)…", grace)
 
-        if self.final_timer_task != asyncio.current_task():
-            logger.debug("⚠️ Este timer ya no es el activo. Abortando.")
-            return
+        # Bucle de sondeo ligero cada 100 ms
+        while not self.call_ended:
+            await asyncio.sleep(0.1)
 
-        self.final_timer_task = None
+            # Si otro final creó un nuevo cronómetro, salimos
+            if self.final_timer_task != current_task:
+                logger.debug("⚠️ Este timer ya no es el activo. Abortando.")
+                return
 
+            # ¿Cuánto llevamos sin un nuevo final?
+            if self._now() - self.last_final_arrival >= grace:
+                logger.debug("✅ Pasaron %.2f s sin nuevos finales. Consolidando…", grace)
+                break
+
+        # Consolidación
         if not self.final_accumulated:
             logger.debug("🤷 No hay fragmentos acumulados.")
             return
 
         texto = " ".join(self.final_accumulated).strip()
         self.final_accumulated.clear()
-
         logger.info("🟢 Enviando a IA ➜ %s", texto)
         logger.debug("📦 Final consolidado: '%s'", texto)
 
-        # Cancela GPT anterior si sigue vivo
+        # Cancelamos cualquier procesamiento GPT en curso
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
 
         self.current_gpt_task = asyncio.create_task(self.process_gpt_response(texto))
-
-
 
 
 
