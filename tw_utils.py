@@ -124,13 +124,17 @@ class TwilioWebSocketManager:
 
 
 
+
+
+
+
+
     async def _cronometro_de_gracia(self):
         try:
             await asyncio.sleep(self.grace_ms)
         except asyncio.CancelledError:
             return  # Se reinició el cronómetro
 
-        # Verificar que esta es la tarea vigente
         if self.final_timer_task != asyncio.current_task():
             logger.debug("⛔ Tarea antigua ignorada.")
             return
@@ -138,6 +142,9 @@ class TwilioWebSocketManager:
         if not self.final_accumulated:
             logger.debug("⚠️ Lista vacía, nada que enviar.")
             return
+
+        # 💥 Agrega este log:
+        logger.debug("🕓 Consolidación con gracia de %.1f segundos (modo teléfono: %s)", self.grace_ms, self.accumulating_mode)
 
         texto = " ".join(self.final_accumulated).strip()
         self.final_accumulated.clear()
@@ -152,10 +159,11 @@ class TwilioWebSocketManager:
 
 
 
+
     def _activate_phone_mode(self):
         if self.accumulating_mode:
             return
-        logger.info("📞 Modo teléfono ON")
+        logger.info("📞 Modo teléfono ON (grace_ms ahora = 3.5)")
         self.accumulating_mode = True
         self.grace_ms = GRACE_MS_PHONE
 
@@ -167,7 +175,7 @@ class TwilioWebSocketManager:
     def _exit_phone_mode(self):
         if not self.accumulating_mode:
             return
-        logger.info("📞 Modo teléfono OFF")
+        logger.info("📞 Modo teléfono OFF (grace_ms ahora = 0.7)")
         self.accumulating_mode = False
         self.grace_ms = GRACE_MS_NORMAL
 
@@ -175,9 +183,12 @@ class TwilioWebSocketManager:
 
 
     async def _activate_phone_mode_after_audio(self):
+        logger.debug("⏳ Esperando a que termine el TTS para activar modo teléfono...")
         while self.is_speaking and not self.call_ended:
             await asyncio.sleep(0.1)
+        logger.debug("✅ TTS terminó. Activando modo teléfono.")
         self._activate_phone_mode()
+
 
 
 
@@ -218,6 +229,8 @@ class TwilioWebSocketManager:
             "número de whatsapp", "número de teléfono", "compartir el número",
             "me puede compartir el número de whatsapp para enviarle la confirmación"
         )):
+            logger.info("🟠 Se detectó que IA solicitó número. Activando modo teléfono después del audio.")
+
             asyncio.create_task(self._activate_phone_mode_after_audio())
 
         if "cuál es el motivo de la consulta" in reply.lower():
