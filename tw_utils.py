@@ -55,9 +55,20 @@ class TwilioWebSocketManager:
         now = self._now()
         self.stream_start_time = now
         self.last_final_ts = now
+        self.last_final_arrival = None  # Marca de tiempo del último final de Deepgram
+
+
+
+
+
 
     def _now(self) -> float:
         return time.perf_counter()
+
+
+
+
+
 
     async def handle_twilio_websocket(self, websocket: WebSocket):
         self.websocket = websocket
@@ -113,9 +124,18 @@ class TwilioWebSocketManager:
         if not is_final or not transcript or not transcript.strip():
             return  # ignoramos finales vacíos o parciales
 
+        now = self._now()
+        if self.last_final_arrival:
+            delta = now - self.last_final_arrival
+            logger.debug("⏱️  %.3fs desde el último final de Deepgram", delta)
+        else:
+            logger.debug("⏱️  Primer final de Deepgram")
+        self.last_final_arrival = now
+
         cleaned = transcript.strip()
         self.final_accumulated.append(cleaned)
-        logger.debug("➕ Final recibido: '%s' | total=%d fragm.", cleaned, len(self.final_accumulated))
+        logger.debug("📥 Final de Deepgram: '%s'", cleaned)
+        logger.debug("📦 Buffer actual (%d): %s", len(self.final_accumulated), " | ".join(self.final_accumulated))
 
         # ═════════ 2) Cancelar SIEMPRE el timer anterior ═════════
         if self.final_timer_task and not self.final_timer_task.done():
@@ -128,8 +148,7 @@ class TwilioWebSocketManager:
         self.final_timer_task = asyncio.create_task(self._cronometro_de_gracia())
 
         # Marca de actividad para el watchdog de silencio
-        self.last_final_ts = self._now()
-
+        self.last_final_ts = now
 
 
 
@@ -161,6 +180,8 @@ class TwilioWebSocketManager:
         texto = " ".join(self.final_accumulated).strip()
         self.final_accumulated.clear()
         logger.info("🟢 Enviando a IA ➜ %s", texto)
+        logger.debug("📦 Final consolidado: '%s'", texto)
+
 
         # Cancela GPT anterior si aún corre
         if self.current_gpt_task and not self.current_gpt_task.done():
@@ -175,6 +196,8 @@ class TwilioWebSocketManager:
 
 
     def _activate_phone_mode(self):
+        logger.debug("📍 Modo teléfono ACTIVADO con grace_ms=%.2f (timestamp=%.3f)", self.grace_ms, self._now())
+
         if self.accumulating_mode:
             return
         logger.info("📞 Modo teléfono ON (grace_ms ahora = 3.5)")
@@ -254,6 +277,12 @@ class TwilioWebSocketManager:
         await asyncio.sleep(0.2)
         await self._send_silence_chunk()
 
+
+
+
+
+
+
     async def _play_audio_bytes(self, audio_data: bytes):
         if not audio_data or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
@@ -281,10 +310,20 @@ class TwilioWebSocketManager:
         async with self.speaking_lock:
             self.is_speaking = False
 
+
+
+
+
+
     async def _reactivate_stt_after(self, delay: float):
         await asyncio.sleep(delay)
         if self.stt_streamer and not self.call_ended:
             await self._send_silence_chunk()
+
+
+
+
+
 
     async def _send_silence_chunk(self):
         if self.stt_streamer:
@@ -293,6 +332,11 @@ class TwilioWebSocketManager:
             except Exception:
                 pass
 
+
+
+
+
+
     def _greeting(self):
         now = get_cancun_time(); h = now.hour; m = now.minute
         if 3 <= h < 12:
@@ -300,6 +344,11 @@ class TwilioWebSocketManager:
         if h >= 20 or h < 3 or (h == 19 and m >= 30):
             return "¡Buenas noches!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
         return "¡Buenas tardes!, Consultorio del Doctor Wilfrido Alarcón. ¿En qué puedo ayudarle?"
+
+
+
+
+
 
     async def _monitor_call_timeout(self):
         while not self.call_ended:
@@ -312,6 +361,11 @@ class TwilioWebSocketManager:
                 logger.info("🛑 Silencio prolongado")
                 await self._shutdown(); return
             await self._send_silence_chunk()
+
+
+
+
+
 
     async def _shutdown(self):
         if self.call_ended:

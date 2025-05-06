@@ -67,6 +67,7 @@ class DeepgramSTTStreamer:
         """
         Envía audio mu-law a Deepgram. Solo si la conexión está iniciada.
         """
+        logger.debug("📡 Audio enviado a Deepgram (%d bytes)", len(chunk))
         if self.dg_connection and self._started:
             try:
                 await self.dg_connection.send(chunk)
