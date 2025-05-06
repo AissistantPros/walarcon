@@ -115,43 +115,39 @@ class TwilioWebSocketManager:
         self.last_final_ts = self._now()
         self.final_accumulated.append(transcript.strip())
 
+        # Cancelar cronómetro anterior si sigue activo
         if self.final_timer_task and not self.final_timer_task.done():
             self.final_timer_task.cancel()
 
-        self.final_timer_task = asyncio.create_task(self._send_final_to_ai_after_delay())
+        # Iniciar nuevo cronómetro
+        self.final_timer_task = asyncio.create_task(self._cronometro_de_gracia())
 
 
 
-
-
-
-    async def _send_final_to_ai_after_delay(self):
+    async def _cronometro_de_gracia(self):
         try:
             await asyncio.sleep(self.grace_ms)
         except asyncio.CancelledError:
-            return
+            return  # Se reinició el cronómetro
 
-        # Solo la tarea activa puede ejecutar esto
-        if self.final_timer_task is not None and self.final_timer_task != asyncio.current_task():
-            logger.debug("⛔ Tarea desactualizada, abortando consolidación.")
+        # Verificar que esta es la tarea vigente
+        if self.final_timer_task != asyncio.current_task():
+            logger.debug("⛔ Tarea antigua ignorada.")
             return
 
         if not self.final_accumulated:
+            logger.debug("⚠️ Lista vacía, nada que enviar.")
             return
 
-        full_text = " ".join(self.final_accumulated).strip()
+        texto = " ".join(self.final_accumulated).strip()
         self.final_accumulated.clear()
 
-        logger.debug("🟢 Frase consolidada enviada a IA → %s", full_text)
+        logger.debug("🟢 Frase consolidada enviada a IA → %s", texto)
 
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
 
-        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(full_text))
-
-
-
-
+        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(texto))
 
 
 
@@ -175,10 +171,16 @@ class TwilioWebSocketManager:
         self.accumulating_mode = False
         self.grace_ms = GRACE_MS_NORMAL
 
+
+
+
     async def _activate_phone_mode_after_audio(self):
         while self.is_speaking and not self.call_ended:
             await asyncio.sleep(0.1)
         self._activate_phone_mode()
+
+
+
 
     async def process_gpt_response(self, user_text: str):
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
