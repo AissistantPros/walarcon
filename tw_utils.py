@@ -120,9 +120,8 @@ class TwilioWebSocketManager:
 
 
     def _stt_callback(self, transcript: str, is_final: bool):
-        # ═════════ 1) Filtrado básico ═════════
         if not is_final or not transcript or not transcript.strip():
-            return  # ignoramos finales vacíos o parciales
+            return
 
         now = self._now()
         if self.last_final_arrival:
@@ -130,6 +129,7 @@ class TwilioWebSocketManager:
             logger.debug("⏱️  %.3fs desde el último final de Deepgram", delta)
         else:
             logger.debug("⏱️  Primer final de Deepgram")
+
         self.last_final_arrival = now
 
         cleaned = transcript.strip()
@@ -137,17 +137,14 @@ class TwilioWebSocketManager:
         logger.debug("📥 Final de Deepgram: '%s'", cleaned)
         logger.debug("📦 Buffer actual (%d): %s", len(self.final_accumulated), " | ".join(self.final_accumulated))
 
-        # ═════════ 2) Cancelar SIEMPRE el timer anterior ═════════
+        # Cancelar timer viejo y arrancar uno nuevo
         if self.final_timer_task and not self.final_timer_task.done():
             logger.debug("⏳ Cancelando timer previo.")
             self.final_timer_task.cancel()
-            self.final_timer_task = None
 
-        # ═════════ 3) Arrancar SIEMPRE un nuevo timer ═════════
         logger.debug("🕓 Nuevo timer de %.2f s (modo teléfono=%s)", self.grace_ms, self.accumulating_mode)
         self.final_timer_task = asyncio.create_task(self._cronometro_de_gracia())
 
-        # Marca de actividad para el watchdog de silencio
         self.last_final_ts = now
 
 
@@ -159,19 +156,19 @@ class TwilioWebSocketManager:
 
 
     async def _cronometro_de_gracia(self):
-        grace = self.grace_ms  # copia local, por si cambia luego
+        grace = self.grace_ms
         try:
             await asyncio.sleep(grace)
-            logger.debug("✅ Timer %.2f s completado, consolidando.", grace)
+            logger.debug("✅ Timer %.2f s completado sin nuevos finales. Consolidando...", grace)
         except asyncio.CancelledError:
-            logger.debug("❌ Timer %.2f s cancelado antes de tiempo.", grace)
-            return  # se reinició con un nuevo final
+            logger.debug("❌ Timer %.2f s cancelado antes de tiempo por nuevo final.", grace)
+            return
 
-        # Seguridad: asegurarnos de ser el timer “vigente”
         if self.final_timer_task != asyncio.current_task():
             logger.debug("⚠️ Este timer ya no es el activo. Abortando.")
             return
-        self.final_timer_task = None  # liberar referencia
+
+        self.final_timer_task = None
 
         if not self.final_accumulated:
             logger.debug("🤷 No hay fragmentos acumulados.")
@@ -179,15 +176,16 @@ class TwilioWebSocketManager:
 
         texto = " ".join(self.final_accumulated).strip()
         self.final_accumulated.clear()
+
         logger.info("🟢 Enviando a IA ➜ %s", texto)
         logger.debug("📦 Final consolidado: '%s'", texto)
 
-
-        # Cancela GPT anterior si aún corre
+        # Cancela GPT anterior si sigue vivo
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
 
         self.current_gpt_task = asyncio.create_task(self.process_gpt_response(texto))
+
 
 
 
