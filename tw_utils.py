@@ -2,13 +2,10 @@
 """
 WebSocket manager para Twilio <-> Deepgram <-> GPT‑4o‑mini
 ----------------------------------------------------------------
-Versión optimizada mayo 2025
-• Un solo sistema de acumulación robusto.
-• Compatible con modo teléfono y tiempo de gracia variable.
-• Sin respuestas duplicadas ni superposiciones.
+
 """
 
-import asyncio, base64, json, logging, time, re
+import asyncio, base64, json, logging, time
 from typing import Optional
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
@@ -32,21 +29,14 @@ logger.setLevel(logging.DEBUG)
 CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
 CALL_MAX_DURATION = 600
 CALL_SILENCE_TIMEOUT = 30
-GRACE_MS_NORMAL = .7
-GRACE_MS_PHONE = 3.5
 GOODBYE_PHRASE = "Fue un placer atenderle. ¡Hasta luego!"
 
 
 class TwilioWebSocketManager:
     def __init__(self) -> None:
-        self.grace_ms = GRACE_MS_NORMAL
-        self.phone_attempts = 0
-        self.final_accumulated = []
-        self.final_timer_task = None
         self.current_gpt_task = None
         self.stt_streamer = None
         self.call_ended = False
-        self.accumulating_mode = False
         self.conversation_history = []
         self.stream_sid = None
         self.websocket = getattr(self, "websocket", None)
@@ -55,8 +45,8 @@ class TwilioWebSocketManager:
         now = self._now()
         self.stream_start_time = now
         self.last_final_ts = now
-        self.last_final_arrival = None  # Marca de tiempo del último final de Deepgram
-
+        
+        
 
 
 
@@ -118,122 +108,32 @@ class TwilioWebSocketManager:
 
 
 
-
+     # ────────────────────────────────────────────────────────────
+    # 🎙️ CALLBACK DEEPGRAM
+    # ────────────────────────────────────────────────────────────
     def _stt_callback(self, transcript: str, is_final: bool):
-        if not is_final or not transcript or not transcript.strip():
+        """
+        Callback directo: cuando llega un final, se manda a la IA sin acumulación.
+        """
+        if not (is_final and transcript and transcript.strip()):
             return
 
-        now = self._now()
-        if self.last_final_arrival:
-            delta = now - self.last_final_arrival
-            logger.debug("⏱️  %.3fs desde el último final de Deepgram", delta)
-        else:
-            logger.debug("⏱️  Primer final de Deepgram")
+        txt = transcript.strip()
+        logger.info("📥 Final recibido: '%s'", txt)
 
-        self.last_final_arrival = now
-
-        cleaned = transcript.strip()
-        self.final_accumulated.append(cleaned)
-        logger.debug("📥 Final de Deepgram: '%s'", cleaned)
-        logger.debug("📦 Buffer actual (%d): %s", len(self.final_accumulated), " | ".join(self.final_accumulated))
-
-        # Cancelar timer viejo y arrancar uno nuevo
-        if self.final_timer_task and not self.final_timer_task.done():
-            logger.debug("⏳ Cancelando timer previo.")
-            self.final_timer_task.cancel()
-        self.final_timer_task = None  # ← CLAVE: aseguramos que se libere y reemplace con el nuevo
-
-
-        logger.debug("🕓 Nuevo timer de %.2f s (modo teléfono=%s)", self.grace_ms, self.accumulating_mode)
-        self.final_timer_task = asyncio.create_task(self._cronometro_de_gracia())
-
-        self.last_final_ts = now
-
-
-
-
-
-
-
-
-
-    async def _cronometro_de_gracia(self):
-        """
-        Espera hasta que transcurra 'grace_ms' SIN recibir nuevos finales de Deepgram.
-        Si llega otro final antes de que se cumpla el tiempo, otro timer reemplazará
-        a este (self.final_timer_task) y este coroutine se abortará silenciosamente.
-        """
-        grace = self.grace_ms
-        current_task = asyncio.current_task()
-        # Registramos este timer como el “activo”
-        self.final_timer_task = current_task
-        logger.debug("🕓 Iniciando cronómetro de gracia (%.2f s)…", grace)
-
-        # Bucle de sondeo ligero cada 100 ms
-        while not self.call_ended:
-            await asyncio.sleep(0.1)
-
-            # Si otro final creó un nuevo cronómetro, salimos
-            if self.final_timer_task != current_task:
-                logger.debug("⚠️ Este timer ya no es el activo. Abortando.")
-                return
-
-            # ¿Cuánto llevamos sin un nuevo final?
-            if self._now() - self.last_final_arrival >= grace:
-                logger.debug("✅ Pasaron %.2f s sin nuevos finales. Consolidando…", grace)
-                break
-
-        # Consolidación
-        if not self.final_accumulated:
-            logger.debug("🤷 No hay fragmentos acumulados.")
-            return
-
-        texto = " ".join(self.final_accumulated).strip()
-        self.final_accumulated.clear()
-        logger.info("🟢 Enviando a IA ➜ %s", texto)
-        logger.debug("📦 Final consolidado: '%s'", texto)
-
-        # Cancelamos cualquier procesamiento GPT en curso
         if self.current_gpt_task and not self.current_gpt_task.done():
             self.current_gpt_task.cancel()
 
-        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(texto))
+        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(txt))
 
 
 
 
 
 
-    def _activate_phone_mode(self):
-        logger.debug("📍 Modo teléfono ACTIVADO con grace_ms=%.2f (timestamp=%.3f)", self.grace_ms, self._now())
-
-        if self.accumulating_mode:
-            return
-        logger.info("📞 Modo teléfono ON (grace_ms ahora = 3.5)")
-        self.accumulating_mode = True
-        self.grace_ms = GRACE_MS_PHONE
 
 
 
-
-
-
-    def _exit_phone_mode(self):
-        if not self.accumulating_mode:
-            return
-        logger.info("📞 Modo teléfono OFF (grace_ms ahora = 0.7)")
-        self.accumulating_mode = False
-        self.grace_ms = GRACE_MS_NORMAL
-
-
-
-
-    async def _activate_phone_mode_after_audio(self):
-        logger.debug("⏳ Esperando a que termine el TTS para activar modo teléfono...")
-        while self.is_speaking and not self.call_ended:
-            await asyncio.sleep(0.1)
-        logger.debug("✅ TTS terminó. Activando modo teléfono.")
-        self._activate_phone_mode()
 
 
 
@@ -271,17 +171,6 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "assistant", "content": reply})
         logger.info("🤖 IA: %s", reply)
 
-        if any(k in reply.lower() for k in (
-            "número de whatsapp", "número de teléfono", "compartir el número",
-            "me puede compartir el número de whatsapp para enviarle la confirmación"
-        )):
-            logger.info("🟠 Se detectó que IA solicitó número. Activando modo teléfono después del audio.")
-
-            asyncio.create_task(self._activate_phone_mode_after_audio())
-
-        if "cuál es el motivo de la consulta" in reply.lower():
-            self._exit_phone_mode()
-
         await self._play_audio_bytes(text_to_speech(reply))
         await asyncio.sleep(0.2)
         await self._send_silence_chunk()
@@ -293,22 +182,21 @@ class TwilioWebSocketManager:
 
 
     async def _play_audio_bytes(self, audio_data: bytes):
+        """
+        Envía el audio a Twilio y, al terminar, procesa cualquier final que
+        Deepgram haya enviado mientras la IA hablaba.
+        """
         if not audio_data or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
 
-        duration = len(audio_data) / 8000.0
+        self.tts_start_time = self._now()          # 🕒 marca inicio TTS
         async with self.speaking_lock:
             self.is_speaking = True
 
-        if self.stt_streamer:
-            delay = max(0.0, duration - 1.0)
-            asyncio.create_task(self._reactivate_stt_after(delay))
-
+        # ───── stream como antes ───────────────────────────
         chunk_size = 512
-        offset = 0
-        while offset < len(audio_data) and not self.call_ended:
+        for offset in range(0, len(audio_data), chunk_size):
             chunk = audio_data[offset: offset + chunk_size]
-            offset += chunk_size
             await self.websocket.send_text(json.dumps({
                 "event": "media",
                 "streamSid": self.stream_sid,
@@ -318,6 +206,11 @@ class TwilioWebSocketManager:
 
         async with self.speaking_lock:
             self.is_speaking = False
+
+        # reactiva STT un segundo antes de acabar
+        if self.stt_streamer:
+            await self._reactivate_stt_after(0.0)
+
 
 
 
@@ -385,6 +278,4 @@ class TwilioWebSocketManager:
             await self.stt_streamer.close()
         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
             await self.websocket.close()
-        self.final_accumulated.clear()
         self.conversation_history.clear()
-        self.final_timer_task = None
