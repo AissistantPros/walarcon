@@ -35,6 +35,7 @@ CALL_SILENCE_TIMEOUT = 30
 GRACE_MS_NORMAL = 0.7
 GRACE_MS_PHONE = 3.5
 GOODBYE_PHRASE = "Fue un placer atenderle. ¡Hasta luego!"
+MIN_RESTART_INTERVAL = 0.3
 
 class TwilioWebSocketManager:
     def __init__(self) -> None:
@@ -107,20 +108,29 @@ class TwilioWebSocketManager:
 
 
 
-
     def _stt_callback(self, transcript: str, is_final: bool):
         if not transcript or not is_final:
             return
 
-        self.last_final_ts = self._now()
+        now = self._now()
         self.final_accumulated.append(transcript.strip())
 
-        # Cancelar cronómetro anterior si sigue activo
-        if self.final_timer_task and not self.final_timer_task.done():
+        # Reinicio inteligente del cronómetro solo si ya pasó suficiente tiempo
+        if (
+            self.final_timer_task
+            and not self.final_timer_task.done()
+            and (now - self.last_final_ts) >= MIN_RESTART_INTERVAL
+        ):
             self.final_timer_task.cancel()
 
-        # Iniciar nuevo cronómetro
-        self.final_timer_task = asyncio.create_task(self._cronometro_de_gracia())
+        self.last_final_ts = now
+
+        # Si no hay cronómetro activo, o se canceló, arráncalo
+        if not self.final_timer_task or self.final_timer_task.done():
+            logger.debug("🕓 Consolidación con gracia de %.1f s (modo teléfono: %s)",
+                        self.grace_ms, self.accumulating_mode)
+            self.final_timer_task = asyncio.create_task(self._cronometro_de_gracia())
+
 
 
 
@@ -132,6 +142,8 @@ class TwilioWebSocketManager:
     async def _cronometro_de_gracia(self):
         try:
             await asyncio.sleep(self.grace_ms)
+            logger.debug("✅ Esperé %.2f s completos, procedo a consolidar", self.grace_ms)
+
         except asyncio.CancelledError:
             return  # Se reinició el cronómetro
 
