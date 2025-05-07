@@ -119,29 +119,22 @@ class TwilioWebSocketManager:
     # 🎙️ CALLBACK DEEPGRAM
     # ────────────────────────────────────────────────────────────
     def _stt_callback(self, transcript: str, is_final: bool):
-        # Filtrar para que solo se registren los mensajes finales
-        if not is_final:
+        # 🔊 Sólo imprimimos si es final True
+        if is_final:
+            logger.info(f"📥 Final recibido (DG): '{transcript.strip()}'")
+
+        # 👉 De aquí para abajo NO filtramos: mantenemos la lógica original
+        if not (is_final and transcript and transcript.strip()):
             return
 
-        # Asegurarnos de que el mensaje no esté vacío
-        if not (transcript and transcript.strip()):
-            return
-
-        # Actualizar el tiempo de última actividad
         self.last_activity_ts = self._now()
-
-        # Guardar el mensaje final en la lista acumulada
         self.finales_acumulados.append(transcript.strip())
-        logger.info(f"📥 Final recibido (acumulado): '{transcript.strip()}' | 🕒 {self._now():.4f}")
 
-        # Cancelar el temporizador anterior si sigue activo
         if self.temporizador_en_curso and not self.temporizador_en_curso.done():
             self.temporizador_en_curso.cancel()
-            logger.debug("🛑 Temporizador anterior cancelado")
 
-        # Iniciar un nuevo temporizador para mandar los finales acumulados
         self.temporizador_en_curso = asyncio.create_task(self._esperar_y_mandar_finales())
-        logger.debug("🚀 Nuevo temporizador de acumulación iniciado")
+
 
 
 
