@@ -46,7 +46,8 @@ class TwilioWebSocketManager:
         self.stream_start_time = now
         self.last_final_ts = now
         self.last_activity_ts = now
-
+        self.finales_acumulados: list[str] = []
+        self.temporizador_en_curso: Optional[asyncio.Task] = None
         
 
 
