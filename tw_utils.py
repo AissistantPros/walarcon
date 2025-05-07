@@ -65,6 +65,7 @@ class TwilioWebSocketManager:
         await websocket.accept()
         global CURRENT_CALL_MANAGER; CURRENT_CALL_MANAGER = self
         logger.info("📞 Llamada iniciada")
+        logger.debug("🧽 Limpieza inicial de acumulador y timestamp")
 
         try:
             load_free_slots_to_cache(90)
@@ -108,10 +109,16 @@ class TwilioWebSocketManager:
 
 
 
+
+
+
+
+
      # ────────────────────────────────────────────────────────────
     # 🎙️ CALLBACK DEEPGRAM
     # ────────────────────────────────────────────────────────────
     def _stt_callback(self, transcript: str, is_final: bool):
+        logger.debug(f"📥 Deepgram final recibido: {transcript.strip()} | is_final={is_final}")
         """
         Callback directo: cuando llega un final, se manda a la IA sin acumulación.
         """
@@ -174,6 +181,9 @@ class TwilioWebSocketManager:
         await self._play_audio_bytes(text_to_speech(reply))
         await asyncio.sleep(0.2)
         await self._send_silence_chunk()
+
+
+
 
 
 
@@ -271,6 +281,7 @@ class TwilioWebSocketManager:
 
     async def _shutdown(self):
         if self.call_ended:
+            logger.debug("⚠️ Llamada ya finalizada, cancelando lógica de acumulador")
             return
         self.call_ended = True
         logger.info("🔻 Cuelga llamada")
