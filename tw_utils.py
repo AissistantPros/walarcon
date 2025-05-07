@@ -120,22 +120,63 @@ class TwilioWebSocketManager:
     # ────────────────────────────────────────────────────────────
     def _stt_callback(self, transcript: str, is_final: bool):
         logger.debug(f"📥 Deepgram final recibido: {transcript.strip()} | is_final={is_final}")
-        """
-        Callback directo: cuando llega un final, se manda a la IA sin acumulación.
-        """
+
+        # Verificar si el mensaje es final y tiene contenido válido
         if not (is_final and transcript and transcript.strip()):
             return
+
+        # Actualizar el tiempo de última actividad
         self.last_activity_ts = self._now()
 
-        txt = transcript.strip()
-        logger.info("📥 Final recibido: '%s'", txt)
+        # Guardar el mensaje final en la lista acumulada
+        self.finales_acumulados.append(transcript.strip())
+        logger.debug(f"📝 Guardado en acumulador: {transcript.strip()} | 🕒 {self._now():.4f}")
 
-        if self.current_gpt_task and not self.current_gpt_task.done():
-            self.current_gpt_task.cancel()
+        # Cancelar el temporizador anterior si sigue activo
+        if self.temporizador_en_curso and not self.temporizador_en_curso.done():
+            self.temporizador_en_curso.cancel()
+            logger.debug("🛑 Temporizador anterior cancelado")
 
-        self.current_gpt_task = asyncio.create_task(self.process_gpt_response(txt))
+        # Iniciar un nuevo temporizador para mandar los finales acumulados
+        self.temporizador_en_curso = asyncio.create_task(self._esperar_y_mandar_finales())
+        logger.debug("🚀 Nuevo temporizador de acumulación iniciado")
 
 
+
+
+    async def _esperar_y_mandar_finales(self):
+        try:
+            logger.debug("⏳ Temporizador esperando 1.1 segundos")
+            await asyncio.sleep(1.1)  # Espera el tiempo necesario para acumular finales
+            elapsed = self._now() - self.last_activity_ts
+            logger.debug(f"⌛ Tiempo desde último final: {elapsed:.4f}s")
+
+            # Verifica si la llamada ya terminó
+            if self.call_ended:
+                logger.debug("⚠️ Llamada finalizada. No se enviará nada a GPT.")
+                self.finales_acumulados.clear()
+                return
+
+            # Si ha pasado el tiempo de espera y hay finales acumulados
+            if elapsed >= 1.0 and self.finales_acumulados:
+                # Unir los mensajes acumulados
+                mensaje = " ".join(self.finales_acumulados).replace("\n", " ").strip()
+                logger.debug(f"📤 Enviando a GPT: '{mensaje}'")
+
+                # Limpiar la lista de finales acumulados
+                self.finales_acumulados.clear()
+
+                # Cancelar cualquier tarea previa de GPT
+                if self.current_gpt_task and not self.current_gpt_task.done():
+                    self.current_gpt_task.cancel()
+
+                # Enviar el mensaje acumulado a GPT
+                self.current_gpt_task = asyncio.create_task(self.process_gpt_response(mensaje))
+
+        except asyncio.CancelledError:
+            logger.debug("🛑 Temporizador cancelado antes de completarse")
+        except Exception as e:
+            logger.error(f"❌ Error en acumulador: {e}")
 
 
 
