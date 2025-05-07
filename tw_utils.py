@@ -45,7 +45,8 @@ class TwilioWebSocketManager:
         now = self._now()
         self.stream_start_time = now
         self.last_final_ts = now
-        
+        self.last_activity_ts = now
+
         
 
 
@@ -124,6 +125,7 @@ class TwilioWebSocketManager:
         """
         if not (is_final and transcript and transcript.strip()):
             return
+        self.last_activity_ts = self._now()
 
         txt = transcript.strip()
         logger.info("📥 Final recibido: '%s'", txt)
@@ -149,7 +151,7 @@ class TwilioWebSocketManager:
     async def process_gpt_response(self, user_text: str):
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
-
+        self.last_final_ts = self._now()
         self.conversation_history.append({"role": "user", "content": f"[ES] {user_text}"})
 
         reply = await generate_openai_response_main(
@@ -269,9 +271,10 @@ class TwilioWebSocketManager:
             if now - self.stream_start_time >= CALL_MAX_DURATION:
                 logger.info("⏰ Duración máxima excedida")
                 await self._shutdown(); return
-            if now - self.last_final_ts >= CALL_SILENCE_TIMEOUT:
-                logger.info("🛑 Silencio prolongado")
+            if now - self.last_activity_ts >= CALL_SILENCE_TIMEOUT:
+                logger.info("🛑 Silencio prolongado (sin actividad humana)")
                 await self._shutdown(); return
+
             await self._send_silence_chunk()
 
 
