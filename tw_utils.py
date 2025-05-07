@@ -119,10 +119,12 @@ class TwilioWebSocketManager:
     # 🎙️ CALLBACK DEEPGRAM
     # ────────────────────────────────────────────────────────────
     def _stt_callback(self, transcript: str, is_final: bool):
-        logger.debug(f"📥 Deepgram final recibido: {transcript.strip()} | is_final={is_final}")
+        # Filtrar para que solo se registren los mensajes finales
+        if not is_final:
+            return
 
-        # Verificar si el mensaje es final y tiene contenido válido
-        if not (is_final and transcript and transcript.strip()):
+        # Asegurarnos de que el mensaje no esté vacío
+        if not (transcript and transcript.strip()):
             return
 
         # Actualizar el tiempo de última actividad
@@ -130,7 +132,7 @@ class TwilioWebSocketManager:
 
         # Guardar el mensaje final en la lista acumulada
         self.finales_acumulados.append(transcript.strip())
-        logger.debug(f"📝 Guardado en acumulador: {transcript.strip()} | 🕒 {self._now():.4f}")
+        logger.info(f"📥 Final recibido (acumulado): '{transcript.strip()}' | 🕒 {self._now():.4f}")
 
         # Cancelar el temporizador anterior si sigue activo
         if self.temporizador_en_curso and not self.temporizador_en_curso.done():
@@ -140,6 +142,7 @@ class TwilioWebSocketManager:
         # Iniciar un nuevo temporizador para mandar los finales acumulados
         self.temporizador_en_curso = asyncio.create_task(self._esperar_y_mandar_finales())
         logger.debug("🚀 Nuevo temporizador de acumulación iniciado")
+
 
 
 
@@ -171,6 +174,7 @@ class TwilioWebSocketManager:
                     self.current_gpt_task.cancel()
 
                 # Enviar el mensaje acumulado a GPT
+                logger.info(f"🌐 Enviando mensaje acumulado a GPT: '{mensaje}'")
                 self.current_gpt_task = asyncio.create_task(self.process_gpt_response(mensaje))
 
         except asyncio.CancelledError:
@@ -193,6 +197,9 @@ class TwilioWebSocketManager:
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             return
         self.last_final_ts = self._now()
+
+        # Log para confirmar que el mensaje acumulado llegó a GPT
+        logger.info(f"🗣️ Mensaje recibido en GPT: '{user_text}'")
         self.conversation_history.append({"role": "user", "content": f"[ES] {user_text}"})
 
         reply = await generate_openai_response_main(
@@ -219,11 +226,12 @@ class TwilioWebSocketManager:
             return
 
         self.conversation_history.append({"role": "assistant", "content": reply})
-        logger.info("🤖 IA: %s", reply)
+        logger.info(f"🤖 Respuesta de GPT: {reply}")
 
         await self._play_audio_bytes(text_to_speech(reply))
         await asyncio.sleep(0.2)
         await self._send_silence_chunk()
+
 
 
 
