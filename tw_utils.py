@@ -189,7 +189,7 @@ class TwilioWebSocketManager:
                     break 
 
                 event = data.get("event")
-                logger.debug(f"⏱️ TS:[{ts_msg_received}] HANDLE_WS Event received: {event}")
+                ##logger.debug(f"⏱️ TS:[{ts_msg_received}] HANDLE_WS Event received: {event}")
 
                 if event == "start":
                     self.stream_sid = data.get("streamSid")
