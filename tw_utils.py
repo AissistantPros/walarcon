@@ -1,6 +1,6 @@
 # tw_utils.py
 """
-WebSocket manager para Twilio <-> Deepgram <-> GPT‑4o‑mini
+WebSocket manager para Twilio <-> Deepgram <-> GPT‑4.1‑mini
 ----------------------------------------------------------------
 Maneja la lógica de acumulación de transcripciones, interacción con GPT,
 TTS, y el control del flujo de la llamada, incluyendo la gestión de timeouts
@@ -100,9 +100,19 @@ class TwilioWebSocketManager:
         
         logger.debug(f"📞 Objeto TwilioWebSocketManager inicializado (ID: {id(self)})")
 
+
+
+
+
+
     def _now(self) -> float:
         """Devuelve el timestamp actual de alta precisión."""
         return time.perf_counter()
+
+
+
+
+
 
     def _reset_state_for_new_call(self):
         """Resetea variables de estado al inicio de una llamada."""
@@ -126,6 +136,11 @@ class TwilioWebSocketManager:
         self.finales_acumulados = []
         self.conversation_history = []
         logger.debug("🧽 Estado reseteado para nueva llamada.")
+
+
+
+
+
 
     # --- Manejador Principal del WebSocket ---
     
@@ -245,6 +260,17 @@ class TwilioWebSocketManager:
                 CURRENT_CALL_MANAGER = None
 
 
+
+
+
+
+
+
+
+
+
+
+
     # --- Callback de Deepgram y Lógica de Acumulación ---
 
     def _stt_callback(self, transcript: str, is_final: bool):
@@ -281,6 +307,17 @@ class TwilioWebSocketManager:
             self.temporizador_pausa = asyncio.create_task(self._intentar_enviar_si_pausa(), name=f"PausaTimer_{self.call_sid or id(self)}")
         # else:
             # logger.debug("🔇 Recibido transcript vacío de DG.")
+
+
+
+
+
+
+
+
+
+
+
 
 
     async def _intentar_enviar_si_pausa(self):
@@ -359,6 +396,19 @@ class TwilioWebSocketManager:
             # self.ultimo_evento_fue_parcial = False
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
     async def _proceder_a_enviar(self):
         """
         Lógica centralizada para preparar el mensaje acumulado,
@@ -423,6 +473,16 @@ class TwilioWebSocketManager:
              await self._reactivar_stt_despues_de_envio()
 
 
+
+
+
+
+
+
+
+
+
+
     async def process_gpt_and_reactivate_stt(self, texto_para_gpt: str):
         """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
         try:
@@ -434,6 +494,18 @@ class TwilioWebSocketManager:
             # ESTO SE EJECUTA SIEMPRE: al terminar ok o si hubo error
             logger.debug("🏁 Finalizando process_gpt_and_reactivate_stt. Procediendo a reactivar STT.")
             await self._reactivar_stt_despues_de_envio()
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     async def _reactivar_stt_despues_de_envio(self):
@@ -459,6 +531,15 @@ class TwilioWebSocketManager:
              logger.debug(" Llamada ya terminó, no se reactiva STT.")
 
 
+
+
+
+
+
+
+
+
+
     async def process_gpt_response(self, user_text: str):
         """Llama a GPT, maneja la respuesta y llama a TTS."""
         # Doble check por si se llamó directamente de algún modo
@@ -480,12 +561,11 @@ class TwilioWebSocketManager:
         respuesta_gpt = "Lo siento, ocurrió un problema al procesar su solicitud." # Mensaje por defecto
         try:
             start_gpt = self._now()
-            model_a_usar = "gpt-4o-mini" # O config("CHATGPT_MODEL")
+            model_a_usar = "gpt-4.1-mini" # O config("CHATGPT_MODEL")
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
             
             # Ejecutar la llamada a OpenAI en un hilo separado para no bloquear el bucle de eventos
-            respuesta_gpt = await asyncio.to_thread(
-                generate_openai_response_main, 
+            respuesta_gpt = await generate_openai_response_main( 
                 history=mensajes_para_gpt, 
                 model=model_a_usar 
             )
@@ -559,6 +639,21 @@ class TwilioWebSocketManager:
             # await self._shutdown(reason="GPT/TTS Critical Error")
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     # --- Funciones Auxiliares (Mantenidas de tu versión, con pequeñas mejoras/logs) ---
 
     async def _play_audio_bytes(self, audio_data: bytes):
@@ -619,6 +714,10 @@ class TwilioWebSocketManager:
                 logger.debug(" Lock liberado, is_speaking = False")
 
 
+
+
+
+
     async def _send_silence_chunk(self):
         """Envía un pequeño chunk de silencio a Deepgram."""
         if self.stt_streamer and not self.call_ended and getattr(self.stt_streamer, '_started', False):
@@ -627,6 +726,11 @@ class TwilioWebSocketManager:
                 await self.stt_streamer.send_audio(silence_chunk)
             except Exception: # No es crítico si falla
                 pass # logger.warning(f"⚠️ No se pudo enviar chunk de silencio a DG: {e_silence}")
+
+
+
+
+
 
 
     def _greeting(self):
@@ -640,6 +744,13 @@ class TwilioWebSocketManager:
         except Exception as e_greet:
              logger.error(f"Error generando saludo: {e_greet}")
              return "Consultorio Doctor Wilfrido Alarcón, ¿cómo puedo ayudarle?" # Fallback
+
+
+
+
+
+
+
 
 
     async def _monitor_call_timeout(self):
@@ -671,6 +782,13 @@ class TwilioWebSocketManager:
                  # logger.debug(" Monitor: Ignorando chequeo de silencio (GPT/TTS activo).")
 
         logger.info(f"⏱️ Monitor de timeouts finalizado (CallEnded={self.call_ended}).")
+
+
+
+
+
+
+
 
 
     async def _shutdown(self, reason: str = "Unknown"):
@@ -717,6 +835,14 @@ class TwilioWebSocketManager:
         self.conversation_history.clear()
         self.finales_acumulados.clear()
         logger.info(f"🏁 Cierre de llamada completado (Razón: {self.shutdown_reason}).")
+
+
+
+
+
+
+
+
 
 
     async def _safe_close_websocket(self, code: int = 1000, reason: str = "Closing"):
