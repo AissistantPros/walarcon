@@ -143,8 +143,8 @@ class TwilioWebSocketManager:
 
     async def _esperar_y_mandar_finales(self):
         try:
-            logger.debug("⏳ Temporizador esperando 1.1 segundos")
-            await asyncio.sleep(3.5)  # Espera el tiempo necesario para acumular finales
+            ##logger.debug("⏳ Temporizador esperando 1.1 segundos")
+            await asyncio.sleep(4.5)  # Espera el tiempo necesario para acumular finales
             elapsed = self._now() - self.last_activity_ts
             logger.debug(f"⌛ Tiempo desde último final: {elapsed:.4f}s")
 
@@ -158,7 +158,7 @@ class TwilioWebSocketManager:
             if elapsed >= 1.0 and self.finales_acumulados:
                 # Unir los mensajes acumulados
                 mensaje = " ".join(self.finales_acumulados).replace("\n", " ").strip()
-                logger.debug(f"📤 Enviando a GPT: '{mensaje}'")
+                ##logger.debug(f"📤 Enviando a GPT: '{mensaje}'")
 
                 # Limpiar la lista de finales acumulados
                 self.finales_acumulados.clear()
