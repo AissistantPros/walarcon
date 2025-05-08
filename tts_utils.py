@@ -63,7 +63,7 @@ def text_to_speech(text: str) -> bytes:
         try:
             # Factor para aumentar volumen (1.0 = sin cambios, 1.5 = 50% más amplitud)
             # ¡PRUEBA CON CUIDADO! Comienza con 1.2 o 1.3 si 1.5 distorsiona.
-            volume_factor = 1.8 
+            volume_factor = 2.0 
 
             # El '2' indica que el audio PCM es de 16 bits (2 bytes por muestra)
             amplified_audio_data = audioop.mul(audio_data_pcm_16bit, 2, volume_factor)

@@ -30,7 +30,7 @@ CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
 CALL_MAX_DURATION = 600
 CALL_SILENCE_TIMEOUT = 30
 GOODBYE_PHRASE = "Fue un placer atenderle. ¡Hasta luego!"
-
+TEST_MODE_NO_GPT = True
 
 class TwilioWebSocketManager:
     def __init__(self) -> None:
@@ -143,38 +143,47 @@ class TwilioWebSocketManager:
 
     async def _esperar_y_mandar_finales(self):
         try:
-            ##logger.debug("⏳ Temporizador esperando 1.1 segundos")
-            await asyncio.sleep(4.5)  # Espera el tiempo necesario para acumular finales
+            # Configuración actual: DG utterance_end_ms=1000ms, sleep local=3500ms
+            tiempo_de_espera_local = 3.5 # Mantén tu valor actual para esta prueba
+            logger.debug(f"⏳ Temporizador esperando {tiempo_de_espera_local} segundos")
+            await asyncio.sleep(tiempo_de_espera_local)
             elapsed = self._now() - self.last_activity_ts
             logger.debug(f"⌛ Tiempo desde último final: {elapsed:.4f}s")
 
-            # Verifica si la llamada ya terminó
             if self.call_ended:
-                logger.debug("⚠️ Llamada finalizada. No se enviará nada a GPT.")
+                logger.debug("⚠️ Llamada finalizada. No se enviará nada.")
                 self.finales_acumulados.clear()
                 return
 
-            # Si ha pasado el tiempo de espera y hay finales acumulados
-            if elapsed >= 1.0 and self.finales_acumulados:
-                # Unir los mensajes acumulados
-                mensaje = " ".join(self.finales_acumulados).replace("\n", " ").strip()
-                ##logger.debug(f"📤 Enviando a GPT: '{mensaje}'")
+            if elapsed >= 1.0 and self.finales_acumulados: # El 1.0 aquí, como discutimos, es superado por el sleep
+                mensaje_acumulado = " ".join(self.finales_acumulados).replace("\n", " ").strip()
+                
+                if TEST_MODE_NO_GPT:
+                    logger.info(f"🧪 MODO PRUEBA (SIN GPT): Mensaje que SE HABRÍA ENVIADO A GPT: '{mensaje_acumulado}'")
+                    # Solo limpiamos para la siguiente acumulación en modo prueba
+                    self.finales_acumulados.clear()
+                else:
+                    # --- Lógica original para enviar a GPT ---
+                    logger.debug(f"📤 Enviando a GPT: '{mensaje_acumulado}'")
+                    self.finales_acumulados.clear() # Limpiar DESPUÉS de preparar el mensaje
+                    if self.current_gpt_task and not self.current_gpt_task.done():
+                        self.current_gpt_task.cancel()
+                    logger.info(f"🌐 Enviando mensaje acumulado a GPT: '{mensaje_acumulado}'")
+                    self.current_gpt_task = asyncio.create_task(self.process_gpt_response(mensaje_acumulado))
+                    # --- Fin lógica original ---
+            elif self.finales_acumulados:
+                 logger.debug(f" Timer cumplido, pero elapsed ({elapsed:.4f}s) es menor que 1.0 (¡raro!) O finales_acumulados ahora está vacío. No se envía.")
+            else:
+                logger.debug(" Timer cumplido, sin finales acumulados para enviar.")
 
-                # Limpiar la lista de finales acumulados
-                self.finales_acumulados.clear()
-
-                # Cancelar cualquier tarea previa de GPT
-                if self.current_gpt_task and not self.current_gpt_task.done():
-                    self.current_gpt_task.cancel()
-
-                # Enviar el mensaje acumulado a GPT
-                logger.info(f"🌐 Enviando mensaje acumulado a GPT: '{mensaje}'")
-                self.current_gpt_task = asyncio.create_task(self.process_gpt_response(mensaje))
 
         except asyncio.CancelledError:
-            logger.debug("🛑 Temporizador cancelado antes de completarse")
+            logger.debug("🛑 Temporizador cancelado antes de completarse (esperado durante la acumulación)")
         except Exception as e:
             logger.error(f"❌ Error en acumulador: {e}")
+
+    # NO necesitas modificar process_gpt_response, ya que no se llamará si TEST_MODE_NO_GPT es True
+    # Tampoco necesitas modificar _stt_callback por ahora.
 
 
 
