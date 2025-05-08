@@ -144,7 +144,7 @@ class TwilioWebSocketManager:
     async def _esperar_y_mandar_finales(self):
         try:
             ##logger.debug("⏳ Temporizador esperando 1.1 segundos")
-            await asyncio.sleep(3.5)  # Espera el tiempo necesario para acumular finales
+            await asyncio.sleep(3)  # Espera el tiempo necesario para acumular finales
             elapsed = self._now() - self.last_activity_ts
             logger.debug(f"⌛ Tiempo desde último final: {elapsed:.4f}s")
 
