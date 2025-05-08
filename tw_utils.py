@@ -12,11 +12,10 @@ import asyncio
 import base64
 import json
 import logging
-from logging import config
 import time
 from datetime import datetime # <--- Añadido para timestamps detallados
 from typing import Optional, List 
-
+from decouple import config
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
