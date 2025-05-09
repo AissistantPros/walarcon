@@ -40,8 +40,8 @@ logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuev
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = 1.0 # <--- ¡¡AJUSTADO A 1.0 SEGUNDO!! 
-MAX_TIMEOUT_SIN_ACTIVIDAD = 8.0
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4 # <--- ¡¡AJUSTADO A 1.0 SEGUNDO!! 
+MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
 
 # --- Otras Constantes Globales ---
 CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
