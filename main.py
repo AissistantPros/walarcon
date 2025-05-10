@@ -24,9 +24,12 @@ for noisy in (
     "asyncio",
     "uvicorn.access",
     "uvicorn.error",
+    "deepgram.clients.common.v1.abstract_async_websocket",
     "fastapi",
 ):
     logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
 
 
 # ───────── FASTAPI ─────────────────────────────────────────────
