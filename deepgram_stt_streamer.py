@@ -5,6 +5,7 @@ import asyncio
 import logging
 import warnings
 from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
+from fastapi.websockets import WebSocketState
 
 logger = logging.getLogger("deepgram_stt_streamer")
 logger.setLevel(logging.INFO)
@@ -77,22 +78,32 @@ class DeepgramSTTStreamer:
             logger.warning("⚠️ Audio ignorado: conexión no iniciada.")
 
     async def close(self):
-        """
-        Cierra la conexión con Deepgram y asegura cierre limpio.
-        """
-        if self.dg_connection:
+        """Cierra el stream de Deepgram de manera explícita y ordenada."""
+        try:
+            # 1. Enviar el mensaje de cierre explícito
+            logger.info("🚪 Enviando mensaje de cierre explícito a Deepgram.")
+            close_message = json.dumps({"type": "CloseStream"})
+            if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
+                await self.websocket.send_text(close_message)
+                logger.debug("✅ Mensaje 'CloseStream' enviado a Deepgram.")
+
+            # 2. Esperar la respuesta final (transcripción y metadata)
             try:
-                await self.dg_connection.finish()
-                await asyncio.sleep(0.1)  # pequeña pausa para que finalice correctamente
-                self._started = False
-                logger.info("🔚 Conexión Deepgram finalizada")
-            except asyncio.CancelledError:
-                logger.info("🧹 Tarea cancelada limpiamente al cerrar el streaming de Deepgram.")
+                response = await self.websocket.receive_text()
+                logger.debug(f"📥 Respuesta final de Deepgram recibida: {response}")
             except Exception as e:
-                if "cancelled" in str(e).lower():
-                    logger.info("🔇 Deepgram cerró la conexión por cancelación de tareas (normal).")
-                else:
-                    logger.error(f"❌ Error al cerrar conexión Deepgram: {e}")
+                logger.warning(f"⚠️ No se recibió respuesta final de Deepgram: {e}")
+
+            # 3. Cerrar el WebSocket de manera ordenada
+            await self.websocket.close()
+            logger.info("✅ WebSocket cerrado exitosamente después de enviar 'CloseStream'.")
+
+        except Exception as e:
+            logger.error(f"❌ Error durante el cierre del stream de Deepgram: {e}")
+        finally:
+            self.websocket = None
+            logger.info("🔒 Deepgram streaming cerrado de manera ordenada.")
+
 
     async def _on_open(self, *_):
         logger.info("🔛 Deepgram streaming iniciado")

@@ -656,12 +656,12 @@ class TwilioWebSocketManager:
         try:
             now = get_cancun_time()
             h = now.hour
-            if 5 <= h < 12: return "Buenos días, consultorio Dr. Alarcón. ¿Cómo puedo ayudarle?"
-            if 12 <= h < 19: return "Buenas tardes, consultorio Dr. Alarcón. ¿Cómo le ayudo?"
-            return "Buenas noches, consultorio Dr. Alarcón. ¿En qué le puedo servir?"
+            if 5 <= h < 12: return "Buenos días, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
+            if 12 <= h < 19: return "Buenas tardes, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
+            return "Buenas noches, consultorio Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
         except Exception as e_greet:
              logger.error(f"Error generando saludo: {e_greet}")
-             return "Consultorio Doctor Wilfrido Alarcón, ¿cómo puedo ayudarle?" 
+             return "Consultorio Doctor Wilfrido Alarcón, ¿Cómo puedo ayudarle?" 
 
 
     async def _monitor_call_timeout(self):
@@ -734,12 +734,12 @@ class TwilioWebSocketManager:
 
         # Cerrar Deepgram
         if self.stt_streamer:
-            logger.debug("🔄 SHUTDOWN: Cerrando Deepgram...")
             try:
+                logger.debug("   SHUTDOWN Cerrando Deepgram de manera explícita...")
                 await self.stt_streamer.close()
-                logger.info("✅ SHUTDOWN: Conexión Deepgram cerrada.")
+                logger.info("✅ SHUTDOWN Conexión Deepgram cerrada correctamente.")
             except Exception as e_dg_close:
-                logger.error(f"❌ SHUTDOWN: Error al cerrar Deepgram: {e_dg_close}")
+                logger.error(f"❌ SHUTDOWN Error al cerrar Deepgram: {e_dg_close}")
             self.stt_streamer = None
 
         # Cerrar WebSocket de manera segura
