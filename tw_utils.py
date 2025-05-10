@@ -40,7 +40,7 @@ logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuev
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .35
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
 
 # --- Otras Constantes Globales ---
@@ -699,6 +699,8 @@ class TwilioWebSocketManager:
         logger.info(f"⏱️ MONITOR Finalizado (CallEnded={self.call_ended}).")
 
 
+    
+
     async def _shutdown(self, reason: str = "Unknown"):
         """Cierra conexiones y tareas de forma ordenada."""
         ts_shutdown_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -710,7 +712,7 @@ class TwilioWebSocketManager:
         self.shutdown_reason = reason 
         logger.info(f"🔻 TS:[{ts_shutdown_start}] SHUTDOWN Iniciando... Razón: {reason}")
 
-        # Cancelar tareas
+        # Cancelar tareas activas
         tasks_to_cancel = {
             "PausaTimer": self.temporizador_pausa, 
             "GPTTask": self.current_gpt_task
@@ -718,32 +720,29 @@ class TwilioWebSocketManager:
         for name, task in tasks_to_cancel.items():
             if task and not task.done():
                 task.cancel()
-                logger.debug(f"   SHUTDOWN Cancelando Tarea {name} ({task.get_name()})...")
+                logger.debug(f"🔴 SHUTDOWN: Cancelando Tarea {name}...")
                 try:
-                    # Esperar un poco para que la cancelación se propague
-                    await asyncio.wait_for(task, timeout=0.2) 
-                except asyncio.CancelledError:
-                    logger.debug(f"   SHUTDOWN Tarea {name} cancelada exitosamente.")
+                    await asyncio.wait_for(task, timeout=1.0)
+                    logger.debug(f"✅ SHUTDOWN: Tarea {name} cancelada correctamente.")
                 except asyncio.TimeoutError:
-                     logger.warning(f"   SHUTDOWN Timeout esperando cancelación de Tarea {name}.")
-                except Exception as e_cancel:
-                     logger.error(f"   SHUTDOWN Error durante cancelación de Tarea {name}: {e_cancel}")
-            # Limpiar referencia
-            if name == "PausaTimer": self.temporizador_pausa = None
-            if name == "GPTTask": self.current_gpt_task = None
-
+                    logger.warning(f"⚠️ SHUTDOWN: Tarea {name} no se canceló a tiempo.")
+                except Exception as e:
+                    logger.error(f"❌ SHUTDOWN: Error al cancelar Tarea {name}: {e}")
+                # Limpiar referencia
+                if name == "PausaTimer": self.temporizador_pausa = None
+                if name == "GPTTask": self.current_gpt_task = None
 
         # Cerrar Deepgram
         if self.stt_streamer:
-            logger.debug("   SHUTDOWN Cerrando Deepgram...")
+            logger.debug("🔄 SHUTDOWN: Cerrando Deepgram...")
             try:
-                 await self.stt_streamer.close()
-                 logger.info("✅ SHUTDOWN Conexión Deepgram cerrada.")
+                await self.stt_streamer.close()
+                logger.info("✅ SHUTDOWN: Conexión Deepgram cerrada.")
             except Exception as e_dg_close:
-                 logger.error(f"❌ SHUTDOWN Error al cerrar Deepgram: {e_dg_close}")
+                logger.error(f"❌ SHUTDOWN: Error al cerrar Deepgram: {e_dg_close}")
             self.stt_streamer = None
 
-        # Cerrar WebSocket
+        # Cerrar WebSocket de manera segura
         await self._safe_close_websocket(code=1000, reason=f"Call ended: {reason}")
 
         # Limpiar estado
@@ -753,19 +752,26 @@ class TwilioWebSocketManager:
         logger.info(f"🏁 TS:[{ts_shutdown_end}] SHUTDOWN Completado (Razón: {self.shutdown_reason}).")
 
 
+
+
+
+
+
+
     async def _safe_close_websocket(self, code: int = 1000, reason: str = "Closing"):
-         """Cierra el WebSocket de forma segura."""
-         ts_ws_close_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-         if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
-             logger.debug(f"🚪 TS:[{ts_ws_close_start}] Cerrando WebSocket (Code: {code}, Reason: {reason[:100]})")
-             try:
-                 await self.websocket.close(code=code, reason=reason)
-                 logger.info("✅ WebSocket cerrado.")
-             except Exception as e_ws_close:
-                 logger.warning(f"⚠️ Error al cerrar WebSocket (normal si ya estaba cerrado): {e_ws_close}")
-         else:
-              logger.debug(f"   WebSocket no conectado o inexistente al intentar cerrar.")
-         self.websocket = None # Liberar referencia
+        """Cierra el WebSocket de forma segura."""
+        ts_ws_close_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+        if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
+            logger.debug(f"🚪 TS:[{ts_ws_close_start}] Cerrando WebSocket (Code: {code}, Reason: {reason[:100]})")
+            try:
+                await self.websocket.close(code=code, reason=reason)
+                logger.info("✅ WebSocket cerrado correctamente.")
+            except Exception as e_ws_close:
+                logger.warning(f"⚠️ Error al cerrar WebSocket (normal si ya estaba cerrado): {e_ws_close}")
+        else:
+            logger.debug(f"🟢 WebSocket ya estaba cerrado o no estaba conectado.")
+        self.websocket = None
+
 
 # --- Función de ayuda para nivel de log ---
 def set_debug(active: bool = True) -> None:
