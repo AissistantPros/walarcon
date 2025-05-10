@@ -52,7 +52,7 @@ class DeepgramSTTStreamer:
                 smart_format=True,
                 interim_results=True,
                 endpointing=False,
-                utterance_end_ms="1000",
+                utterance_end_ms="1200",
                 vad_events=True,
             )
 
