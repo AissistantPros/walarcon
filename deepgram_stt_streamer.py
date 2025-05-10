@@ -78,31 +78,50 @@ class DeepgramSTTStreamer:
             logger.warning("⚠️ Audio ignorado: conexión no iniciada.")
 
     async def close(self):
-        """Cierra el stream de Deepgram de manera explícita y ordenada."""
+        """
+        Cierra la conexión con Deepgram de forma limpia:
+        1. Envía {"type": "CloseStream"}
+        2. Espera la confirmación de Deepgram (máx 0.5 s)
+        3. Llama a .finish()   (por si el SDK necesita rematar)
+        4. Marca la conexión como cerrada
+        """
+        if not self.dg_connection:
+            return  # ya estaba cerrada
+
         try:
-            # 1. Enviar el mensaje de cierre explícito
-            logger.info("🚪 Enviando mensaje de cierre explícito a Deepgram.")
-            close_message = json.dumps({"type": "CloseStream"})
-            if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
-                await self.websocket.send_text(close_message)
-                logger.debug("✅ Mensaje 'CloseStream' enviado a Deepgram.")
+            # Paso 1 ─ enviar el mensaje de cierre explícito
+            await self.dg_connection.send(json.dumps({"type": "CloseStream"}))
+            logger.info("🔒 'CloseStream' enviado a Deepgram")
 
-            # 2. Esperar la respuesta final (transcripción y metadata)
+            # Paso 2 ─ aguantar un momento a que Deepgram responda
             try:
-                response = await self.websocket.receive_text()
-                logger.debug(f"📥 Respuesta final de Deepgram recibida: {response}")
-            except Exception as e:
-                logger.warning(f"⚠️ No se recibió respuesta final de Deepgram: {e}")
+                await asyncio.wait_for(self.dg_connection.recv(), timeout=0.5)
+            except asyncio.TimeoutError:
+                # Deepgram no envió nada, no pasa nada: seguimos
+                pass
+            except Exception:
+                # Si llega algo y da error de parseo, lo ignoramos
+                pass
 
-            # 3. Cerrar el WebSocket de manera ordenada
-            await self.websocket.close()
-            logger.info("✅ WebSocket cerrado exitosamente después de enviar 'CloseStream'.")
+            # Paso 3 ─ rematar con finish() si existe
+            try:
+                await self.dg_connection.finish()
+            except AttributeError:
+                # Algunas versiones del SDK no traen finish()
+                await self.dg_connection.close()
 
+            # Pequeña pausa para garantizar cierre limpio
+            await asyncio.sleep(0.1)
+
+            logger.info("✅ Conexión Deepgram cerrada correctamente")
+        except asyncio.CancelledError:
+            logger.info("🧹 Conexión Deepgram cancelada limpiamente")
         except Exception as e:
-            logger.error(f"❌ Error durante el cierre del stream de Deepgram: {e}")
+            logger.error(f"❌ Error al cerrar Deepgram: {e}")
         finally:
-            self.websocket = None
-            logger.info("🔒 Deepgram streaming cerrado de manera ordenada.")
+            self._started = False
+            self.dg_connection = None
+
 
 
     async def _on_open(self, *_):
