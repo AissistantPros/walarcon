@@ -542,15 +542,17 @@ class TwilioWebSocketManager:
             # --- Fin Llamada a TTS ---
 
             if audio_para_reproducir:
-                 logger.info(f"🔊 TTS Generado OK. ⏱️ DUR:[{tts_gen_duration_ms:.1f}ms]. Procediendo a reproducir...")
-                 await self._play_audio_bytes(audio_para_reproducir)
-                 # Pausa post-TTS opcional
-                 # await asyncio.sleep(0.2) 
-                 # Enviar silencio post-TTS opcional
-                 # await self._send_silence_chunk() 
+                logger.info(f"🔊 TTS Generado OK. ⏱️ DUR:[{tts_gen_duration_ms:.1f}ms]. Procediendo a reproducir...")
+                await self._play_audio_bytes(audio_para_reproducir)
+
+                # --- Corte inmediato si la frase ya es una despedida ---
+                despedidas = ("hasta luego", "placer atenderle", "gracias por comunicarse")
+                if any(p in reply_cleaned.lower() for p in despedidas):
+                    await asyncio.sleep(0.2)  # deja salir el último chunk
+                    await self._shutdown(reason="Assistant farewell")
+                    return
             else:
-                 logger.error(f"🔇 TS:[{ts_tts_gen_end}] Fallo al generar audio TTS.")
-                 # No hay audio que reproducir, la función terminará y reactivará STT
+                logger.error(f"🔇 TS:[{ts_tts_gen_end}] Fallo al generar audio TTS.")
 
         except asyncio.CancelledError:
             ts_cancel = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
