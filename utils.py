@@ -214,6 +214,7 @@ def convert_utc_to_cancun(utc_str):
 def parse_relative_date(date_string: str) -> dict:
     """
     Convierte expresiones de fecha relativa ('mañana', 'próximo martes') a AAAA-MM-DD.
+    Intenta pasar el idioma directamente como argumento para diagnóstico.
 
     Args:
         date_string: La frase relativa del usuario.
@@ -224,12 +225,17 @@ def parse_relative_date(date_string: str) -> dict:
     """
     logger.info(f"📅 Intentando parsear fecha relativa: '{date_string}'")
     try:
+        # Asegúrate que la función get_cancun_time() esté definida y funcione
         now = get_cancun_time()
-        # Settings clave: 'es' para español, 'future' para preferir fechas futuras
-        settings = {'PREFER_DATES_FROM': 'future', 'LANGUAGES': ['es']}
 
-        # Usamos dateparser.parse con relative_base para mayor precisión
-        parsed_dt = dateparser.parse(date_string, settings=settings)
+        # Settings clave: solo 'future' aquí por ahora para la prueba
+        settings = {'PREFER_DATES_FROM': 'future'}
+        logger.debug(f"DEBUG: Usando diccionario settings: {settings}") # Log para depurar
+
+        # Intentamos pasar el idioma como argumento directo 'languages'
+        logger.debug("DEBUG: Llamando a dateparser.parse con languages=['es'] y settings...")
+        parsed_dt = dateparser.parse(date_string, languages=['es'], settings=settings) # <--- Cambio diagnóstico aquí
+        logger.debug(f"DEBUG: Llamada a dateparser.parse parece haber funcionado. Tipo resultado: {type(parsed_dt)}") # Log para depurar
 
         if parsed_dt:
             # Convertir a fecha de Cancún (si no lo está ya) y quitar la hora
@@ -245,11 +251,12 @@ def parse_relative_date(date_string: str) -> dict:
                 logger.warning(f"⚠️ Fecha relativa '{date_string}' parseada a una fecha pasada ({parsed_date_cancun}), descartando.")
                 return {'error': f"La fecha '{date_string}' corresponde al pasado ({parsed_date_cancun})."}
         else:
+            # Si dateparser.parse devuelve None (no pudo entender la fecha)
             logger.warning(f"❓ No se pudo parsear la fecha relativa: '{date_string}'")
             return {'error': f"No entendí la fecha '{date_string}'. ¿Puedes decirla de otra forma?"}
 
     except Exception as e:
+        # Captura cualquier otro error durante el parseo o procesamiento
         logger.error(f"❌ Error parseando fecha relativa '{date_string}': {str(e)}", exc_info=True)
+        # Devuelve un diccionario de error genérico para la IA
         return {'error': f"Ocurrió un error técnico al procesar la fecha '{date_string}'."}
-
-# --- Fin de la nueva función ---
