@@ -99,20 +99,18 @@ class DeepgramSTTStreamer:
             logger.info("🔒 Intentando cerrar conexión Deepgram...")
 
             # Paso 1: Enviar el mensaje "CloseStream"
-            # Intentar enviar solo si creemos que la conexión podría estar activa.
-            # El SDK debería manejar internamente si el socket ya está cerrado.
             try:
+                # El SDK debería manejar si el socket ya está cerrado,
+                # pero envolvemos por si acaso para no detener el flujo de cierre.
                 await self.dg_connection.send(json.dumps({"type": "CloseStream"}))
                 logger.info("📨 'CloseStream' enviado a Deepgram.")
-                # Pequeña pausa para que Deepgram lo procese antes de finish()
-                await asyncio.sleep(0.1) # 100ms
+                await asyncio.sleep(0.1) # Pequeña pausa para procesamiento
             except Exception as e_send_close_stream:
-                logger.warning(f"⚠️ No se pudo enviar 'CloseStream' a Deepgram (puede que ya esté cerrándose o cerrada): {e_send_close_stream}")
+                logger.warning(f"⚠️ No se pudo enviar 'CloseStream' (puede que la conexión ya estuviera cerrándose/cerrada): {e_send_close_stream}")
 
             # Paso 2: Finalizar la conexión usando el método del SDK
             logger.debug("⏳ Llamando a finish() en la conexión Deepgram...")
             try:
-                # El método finish() es el documentado para cerrar la conexión del LiveTranscriptionClient
                 await asyncio.wait_for(self.dg_connection.finish(), timeout=2.0) # Timeout de 2s para finish()
                 logger.info("✅ Método finish() de Deepgram SDK ejecutado (o timeout).")
             except asyncio.TimeoutError:
@@ -125,14 +123,9 @@ class DeepgramSTTStreamer:
         except Exception as e: # Captura cualquier otra excepción durante el proceso de cierre
             logger.error(f"💥 Error inesperado general al intentar cerrar Deepgram: {e}", exc_info=True)
         finally:
-            # Este finally asegura que el estado se limpie,
-            # independientemente de si los pasos anteriores tuvieron éxito.
             self._started = False
-            self.dg_connection = None # Limpiar la referencia a la conexión
+            self.dg_connection = None
             logger.info("🧹 Estado de DeepgramSTTStreamer limpiado y conexión puesta a None.")
-
-
-
 
 
 
