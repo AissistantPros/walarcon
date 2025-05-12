@@ -83,56 +83,71 @@ class DeepgramSTTStreamer:
 
 
     async def close(self):
-        """
-        Cierra la conexión con Deepgram de forma limpia:
-        1. Envía {"type": "CloseStream"}
-        2. Espera la confirmación de Deepgram (máx 0.5 s)
-        3. Llama a .finish()   (por si el SDK necesita rematar)
-        4. Marca la conexión como cerrada
-        """
-        if not self.dg_connection:
-            logger.debug("🔄 Conexión Deepgram ya estaba cerrada.")
-            return
+            """
+            Cierra la conexión con Deepgram de forma limpia:
+            1. Envía {"type": "CloseStream"}
+            2. Llama a .finish() (o .close() del SDK) para rematar.
+            3. Marca la conexión como cerrada.
+            """
+            if not self.dg_connection or not self._started: # Añadir chequeo de _started
+                logger.debug("🔄 Conexión Deepgram ya estaba cerrada o no iniciada.")
+                return
 
-        try:
-            # Paso 1 ─ enviar el mensaje de cierre explícito
-            await self.dg_connection.send(json.dumps({"type": "CloseStream"}))
-            logger.info("🔒 'CloseStream' enviado a Deepgram")
-
-            # Paso 2 ─ aguantar un momento a que Deepgram responda
             try:
-                await asyncio.wait_for(self.dg_connection.recv(), timeout=0.5)
-                logger.debug("✅ Respuesta de cierre recibida de Deepgram")
-            except asyncio.TimeoutError:
-                logger.warning("⏳ No hubo respuesta de cierre de Deepgram, continuando con el cierre.")
-            except Exception as e_recv:
-                logger.error(f"❌ Error al recibir respuesta de Deepgram: {e_recv}")
-
-            # Paso 3 ─ rematar con finish() si existe
-            try:
-                if hasattr(self.dg_connection, "finish"):
-                    await self.dg_connection.finish()
-                    logger.debug("✅ Método finish() ejecutado en conexión Deepgram")
+                logger.info("🔒 Intentando cerrar conexión Deepgram...")
+                # Paso 1 ─ enviar el mensaje de cierre explícito
+                # Solo enviar si la conexión aún está activa
+                if self.dg_connection._socket is not None and self.dg_connection._socket.open: # Chequeo más robusto
+                    try:
+                        await self.dg_connection.send(json.dumps({"type": "CloseStream"}))
+                        logger.info("📨 'CloseStream' enviado a Deepgram.")
+                        # Una pequeña pausa para que Deepgram lo procese antes de finish()
+                        await asyncio.sleep(0.1)
+                    except Exception as e_send_close_stream:
+                        logger.warning(f"⚠️ No se pudo enviar 'CloseStream' a Deepgram (puede que ya esté cerrándose): {e_send_close_stream}")
                 else:
-                    await self.dg_connection.close()
-                    logger.debug("✅ Método close() ejecutado en conexión Deepgram")
-            except Exception as e_finish:
-                logger.error(f"❌ Error durante finish/close de Deepgram: {e_finish}")
-
-            # Pausa corta para garantizar el cierre limpio
-            await asyncio.sleep(0.1)
-
-            logger.info("✅ Conexión Deepgram cerrada correctamente")
-        except asyncio.CancelledError:
-            logger.info("🧹 Conexión Deepgram cancelada limpiamente")
-        except Exception as e:
-            logger.error(f"❌ Error al cerrar Deepgram: {e}")
-        finally:
-            self._started = False
-            self.dg_connection = None
-            logger.debug("🚪 Estado de conexión Deepgram limpiado.")
+                    logger.info("🔌 Conexión Deepgram (socket) ya no estaba abierta para enviar CloseStream.")
 
 
+                # Paso 2 (antes Paso 3) ─ rematar con finish() o close() del SDK
+                # Es importante llamar a finish() para que el SDK maneje el cierre correctamente.
+                logger.debug("⏳ Llamando a finish() en la conexión Deepgram...")
+                try:
+                    if hasattr(self.dg_connection, "finish") and callable(self.dg_connection.finish):
+                        # El SDK de Deepgram puede requerir que finish no sea llamado si el socket ya está cerrado.
+                        # Sin embargo, es la forma canónica de pedirle al SDK que termine.
+                        await asyncio.wait_for(self.dg_connection.finish(), timeout=1.5) # Darle un poco de tiempo a finish
+                        logger.info("✅ Método finish() de Deepgram SDK ejecutado (o timeout).")
+                    elif hasattr(self.dg_connection, "close") and callable(self.dg_connection.close): # Fallback si no hay finish
+                        logger.warning("⚠️ Usando dg_connection.close() como fallback de finish().")
+                        await asyncio.wait_for(self.dg_connection.close(), timeout=1.5)
+                        logger.info("✅ Método close() de Deepgram SDK ejecutado (o timeout).")
+                    else:
+                        logger.error("❌ El objeto de conexión de Deepgram no tiene método finish() ni close() callable.")
+
+                except asyncio.TimeoutError:
+                    logger.warning("⏳ Timeout (1.5s) esperando a que Deepgram SDK termine (finish/close).")
+                except Exception as e_finish:
+                    logger.error(f"❌ Error durante finish/close del SDK de Deepgram: {e_finish}", exc_info=True)
+
+                # Pausa corta adicional opcional, pero finish() debería ser suficiente
+                # await asyncio.sleep(0.1)
+
+                logger.info("🚪 Conexión Deepgram (lógica) marcada como cerrada.")
+
+            except asyncio.CancelledError:
+                logger.info("🧹 Cierre de Deepgram cancelado (probablemente por shutdown general).")
+            except Exception as e:
+                logger.error(f"💥 Error inesperado al cerrar Deepgram: {e}", exc_info=True)
+            finally:
+                # Este finally asegura que el estado se limpie,
+                # independientemente de si los pasos anteriores tuvieron éxito.
+                self._started = False
+                if self.dg_connection:
+                    # Aquí ya no intentamos enviar nada, solo limpiamos la referencia.
+                    # El SDK debería haber manejado el cierre del socket en .finish()
+                    self.dg_connection = None
+                logger.info("🧹 Estado de DeepgramSTTStreamer limpiado.")
 
 
 
