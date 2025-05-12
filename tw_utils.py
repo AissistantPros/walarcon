@@ -358,7 +358,7 @@ class TwilioWebSocketManager:
                 # logger.debug(f"   STT_CALLBACK Cancelling existing pause timer...") # Log de cancelación está en la tarea
                 self.temporizador_pausa.cancel()
                 
-            logger.debug(f"⏱️ TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Reiniciando timer de pausa ({PAUSA_SIN_ACTIVIDAD_TIMEOUT}s).")
+            ##logger.debug(f"⏱️ TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Reiniciando timer de pausa ({PAUSA_SIN_ACTIVIDAD_TIMEOUT}s).")
             self.temporizador_pausa = asyncio.create_task(self._intentar_enviar_si_pausa(), name=f"PausaTimer_{self.call_sid or id(self)}")
         else:
              logger.debug(f"🔇 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Recibido transcript vacío.")
@@ -378,7 +378,7 @@ class TwilioWebSocketManager:
         timeout_maximo = MAX_TIMEOUT_SIN_ACTIVIDAD
 
         try:
-            logger.debug(f"⏳ Esperando {tiempo_espera:.1f}s de pausa total...")
+            ##logger.debug(f"⏳ Esperando {tiempo_espera:.1f}s de pausa total...")
             await asyncio.sleep(tiempo_espera)
             
             ts_sleep_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -387,14 +387,14 @@ class TwilioWebSocketManager:
             # Usar getattr para evitar error si last_final_ts no se inicializó bien
             elapsed_final = ahora - getattr(self, 'last_final_ts', ahora) 
             
-            logger.debug(f"⌛ TS:[{ts_sleep_end}] INTENTAR_ENVIAR Timer completado. Tiempo real desde últ_act: {elapsed_activity:.2f}s / desde últ_final: {elapsed_final:.2f}s")
+            ##logger.debug(f"⌛ TS:[{ts_sleep_end}] INTENTAR_ENVIAR Timer completado. Tiempo real desde últ_act: {elapsed_activity:.2f}s / desde últ_final: {elapsed_final:.2f}s")
 
             if self.call_ended:
                 logger.debug("⚠️ INTENTAR_ENVIAR: Llamada finalizada durante espera. Abortando.")
                 return
 
             if not self.finales_acumulados:
-                logger.debug("⏸️ INTENTAR_ENVIAR: Timer cumplido, pero sin finales acumulados.")
+                ##logger.debug("⏸️ INTENTAR_ENVIAR: Timer cumplido, pero sin finales acumulados.")
                 self.ultimo_evento_fue_parcial = False # Resetear por si acaso
                 return
 
@@ -776,7 +776,7 @@ class TwilioWebSocketManager:
             return
 
         tts_start_pc = self._now() # Para medir duración total
-        logger.info(f"🔊 Iniciando reproducción TTS ({len(audio_data)} bytes)...")
+        ##logger.info(f"🔊 Iniciando reproducción TTS ({len(audio_data)} bytes)...")
         
         acquired_lock = False
         try:
@@ -790,7 +790,7 @@ class TwilioWebSocketManager:
             sent_bytes = 0
             start_send_loop_pc = self._now()
             ts_send_loop_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"⏱️ TS:[{ts_send_loop_start}] PLAY_AUDIO Loop de envío iniciado.")
+            ##logger.debug(f"⏱️ TS:[{ts_send_loop_start}] PLAY_AUDIO Loop de envío iniciado.")
 
             for offset in range(0, len(audio_data), chunk_size):
                 if self.call_ended: 
@@ -828,7 +828,7 @@ class TwilioWebSocketManager:
                 # logger.debug("   PLAY_AUDIO Lock liberado, is_speaking = False")
             ts_play_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             total_play_dur_pc = self._now() - tts_start_pc
-            logger.debug(f"⏱️ TS:[{ts_play_end}] PLAY_AUDIO END. ⏱️ DUR_TOTAL:[{total_play_dur_pc*1000:.1f}ms]")
+            ##logger.debug(f"⏱️ TS:[{ts_play_end}] PLAY_AUDIO END. ⏱️ DUR_TOTAL:[{total_play_dur_pc*1000:.1f}ms]")
 
 
 

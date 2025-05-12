@@ -229,7 +229,7 @@ def parse_relative_date(date_string: str) -> dict:
         settings = {'PREFER_DATES_FROM': 'future', 'LANGUAGE': 'es'}
 
         # Usamos dateparser.parse con relative_base para mayor precisión
-        parsed_dt = dateparser.parse(date_string, settings=settings, relative_base=now)
+        parsed_dt = dateparser.parse(date_string, settings=settings)
 
         if parsed_dt:
             # Convertir a fecha de Cancún (si no lo está ya) y quitar la hora

@@ -68,7 +68,7 @@ def text_to_speech(text: str) -> bytes:
             # El '2' indica que el audio PCM es de 16 bits (2 bytes por muestra)
             amplified_audio_data = audioop.mul(audio_data_pcm_16bit, 2, volume_factor)
             
-            logger.info(f"[TTS] Audio PCM amplificado con factor: {volume_factor}")
+            ##logger.info(f"[TTS] Audio PCM amplificado con factor: {volume_factor}")
             audio_data_to_convert = amplified_audio_data
         except audioop.error as amp_audio_err:
             logger.warning(f"[TTS] Error de audioop al amplificar: {amp_audio_err}. Usando audio original.")
@@ -97,7 +97,7 @@ def text_to_speech(text: str) -> bytes:
         # except Exception as dbg_err:
         #     logger.warning(f"[TTS] No se pudo guardar el archivo de depuración mu-law: {dbg_err}")
 
-        logger.info(f"[TTS] Audio mu-law generado. Tiempo total: {(time.perf_counter() - start_total)*1000:.2f} ms")
+        ##logger.info(f"[TTS] Audio mu-law generado. Tiempo total: {(time.perf_counter() - start_total)*1000:.2f} ms")
         return mulaw_data
 
     except Exception as e:
