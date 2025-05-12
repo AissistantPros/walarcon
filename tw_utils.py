@@ -13,6 +13,7 @@ import base64
 import json
 import logging
 import time
+import os
 from datetime import datetime # <--- Añadido para timestamps detallados
 from typing import Optional, List 
 from decouple import config
@@ -42,6 +43,9 @@ LOG_TS_FORMAT = "%H:%M:%S.%f"
 # --- Constantes Configurables para Tiempos (en segundos) ---
 PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
+LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 4.5 # Umbral para mensaje de espera
+HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
+
 
 # --- Otras Constantes Globales ---
 CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
@@ -80,17 +84,55 @@ class TwilioWebSocketManager:
         self.stream_start_time: float = now
         self.last_activity_ts: float = now 
         self.last_final_ts: float = now 
+        self.last_final_stt_timestamp: Optional[float] = None # Para medir latencia real
         logger.debug(f"⏱️ TS:[{ts_now_str}] INIT Timestamps set: start={self.stream_start_time:.2f}, activity={self.last_activity_ts:.2f}, final={self.last_final_ts:.2f}")
 
         self.finales_acumulados: List[str] = []
         self.conversation_history: List[dict] = []
         self.speaking_lock = asyncio.Lock() 
         
+
+      # ### MODIFICADO ### Cargar audio de espera directamente como bytes
+        self.hold_audio_mulaw_bytes: bytes = b""
+        try:
+            if os.path.exists(HOLD_MESSAGE_FILE):
+                with open(HOLD_MESSAGE_FILE, 'rb') as f:
+                    self.hold_audio_mulaw_bytes = f.read()
+                if self.hold_audio_mulaw_bytes:
+                    logger.info(f"Successfully loaded hold message '{HOLD_MESSAGE_FILE}' ({len(self.hold_audio_mulaw_bytes)} bytes).")
+                else:
+                    logger.warning(f"Hold message file '{HOLD_MESSAGE_FILE}' is empty.")
+            else:
+                logger.error(f"Hold message file not found at: {HOLD_MESSAGE_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to load hold message file '{HOLD_MESSAGE_FILE}': {e}", exc_info=True)
+
+        if not self.hold_audio_mulaw_bytes:
+             logger.warning("Hold message feature will be disabled.")
+        # ### FIN MODIFICADO ###
+
+
+
+
         logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] INIT END (ID: {id(self)})")
+
+
+
+
+
+
+
 
     def _now(self) -> float:
         """Devuelve el timestamp actual de alta precisión."""
         return time.perf_counter()
+
+
+
+
+
+
+
 
     def _reset_state_for_new_call(self):
         """Resetea variables de estado al inicio de una llamada."""
@@ -119,8 +161,23 @@ class TwilioWebSocketManager:
         self.conversation_history = []
         logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] RESET_STATE END")
 
+
+
+
+
+
+
+
+
+
+
+
+
+
     # --- Manejador Principal del WebSocket ---
     
+
+
     async def handle_twilio_websocket(self, websocket: WebSocket):
         """Punto de entrada y bucle principal."""
         ts_start_handle = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -257,6 +314,14 @@ class TwilioWebSocketManager:
             if CURRENT_CALL_MANAGER is self:
                 CURRENT_CALL_MANAGER = None
 
+
+
+
+
+
+
+
+
     # --- Callback de Deepgram y Lógica de Acumulación ---
 
     def _stt_callback(self, transcript: str, is_final: bool):
@@ -280,6 +345,7 @@ class TwilioWebSocketManager:
 
             if is_final:
                 self.last_final_ts = ahora_pc # Actualizar TS del último final
+                self.last_final_stt_timestamp = ahora_pc
                 logger.info(f"📥 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Final Recibido: '{transcript.strip()}'")
                 self.finales_acumulados.append(transcript.strip())
             else:
@@ -296,6 +362,11 @@ class TwilioWebSocketManager:
             self.temporizador_pausa = asyncio.create_task(self._intentar_enviar_si_pausa(), name=f"PausaTimer_{self.call_sid or id(self)}")
         else:
              logger.debug(f"🔇 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Recibido transcript vacío.")
+
+
+
+
+
 
 
     async def _intentar_enviar_si_pausa(self):
@@ -359,84 +430,111 @@ class TwilioWebSocketManager:
             logger.error(f"❌ TS:[{ts_error}] Error en _intentar_enviar_si_pausa: {e}", exc_info=True)
 
 
+
+
+
+
+
+
     async def _proceder_a_enviar(self):
-        """Prepara y envía acumulados, activa 'ignorar_stt', con Timestamps."""
-        ts_proceder_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        logger.debug(f"⏱️ TS:[{ts_proceder_start}] PROCEDER_ENVIAR START")
+            """Prepara y envía acumulados, activa 'ignorar_stt', con Timestamps."""
+            ts_proceder_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+            logger.debug(f"⏱️ TS:[{ts_proceder_start}] PROCEDER_ENVIAR START")
 
-        if not self.finales_acumulados or self.call_ended or self.ignorar_stt:
-             logger.warning(f"⚠️ PROCEDER_ENVIAR Abortado: finales_empty={not self.finales_acumulados}, call_ended={self.call_ended}, ignorar_stt={self.ignorar_stt}")
-             return 
+            if not self.finales_acumulados or self.call_ended or self.ignorar_stt:
+                logger.warning(f"⚠️ PROCEDER_ENVIAR Abortado: finales_empty={not self.finales_acumulados}, call_ended={self.call_ended}, ignorar_stt={self.ignorar_stt}")
+                # Si abortamos, aseguramos que el timestamp se limpie si no hay finales
+                if not self.finales_acumulados:
+                    self.last_final_stt_timestamp = None
+                return
 
-        # 1. Preparar mensaje
-        mensaje_acumulado = " ".join(self.finales_acumulados).replace("\n", " ").strip()
-        num_finales = len(self.finales_acumulados)
-        
-        if not mensaje_acumulado:
-             logger.warning(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Mensaje acumulado vacío. Limpiando y abortando.")
-             self.finales_acumulados.clear() 
-             self.ultimo_evento_fue_parcial = False
-             return
-             
-        logger.info(f"📦 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Preparado (acumulados: {num_finales}): '{mensaje_acumulado}'")
-        
-        # Limpiar estado ANTES de operaciones asíncronas
-        self.finales_acumulados.clear()
-        self.ultimo_evento_fue_parcial = False 
+            # 1. Preparar mensaje
+            mensaje_acumulado = " ".join(self.finales_acumulados).replace("\n", " ").strip()
+            num_finales = len(self.finales_acumulados)
 
-        # 2. Activar modo "ignorar STT"
-        self.ignorar_stt = True
-        logger.info(f"🚫 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Activado: Ignorando STT.")
-        
-        # Cancelar timer de pausa por si acaso
-        if self.temporizador_pausa and not self.temporizador_pausa.done():
-            self.temporizador_pausa.cancel()
-            logger.debug("   PROCEDER_ENVIAR: Cancelado timer de pausa residual.")
-            self.temporizador_pausa = None 
+            if not mensaje_acumulado:
+                logger.warning(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Mensaje acumulado vacío. Limpiando y abortando.")
+                self.finales_acumulados.clear()
+                self.ultimo_evento_fue_parcial = False
+                # Asegurarse de resetear también el timestamp si abortamos aquí
+                self.last_final_stt_timestamp = None # ### NUEVO RESET AQUÍ ###
+                return
 
-        # 3. Ejecutar envío (GPT o Log)
-        try:
-            if TEST_MODE_NO_GPT:
-                ts_test_log = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-                logger.info(f"🧪 TS:[{ts_test_log}] MODO PRUEBA: Mensaje sería: '{mensaje_acumulado}'")
-                # En modo prueba, reactivar STT manualmente
-                asyncio.create_task(self._reactivar_stt_despues_de_envio(), name=f"ReactivarSTT_Test_{self.call_sid or id(self)}")
-            else:
-                # Cancelar tarea GPT anterior (doble check)
-                if self.current_gpt_task and not self.current_gpt_task.done():
-                    logger.warning("⚠️ Cancelando tarea GPT anterior activa antes de enviar nueva.")
-                    self.current_gpt_task.cancel()
-                    try: await asyncio.wait_for(self.current_gpt_task, timeout=0.5) 
-                    except asyncio.CancelledError: logger.debug(" Tarea GPT anterior cancelada.")
-                    except Exception as e_gpt_cancel: logger.error(f" Error esperando cancelación tarea GPT: {e_gpt_cancel}")
-                    self.current_gpt_task = None
+            logger.info(f"📦 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Preparado (acumulados: {num_finales}): '{mensaje_acumulado}'")
 
-                # Iniciar la nueva tarea GPT que reactivará STT
-                ts_gpt_start_task = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-                logger.info(f"🌐 TS:[{ts_gpt_start_task}] PROCEDER_ENVIAR Iniciando tarea para GPT...")
-                self.current_gpt_task = asyncio.create_task(
-                    self.process_gpt_and_reactivate_stt(mensaje_acumulado), 
-                    name=f"GPTTask_{self.call_sid or id(self)}"
-                )
-        except Exception as e_proc_env:
-             ts_error = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-             logger.error(f"❌ TS:[{ts_error}] Error al iniciar tarea de envío/GPT: {e_proc_env}", exc_info=True)
-             # Intentar reactivar STT si falla el inicio de la tarea
-             await self._reactivar_stt_despues_de_envio()
+            # ### MODIFICADO ### Capturar el timestamp ANTES de limpiar
+            final_ts_for_this_batch = self.last_final_stt_timestamp
+
+            # Limpiar estado ANTES de operaciones asíncronas
+            self.finales_acumulados.clear()
+            self.ultimo_evento_fue_parcial = False
+            self.last_final_stt_timestamp = None # ### NUEVO RESET AQUÍ ### Resetear para el próximo turno
+
+            # 2. Activar modo "ignorar STT"
+            self.ignorar_stt = True
+            logger.info(f"🚫 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Activado: Ignorando STT.")
+
+            # Cancelar timer de pausa por si acaso
+            if self.temporizador_pausa and not self.temporizador_pausa.done():
+                self.temporizador_pausa.cancel()
+                logger.debug("   PROCEDER_ENVIAR: Cancelado timer de pausa residual.")
+                self.temporizador_pausa = None
+
+            # 3. Ejecutar envío (GPT o Log)
+            try:
+                if TEST_MODE_NO_GPT:
+                    ts_test_log = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+                    logger.info(f"🧪 TS:[{ts_test_log}] MODO PRUEBA: Mensaje sería: '{mensaje_acumulado}'")
+                    # En modo prueba, reactivar STT manualmente
+                    asyncio.create_task(self._reactivar_stt_despues_de_envio(), name=f"ReactivarSTT_Test_{self.call_sid or id(self)}")
+                else:
+                    # Cancelar tarea GPT anterior (doble check)
+                    if self.current_gpt_task and not self.current_gpt_task.done():
+                        logger.warning("⚠️ Cancelando tarea GPT anterior activa antes de enviar nueva.")
+                        self.current_gpt_task.cancel()
+                        try: await asyncio.wait_for(self.current_gpt_task, timeout=0.5)
+                        except asyncio.CancelledError: logger.debug(" Tarea GPT anterior cancelada.")
+                        except Exception as e_gpt_cancel: logger.error(f" Error esperando cancelación tarea GPT: {e_gpt_cancel}")
+                        self.current_gpt_task = None
+
+                    # Iniciar la nueva tarea GPT que reactivará STT
+                    ts_gpt_start_task = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+                    logger.info(f"🌐 TS:[{ts_gpt_start_task}] PROCEDER_ENVIAR Iniciando tarea para GPT...")
+                    self.current_gpt_task = asyncio.create_task(
+                        # ### MODIFICADO ### Pasar el timestamp capturado
+                        self.process_gpt_and_reactivate_stt(mensaje_acumulado, final_ts_for_this_batch),
+                        name=f"GPTTask_{self.call_sid or id(self)}"
+                    )
+            except Exception as e_proc_env:
+                ts_error = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+                logger.error(f"❌ TS:[{ts_error}] Error al iniciar tarea de envío/GPT: {e_proc_env}", exc_info=True)
+                # Intentar reactivar STT si falla el inicio de la tarea
+                await self._reactivar_stt_despues_de_envio()
 
 
-    async def process_gpt_and_reactivate_stt(self, texto_para_gpt: str):
+
+
+
+
+
+    # ### MODIFICADO ### Añadir parámetro last_final_ts
+    async def process_gpt_and_reactivate_stt(self, texto_para_gpt: str, last_final_ts: Optional[float]):
         """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
         ts_wrapper_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
         logger.debug(f"⏱️ TS:[{ts_wrapper_start}] PROCESS_GPT_WRAPPER START")
         try:
-            await self.process_gpt_response(texto_para_gpt) 
+             # ### MODIFICADO ### Pasar el timestamp
+            await self.process_gpt_response(texto_para_gpt, last_final_ts)
         except Exception as e:
              logger.error(f"❌ Error capturado dentro de process_gpt_and_reactivate_stt: {e}", exc_info=True)
         finally:
             ts_wrapper_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_GPT_WRAPPER Finalizando. Reactivando STT...")
             await self._reactivar_stt_despues_de_envio()
+
+
+
+
 
 
     async def _reactivar_stt_despues_de_envio(self):
@@ -461,44 +559,54 @@ class TwilioWebSocketManager:
              logger.debug("   REACTIVAR_STT: Llamada ya terminó, no se reactiva.")
 
 
-    async def process_gpt_response(self, user_text: str):
-        """Llama a GPT, maneja respuesta y TTS, con Timestamps."""
+
+
+
+
+
+
+    # ### MODIFICADO ### Añadir parámetro last_final_ts
+    async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
+        """Llama a GPT, maneja respuesta y TTS, con Timestamps y Hold Message."""
         ts_process_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
         logger.debug(f"⏱️ TS:[{ts_process_start}] PROCESS_GPT START")
 
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             logger.warning("⚠️ PROCESS_GPT Ignorado: llamada terminada o WS desconectado.")
-            self.ignorar_stt = False # Asegurar reactivación si se aborta aquí
+            # Asegurar reactivación si se aborta aquí ANTES de haberla desactivado
+            # No es estrictamente necesario porque _reactivar_stt_despues_de_envio lo hará,
+            # pero no hace daño ser explícito si la función retornara temprano.
+            # self.ignorar_stt = False
             return
-        
+
         if not user_text:
              logger.warning("⚠️ PROCESS_GPT Texto de usuario vacío, saltando.")
-             self.ignorar_stt = False # Asegurar reactivación
+             # self.ignorar_stt = False # Similar al caso anterior
              return
-             
-        logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
-        # Añadir a historial ANTES de la llamada
-        self.conversation_history.append({"role": "user", "content": user_text}) 
 
-        respuesta_gpt = "Lo siento, ocurrió un problema interno." # Default
+        logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
+        self.conversation_history.append({"role": "user", "content": user_text})
+
+        respuesta_gpt = "Lo siento, ocurrió un problema interno."
+        audio_para_reproducir = b"" # Inicializar por si falla GPT/TTS
+
         try:
             # --- Llamada a OpenAI ---
             start_gpt_call = self._now()
             ts_gpt_call_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.debug(f"⏱️ TS:[{ts_gpt_call_start}] PROCESS_GPT Calling generate_openai_response_main...")
-            
-            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini") # Usar config con fallback
+
+            model_a_usar = config("CHATGPT_MODEL", default="gpt-4o-mini") # Usar config con fallback
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
-            
-            respuesta_gpt = await generate_openai_response_main( 
-                history=mensajes_para_gpt, 
-                model=model_a_usar 
+
+            respuesta_gpt = await generate_openai_response_main(
+                history=mensajes_para_gpt,
+                model=model_a_usar
             )
-            
+
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
             ts_gpt_call_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.info(f"⏱️ TS:[{ts_gpt_call_end}] PROCESS_GPT Respuesta OpenAI recibida. ⏱️ DUR:[{gpt_duration_ms:.1f} ms]")
-            # --- Fin Llamada a OpenAI ---
 
             if self.call_ended: return # Verificar después de llamada potencialmente larga
 
@@ -510,74 +618,144 @@ class TwilioWebSocketManager:
 
             # --- Manejar Respuesta (__END_CALL__ o Normal) ---
             if reply_cleaned == "__END_CALL__":
+                # ... (código igual que antes para manejar __END_CALL__) ...
                 ts_end_call = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
                 logger.info(f"🚪 TS:[{ts_end_call}] PROCESS_GPT Protocolo cierre (__END_CALL__) por IA.")
                 despedida_dicha = any(
                     gphrase.lower() in m.get("content", "").lower()
-                    for m in self.conversation_history[-2:] 
+                    for m in self.conversation_history[-2:] # Revisar últimos 2 mensajes
                     if m.get("role") == "assistant"
                     for gphrase in ["gracias", "hasta luego", "placer atenderle", "excelente día"]
-                ) 
-                
+                )
+
                 frase_final = ""
                 if not despedida_dicha:
                     frase_final = GOODBYE_PHRASE
                     logger.info(f"💬 PROCESS_GPT Añadiendo despedida: '{frase_final}'")
+                    # Añadir a historial ANTES de TTS por si falla
                     self.conversation_history.append({"role": "assistant", "content": frase_final})
                 else:
                      logger.info("   PROCESS_GPT IA ya se despidió, cerrando.")
 
-                await self._play_audio_bytes(text_to_speech(frase_final) if frase_final else b"")
-                await asyncio.sleep(0.5) 
+                # Generar TTS para la despedida (si aplica)
+                audio_despedida = text_to_speech(frase_final) if frase_final else b""
+                await self._play_audio_bytes(audio_despedida) # Reproducir aunque sea vacío (no hará nada)
+                await asyncio.sleep(0.2) # Pequeña pausa para asegurar envío
                 await self._shutdown(reason="AI Request (__END_CALL__)")
-                return 
+                return # Importante: salir después de shutdown
 
-            # --- Respuesta Normal ---
+            # --- Respuesta Normal - Generar TTS ---
             logger.info(f"🤖 Respuesta de GPT: {reply_cleaned}")
             self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
-            
-            # --- Llamada a TTS ---
+
             start_tts_gen = self._now()
             ts_tts_gen_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.debug(f"⏱️ TS:[{ts_tts_gen_start}] PROCESS_GPT Calling TTS...")
-            audio_para_reproducir = text_to_speech(reply_cleaned)
+            audio_para_reproducir = text_to_speech(reply_cleaned) # Guardar en variable local
             tts_gen_duration_ms = (self._now() - start_tts_gen) * 1000
             ts_tts_gen_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            # --- Fin Llamada a TTS ---
 
-            if audio_para_reproducir:
-                logger.info(f"🔊 TTS Generado OK. ⏱️ DUR:[{tts_gen_duration_ms:.1f}ms]. Procediendo a reproducir...")
-                await self._play_audio_bytes(audio_para_reproducir)
+            if not audio_para_reproducir:
+                 logger.error(f"🔇 TS:[{ts_tts_gen_end}] Fallo al generar audio TTS principal.")
+                 # Intentar generar TTS de error como fallback
+                 error_tts_msg = "Hubo un problema generando la respuesta de audio."
+                 audio_para_reproducir = text_to_speech(error_tts_msg)
+                 if not audio_para_reproducir:
+                     logger.error("❌ Falló también la generación de TTS para el mensaje de error TTS.")
 
-                # --- Corte inmediato si la frase ya es una despedida ---
-                despedidas = ("hasta luego", "placer atenderle", "gracias por comunicarse")
-                if any(p in reply_cleaned.lower() for p in despedidas):
-                    await asyncio.sleep(0.2)  # deja salir el último chunk
-                    await self._shutdown(reason="Assistant farewell")
-                    return
-            else:
-                logger.error(f"🔇 TS:[{ts_tts_gen_end}] Fallo al generar audio TTS.")
 
         except asyncio.CancelledError:
             ts_cancel = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.info(f"🚫 TS:[{ts_cancel}] Tarea GPT cancelada.")
             # No relanzar, dejar que el finally del wrapper maneje la reactivación
-        except Exception as e_gpt:
-            ts_error = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.error(f"❌ TS:[{ts_error}] Error crítico durante GPT/TTS: {e_gpt}", exc_info=True)
-            # Intentar reproducir mensaje de error
+            return # Importante salir aquí
+        except Exception as e_gpt_tts:
+            ts_error_gpt_tts = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+            logger.error(f"❌ TS:[{ts_error_gpt_tts}] Error crítico durante GPT/TTS: {e_gpt_tts}", exc_info=True)
+            # Intentar generar audio para mensaje de error genérico
             try:
                  error_message = "Lo siento, ocurrió un error técnico."
                  if not self.conversation_history or "[ERROR]" not in self.conversation_history[-1].get("content",""):
                      self.conversation_history.append({"role": "assistant", "content": f"[ERROR] {error_message}"})
-                 audio_error = text_to_speech(error_message)
-                 if audio_error:
-                     await self._play_audio_bytes(audio_error)
-            except Exception as e_tts_error:
-                 logger.error(f"❌ Error reproduciendo mensaje de error TTS: {e_tts_error}")
+                 audio_para_reproducir = text_to_speech(error_message) # Sobrescribir con audio de error
+                 if not audio_para_reproducir:
+                      logger.error("❌ Falló incluso la generación de TTS para el mensaje de error genérico.")
+            except Exception as e_tts_error_fallback:
+                 logger.error(f"❌ Error generando TTS para mensaje de error genérico: {e_tts_error_fallback}")
+                 audio_para_reproducir = b"" # Asegurar que esté vacío si todo falla
+
+        # --- Bloque de Reproducción (Fuera del try/except de GPT/TTS) ---
+        # Este bloque se ejecuta siempre, incluso si hubo errores en GPT/TTS,
+        # para intentar reproducir al menos el mensaje de error si se pudo generar.
+        try:
+            # ### NUEVO ### Check de Latencia y Mensaje de Espera
+            play_hold_message = False
+            if last_final_ts is not None and not self.call_ended: # Añadir check de call_ended
+                current_time_before_play = self._now()
+                real_latency = current_time_before_play - last_final_ts
+                latency_threshold = LATENCY_THRESHOLD_FOR_HOLD_MESSAGE # Usar constante
+
+                ts_check_delay = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+                # Loguear sólo si es relevante (ej. > 3 segundos) para no saturar
+                if real_latency > 3.0:
+                     logger.info(f"⏱️ TS:[{ts_check_delay}] PROCESS_GPT Latency Check: Diff={real_latency:.3f}s, Threshold={latency_threshold}s")
+
+                if real_latency > latency_threshold:
+                    if self.hold_audio_mulaw_bytes:
+                        logger.info(f"⚠️ TS:[{ts_check_delay}] Real latency ({real_latency:.2f}s) EXCEEDED threshold ({latency_threshold}s). Playing hold message.")
+                        play_hold_message = True
+                    else:
+                        logger.warning(f"⚠️ TS:[{ts_check_delay}] Real latency ({real_latency:.2f}s) exceeded threshold, but hold audio is not loaded.")
+            # ### FIN Check Latencia ###
+
+            # Reproducir mensaje de espera si es necesario y la llamada sigue activa
+            if play_hold_message and not self.call_ended:
+                ts_hold_play_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+                logger.debug(f"⏱️ TS:[{ts_hold_play_start}] PROCESS_GPT Playing hold audio...")
+                await self._play_audio_bytes(self.hold_audio_mulaw_bytes)
+                # No añadir sleep aquí, _play_audio_bytes ya espera
+                ts_hold_play_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+                logger.debug(f"⏱️ TS:[{ts_hold_play_end}] PROCESS_GPT Hold audio finished.")
+            # ### FIN Reproducción Espera ###
+
+            # Reproducir la respuesta principal (o el audio de error si se generó) si la llamada sigue activa
+            if audio_para_reproducir and not self.call_ended:
+                # Loguear qué se va a reproducir (respuesta normal o de error)
+                if "[ERROR]" in self.conversation_history[-1].get("content", ""):
+                    logger.warning(f"🔊 Procediendo a reproducir audio de ERROR ({len(audio_para_reproducir)} bytes)...")
+                else:
+                    logger.info(f"🔊 Procediendo a reproducir audio principal ({len(audio_para_reproducir)} bytes)...")
+
+                await self._play_audio_bytes(audio_para_reproducir)
+
+                # --- Corte inmediato si la frase ya es una despedida (después de reproducir) ---
+                if not self.call_ended: # Verificar de nuevo por si _play_audio_bytes fue interrumpido
+                    despedidas = ("hasta luego", "placer atenderle", "gracias por comunicarse")
+                    # Usamos 'respuesta_gpt' porque 'audio_para_reproducir' podría ser de error
+                    if isinstance(respuesta_gpt, str) and any(p in respuesta_gpt.lower() for p in despedidas):
+                        logger.info("👋 Detectada despedida de la IA después de reproducir.")
+                        await asyncio.sleep(0.2) # Deja salir el último chunk de audio
+                        await self._shutdown(reason="Assistant farewell")
+                        # No necesitamos return aquí, el wrapper se encargará
+            elif not self.call_ended:
+                # Esto sólo ocurriría si GPT/TTS fallaron Y el TTS de error también falló
+                logger.error("🔇 No se generó audio principal ni de error para reproducir.")
+
+        except asyncio.CancelledError:
+             # Si la tarea se cancela mientras se reproduce el audio (ej. shutdown)
+             logger.info("🚫 Reproducción de audio cancelada.")
+        except Exception as e_play_block:
+             logger.error(f"❌ Error durante el bloque de reproducción de audio: {e_play_block}", exc_info=True)
+             # Considerar un shutdown si falla gravemente la reproducción?
+             # await self._shutdown(reason="Audio Playback Error")
+
         finally:
+             # El finally del wrapper se encarga de reactivar STT
              ts_process_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
              logger.debug(f"⏱️ TS:[{ts_process_end}] PROCESS_GPT END")
+
+
+
 
 
 
