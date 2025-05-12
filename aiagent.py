@@ -18,6 +18,7 @@ from time import perf_counter
 from typing import Dict, List
 from decouple import config
 from openai import OpenAI
+from utils import parse_relative_date
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
 LOG_LEVEL = logging.DEBUG          # ⇢ INFO en prod.
@@ -89,6 +90,35 @@ MAIN_TOOLS = [
             },
         },
     },
+
+
+    {
+        "type": "function",
+        "function": {
+            "name": "parse_relative_date",
+            "description": "Calcula la fecha exacta (YYYY-MM-DD) para expresiones de tiempo relativas como 'mañana', 'próximo lunes', 'en 3 días', 'de hoy en ocho'. Usa la fecha actual como referencia.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date_string": {
+                        "type": "string",
+                        "description": "La expresión de fecha relativa en español, por ejemplo: 'mañana', 'el martes de la próxima semana', 'de hoy en 8'."
+                     }
+                },
+                "required": ["date_string"]
+            }
+        }
+    },
+
+
+
+
+
+
+
+
+
+
     {
         "type": "function",
         "function": {
@@ -183,6 +213,11 @@ def handle_tool_execution(tc) -> Dict:
     try:
         if fn == "read_sheet_data":
             return {"data": get_consultorio_data_from_cache()}
+        
+        if fn == "parse_relative_date":
+            # Llama a la función de utils.py y devuelve su resultado (que ya es un dict)
+            return parse_relative_date(**args)
+
 
         if fn == "find_next_available_slot":
             return {"slot": find_next_available_slot(**args)}
