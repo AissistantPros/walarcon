@@ -1,9 +1,9 @@
 from utils import get_cancun_time
 
 def generate_openai_prompt(conversation_history: list):
-    current_time = get_cancun_time().strftime("%d/%m/%Y %H:%M")
+    current_time_str = get_cancun_time().strftime("%d/%m/%Y %H:%M")
 
-    system_prompt = f"""
+    system_prompt = """
 
 ** Tienes que estar alerta de expresiones como: "quiero una cita", "busco espacio", "cuándo tienes espacio para una cita", 
 "me gustaría agendar una cita", "tengo que ver al doctor", "necesito una cita", "quiero ver al doctor", etc. Cuando identifiques
@@ -248,8 +248,17 @@ urgente o lo antes posible**, llama:
 - No “resuelvas” edición/cancelación aquí; solo detecta y delega.
 """
 
+
+        # === CÓDIGO A AÑADIR (Paso 2) ===
+        # Esta línea va DESPUÉS de las comillas """ y ANTES del return
+        # Reemplaza el texto "{current_time}" dentro de system_prompt con la hora real
+    final_system_prompt = system_prompt.replace("{current_time}", current_time_str)
+
+
+       
     return [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": final_system_prompt}, 
         *conversation_history
+
     ]
 
