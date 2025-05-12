@@ -460,7 +460,7 @@ class TwilioWebSocketManager:
                 self.last_final_stt_timestamp = None # ### NUEVO RESET AQUÍ ###
                 return
 
-            logger.info(f"📦 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Preparado (acumulados: {num_finales}): '{mensaje_acumulado}'")
+            ##logger.info(f"📦 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Preparado (acumulados: {num_finales}): '{mensaje_acumulado}'")
 
             # ### MODIFICADO ### Capturar el timestamp ANTES de limpiar
             final_ts_for_this_batch = self.last_final_stt_timestamp
@@ -472,12 +472,12 @@ class TwilioWebSocketManager:
 
             # 2. Activar modo "ignorar STT"
             self.ignorar_stt = True
-            logger.info(f"🚫 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Activado: Ignorando STT.")
+            ##logger.info(f"🚫 TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Activado: Ignorando STT.")
 
             # Cancelar timer de pausa por si acaso
             if self.temporizador_pausa and not self.temporizador_pausa.done():
                 self.temporizador_pausa.cancel()
-                logger.debug("   PROCEDER_ENVIAR: Cancelado timer de pausa residual.")
+                ##logger.debug("   PROCEDER_ENVIAR: Cancelado timer de pausa residual.")
                 self.temporizador_pausa = None
 
             # 3. Ejecutar envío (GPT o Log)
@@ -521,7 +521,7 @@ class TwilioWebSocketManager:
     async def process_gpt_and_reactivate_stt(self, texto_para_gpt: str, last_final_ts: Optional[float]):
         """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
         ts_wrapper_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        logger.debug(f"⏱️ TS:[{ts_wrapper_start}] PROCESS_GPT_WRAPPER START")
+        ##logger.debug(f"⏱️ TS:[{ts_wrapper_start}] PROCESS_GPT_WRAPPER START")
         try:
              # ### MODIFICADO ### Pasar el timestamp
             await self.process_gpt_response(texto_para_gpt, last_final_ts)
@@ -529,7 +529,7 @@ class TwilioWebSocketManager:
              logger.error(f"❌ Error capturado dentro de process_gpt_and_reactivate_stt: {e}", exc_info=True)
         finally:
             ts_wrapper_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_GPT_WRAPPER Finalizando. Reactivando STT...")
+            ##logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_GPT_WRAPPER Finalizando. Reactivando STT...")
             await self._reactivar_stt_despues_de_envio()
 
 

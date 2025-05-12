@@ -226,7 +226,7 @@ def parse_relative_date(date_string: str) -> dict:
     try:
         now = get_cancun_time()
         # Settings clave: 'es' para español, 'future' para preferir fechas futuras
-        settings = {'PREFER_DATES_FROM': 'future', 'LANGUAGE': 'es'}
+        settings = {'PREFER_DATES_FROM': 'future', 'LANGUAGES': ['es']}
 
         # Usamos dateparser.parse con relative_base para mayor precisión
         parsed_dt = dateparser.parse(date_string, settings=settings)
