@@ -41,9 +41,9 @@ logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuev
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .43
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
-LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 3.5 # Umbral para mensaje de espera
+LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 4 # Umbral para mensaje de espera
 HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
 
 
@@ -596,7 +596,7 @@ class TwilioWebSocketManager:
             ts_gpt_call_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.debug(f"⏱️ TS:[{ts_gpt_call_start}] PROCESS_GPT Calling generate_openai_response_main...")
 
-            model_a_usar = config("CHATGPT_MODEL", default="gpt-4o-mini") # Usar config con fallback
+            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini") # Usar config con fallback
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             respuesta_gpt = await generate_openai_response_main(
@@ -857,10 +857,10 @@ class TwilioWebSocketManager:
             h = now.hour
             if 5 <= h < 12: return "Buenos días, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
             if 12 <= h < 19: return "Buenas tardes, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
-            return "Buenas noches, consultorio Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
+            return "Buenas noches, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
         except Exception as e_greet:
              logger.error(f"Error generando saludo: {e_greet}")
-             return "Consultorio Doctor Wilfrido Alarcón, ¿Cómo puedo ayudarle?" 
+             return "Consultorio del Doctor Wilfrido Alarcón, ¿Cómo puedo ayudarle?" 
 
 
 
