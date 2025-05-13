@@ -8,14 +8,14 @@ import os
 import json
 import logging
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import pytz
 from dotenv import load_dotenv
 from decouple import config
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from dateutil.parser import parse
-import dateparser
+import locale
 
 # Cargar variables de entorno
 load_dotenv()
@@ -211,52 +211,138 @@ def convert_utc_to_cancun(utc_str):
 # =========================================
 # NUEVA FUNCIÓN PARA FECHAS RELATIVAS
 # =========================================
-def parse_relative_date(date_string: str) -> dict:
+
+# Configurar locale a español para nombres de días/meses (puede requerir configuración en el servidor)
+# Intentamos configurarlo, si falla, usamos nombres en inglés como fallback
+try:
+    # Intenta con una configuración común para español de México en Linux/macOS
+    locale.setlocale(locale.LC_TIME, 'es_MX.UTF-8')
+except locale.Error:
+    try:
+        # Intenta con una configuración común para español genérico en Linux/macOS
+        locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+    except locale.Error:
+        try:
+             # Intenta con la configuración de Windows
+             locale.setlocale(locale.LC_TIME, 'Spanish_Mexico')
+        except locale.Error:
+            try:
+                # Intenta con español genérico de Windows
+                locale.setlocale(locale.LC_TIME, 'Spanish_Spain')
+            except locale.Error:
+                logger.warning("No se pudo configurar locale a español. Se usarán nombres de mes/día en inglés.")
+                # Si todo falla, no hacemos nada, usará el default del sistema (probablemente inglés)
+
+# --- Ayudante para formatear fechas ---
+def format_date_nicely(target_date: date, relative_time: str = None) -> str:
+    """Formatea una fecha a 'DíaDeLaSemana DD de Mes de AAAA' en español."""
+    try:
+        formatted = target_date.strftime("%A %d de %B de %Y").capitalize()
+        if relative_time == "mañana":
+            formatted += ", por la mañana"
+        elif relative_time == "tarde":
+            formatted += ", por la tarde"
+        return formatted
+    except Exception as e:
+        logger.error(f"Error formateando fecha {target_date}: {e}")
+        return target_date.strftime('%Y-%m-%d') # Fallback
+
+# === Función Calculadora (Meses Simplificados) ===
+def calculate_structured_date(relative_date: str = None, fixed_weekday: str = None, relative_time: str = None) -> dict:
     """
-    Convierte expresiones de fecha relativa ('mañana', 'próximo martes') a AAAA-MM-DD.
-    Intenta pasar el idioma directamente como argumento para diagnóstico.
+    Calcula una fecha objetivo basada en palabras clave relativas.
+    VERSION MEJORADA: Maneja más casos y lógica de "próximo día". Meses simplificados.
 
     Args:
-        date_string: La frase relativa del usuario.
+        relative_date (str, optional): 'hoy', 'mañana', ..., 'en un mes', 'en dos meses', etc.
+        fixed_weekday (str, optional): 'lunes', 'martes', ..., 'domingo'.
+        relative_time (str, optional): 'mañana' (am) o 'tarde' (pm).
 
     Returns:
-        Un diccionario: {'calculated_date': 'YYYY-MM-DD'} si tiene éxito,
-                       {'error': 'Mensaje de error'} si falla.
+        dict: {'calculated_date_str': 'YYYY-MM-DD', 'readable_description': ..., 'target_hour_pref': ...}
+              o {'error': 'Mensaje de error'}
     """
-    logger.info(f"📅 Intentando parsear fecha relativa: '{date_string}'")
+    logger.info(f"📅 Calculando fecha estructurada: relative='{relative_date}', weekday='{fixed_weekday}', time='{relative_time}'")
     try:
-        # Asegúrate que la función get_cancun_time() esté definida y funcione
         now = get_cancun_time()
+        today = now.date()
+        base_date = today
 
-        # Settings clave: solo 'future' aquí por ahora para la prueba
-        settings = {'PREFER_DATES_FROM': 'future'}
-        logger.debug(f"DEBUG: Usando diccionario settings: {settings}") # Log para depurar
+        # Palabras clave normalizadas
+        relative_date_keyword = (relative_date or "hoy").lower().strip()
+        fixed_weekday_keyword = (fixed_weekday or "").lower().strip()
+        time_keyword = (relative_time or "").lower().strip()
 
-        # Intentamos pasar el idioma como argumento directo 'languages'
-        logger.debug("DEBUG: Llamando a dateparser.parse con languages=['es'] y settings...")
-        parsed_dt = dateparser.parse(date_string, languages=['es'], settings=settings) # <--- Cambio diagnóstico aquí
-        logger.debug(f"DEBUG: Llamada a dateparser.parse parece haber funcionado. Tipo resultado: {type(parsed_dt)}") # Log para depurar
+        # Diccionario para días de la semana
+        weekdays_es = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
+        target_weekday_num = weekdays_es.get(fixed_weekday_keyword) if fixed_weekday_keyword else None
 
-        if parsed_dt:
-            # Convertir a fecha de Cancún (si no lo está ya) y quitar la hora
-            parsed_date_cancun = parsed_dt.astimezone(pytz.timezone("America/Cancun")).date()
-            now_date_cancun = now.date()
+        # --- 1. Calcular Base Date según relative_date ---
+        is_relative_week = False
 
-            # Verificar que no sea una fecha pasada (a menos que sea hoy)
-            if parsed_date_cancun >= now_date_cancun:
-                calculated_date_str = parsed_date_cancun.strftime('%Y-%m-%d')
-                logger.info(f"✅ Fecha relativa '{date_string}' parseada como: {calculated_date_str}")
-                return {'calculated_date': calculated_date_str}
-            else:
-                logger.warning(f"⚠️ Fecha relativa '{date_string}' parseada a una fecha pasada ({parsed_date_cancun}), descartando.")
-                return {'error': f"La fecha '{date_string}' corresponde al pasado ({parsed_date_cancun})."}
-        else:
-            # Si dateparser.parse devuelve None (no pudo entender la fecha)
-            logger.warning(f"❓ No se pudo parsear la fecha relativa: '{date_string}'")
-            return {'error': f"No entendí la fecha '{date_string}'. ¿Puedes decirla de otra forma?"}
+        if relative_date_keyword == "hoy":
+            base_date = today
+        elif relative_date_keyword == "mañana":
+            base_date = today + timedelta(days=1)
+        elif relative_date_keyword == "pasado mañana":
+            base_date = today + timedelta(days=2)
+        elif relative_date_keyword == "hoy en ocho":
+            base_date = today + timedelta(days=7)
+        elif relative_date_keyword == "de mañana en ocho":
+             base_date = today + timedelta(days=8)
+        elif relative_date_keyword == "en 15 dias":
+             base_date = today + timedelta(days=15)
+        # === INICIO: CAMBIO PARA MESES (SIMPLIFICADO) ===
+        elif relative_date_keyword == "en un mes":
+             base_date = today + timedelta(days=30) # Simplificado a 30 días
+        elif relative_date_keyword == "en dos meses":
+             base_date = today + timedelta(days=60) # Simplificado a 60 días
+        elif relative_date_keyword == "en tres meses":
+             base_date = today + timedelta(days=90) # Simplificado a 90 días
+        # === FIN: CAMBIO PARA MESES ===
+        elif "semana" in relative_date_keyword:
+            is_relative_week = True
+            days_until_monday = (0 - today.weekday() + 7) % 7
+            if days_until_monday == 0:
+                days_until_monday = 7
+            base_date = today + timedelta(days=days_until_monday)
+        elif relative_date_keyword not in ["hoy"]:
+             if not fixed_weekday_keyword:
+                  return {"error": f"No reconozco el término relativo '{relative_date}'. Intenta con 'hoy', 'mañana', 'próxima semana', etc."}
+
+        target_date = base_date
+
+        # --- 2. Ajustar por fixed_weekday si existe ---
+        if target_weekday_num is not None:
+            days_ahead = (target_weekday_num - base_date.weekday() + 7) % 7
+            if days_ahead == 0 and (not is_relative_week or base_date.weekday() == target_weekday_num) :
+                 days_ahead = 7
+            target_date = base_date + timedelta(days=days_ahead)
+
+        # --- 3. Validar que la fecha final no sea pasada ---
+        if target_date < today:
+             logger.warning(f"Cálculo final resultó en fecha pasada ({target_date}), usando 'today' ({today}) como fallback.")
+             target_date = today
+
+        # --- 4. Determinar preferencia de hora ---
+        target_hour_pref = "09:30"
+        if time_keyword == "tarde":
+            target_hour_pref = "12:30"
+        elif time_keyword == "mañana":
+             target_hour_pref = "09:30"
+
+        # --- 5. Formatear resultados ---
+        calculated_date_str = target_date.strftime('%Y-%m-%d')
+        readable_description = format_date_nicely(target_date, time_keyword or None)
+
+        logger.info(f"✅ Fecha calculada: {calculated_date_str}, Desc: '{readable_description}', Hora Pref: {target_hour_pref}")
+
+        return {
+            "calculated_date_str": calculated_date_str,
+            "readable_description": readable_description,
+            "target_hour_pref": target_hour_pref
+        }
 
     except Exception as e:
-        # Captura cualquier otro error durante el parseo o procesamiento
-        logger.error(f"❌ Error parseando fecha relativa '{date_string}': {str(e)}", exc_info=True)
-        # Devuelve un diccionario de error genérico para la IA
-        return {'error': f"Ocurrió un error técnico al procesar la fecha '{date_string}'."}
+        logger.error(f"❌ Error calculando fecha estructurada: {str(e)}", exc_info=True)
+        return {"error": "Ocurrió un error técnico al calcular la fecha."}

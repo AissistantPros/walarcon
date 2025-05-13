@@ -18,7 +18,7 @@ from time import perf_counter
 from typing import Dict, List
 from decouple import config
 from openai import OpenAI
-from utils import parse_relative_date
+from utils import calculate_structured_date
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
 LOG_LEVEL = logging.DEBUG          # ⇢ INFO en prod.
@@ -92,23 +92,42 @@ MAIN_TOOLS = [
     },
 
 
-    {
-        "type": "function",
-        "function": {
-            "name": "parse_relative_date",
-            "description": "Calcula la fecha exacta (YYYY-MM-DD) para expresiones de tiempo relativas como 'mañana', 'próximo lunes', 'en 3 días', 'de hoy en ocho'. Usa la fecha actual como referencia.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "date_string": {
-                        "type": "string",
-                        "description": "La expresión de fecha relativa en español, por ejemplo: 'mañana', 'el martes de la próxima semana', 'de hoy en 8'."
-                     }
+  
+
+
+
+
+
+
+{
+    "type": "function",
+    "function": {
+        "name": "calculate_structured_date",
+        "description": "Calcula una fecha objetivo (YYYY-MM-DD), una descripción legible y una preferencia de hora ('09:30' o '12:30') basada en palabras clave relativas de tiempo/día. Útil para 'mañana', 'próxima semana', 'el martes por la tarde', 'de hoy en ocho', 'en un mes', etc.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "relative_date": {
+                    "type": "string",
+                    "description": "Keyword de tiempo relativo principal (ej: 'mañana', 'proxima semana', 'hoy en ocho', 'en un mes').",
+                    # Estas 'enum' ayudan a la IA pero podrían ser restrictivas. Se pueden quitar si dan problemas.
+                    "enum": ["hoy", "mañana", "pasado mañana", "proxima semana", "siguiente semana", "semana que entra", "hoy en ocho", "de mañana en ocho", "en 15 dias", "en un mes", "en dos meses", "en tres meses"]
                 },
-                "required": ["date_string"]
-            }
+                "fixed_weekday": {
+                    "type": "string",
+                    "description": "Keyword para día específico de la semana (ej: 'lunes', 'martes').",
+                    "enum": ["lunes", "martes", "miércoles", "miercoles", "jueves", "viernes", "sábado", "sabado", "domingo"]
+                },
+                "relative_time": {
+                    "type": "string",
+                    "description": "Keyword para preferencia de hora del día ('mañana' o 'tarde').",
+                    "enum": ["mañana", "tarde"]
+                }
+            },
+            "required": [] # Ningún parámetro es obligatorio para llamar a la función
         }
-    },
+    }
+},
 
 
 
@@ -214,9 +233,18 @@ def handle_tool_execution(tc) -> Dict:
         if fn == "read_sheet_data":
             return {"data": get_consultorio_data_from_cache()}
         
-        if fn == "parse_relative_date":
-            # Llama a la función de utils.py y devuelve su resultado (que ya es un dict)
-            return parse_relative_date(**args)
+      
+
+
+
+
+        if fn == "calculate_structured_date":
+            # Llama a la nueva función de utils.py
+            return calculate_structured_date(**args)
+       
+
+
+
 
 
         if fn == "find_next_available_slot":
