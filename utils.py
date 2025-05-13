@@ -212,32 +212,58 @@ def convert_utc_to_cancun(utc_str):
 # NUEVA FUNCIÓN PARA FECHAS RELATIVAS
 # =========================================
 
-# Configurar locale a español para nombres de días/meses (puede requerir configuración en el servidor)
-# Intentamos configurarlo, si falla, usamos nombres en inglés como fallback
-try:
-    # Intenta con una configuración común para español de México en Linux/macOS
-    locale.setlocale(locale.LC_TIME, 'es_MX.UTF-8')
-except locale.Error:
-    try:
-        # Intenta con una configuración común para español genérico en Linux/macOS
-        locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-    except locale.Error:
-        try:
-             # Intenta con la configuración de Windows
-             locale.setlocale(locale.LC_TIME, 'Spanish_Mexico')
-        except locale.Error:
-            try:
-                # Intenta con español genérico de Windows
-                locale.setlocale(locale.LC_TIME, 'Spanish_Spain')
-            except locale.Error:
-                logger.warning("No se pudo configurar locale a español. Se usarán nombres de mes/día en inglés.")
-                # Si todo falla, no hacemos nada, usará el default del sistema (probablemente inglés)
+# --- Mapeos para traducción de fecha a español ---
+# (Puedes colocar estos mapeos al inicio del archivo utils.py o justo antes de la función)
+DAYS_EN_TO_ES = {
+    "Monday": "Lunes",
+    "Tuesday": "Martes",
+    "Wednesday": "Miércoles",
+    "Thursday": "Jueves",
+    "Friday": "Viernes",
+    "Saturday": "Sábado",
+    "Sunday": "Domingo",
+}
 
-# --- Ayudante para formatear fechas ---
-def format_date_nicely(target_date: date, relative_time: str = None) -> str:
-    """Formatea una fecha a 'DíaDeLaSemana DD de Mes de AAAA' en español."""
+MONTHS_EN_TO_ES = {
+    "January": "Enero",
+    "February": "Febrero",
+    "March": "Marzo",
+    "April": "Abril",
+    "May": "Mayo",
+    "June": "Junio",
+    "July": "Julio",
+    "August": "Agosto",
+    "September": "Septiembre",
+    "October": "Octubre",
+    "November": "Noviembre",
+    "December": "Diciembre",
+}
+
+def format_date_nicely(target_date: date, relative_time: str = None, weekday_override: str = None) -> str:
+    """
+    Formatea una fecha a 'DíaDeLaSemana DD de Mes de AAAA' en español.
+    Puede incluir la parte del día y un override para el día de la semana si hay conflicto.
+    Utiliza mapeos internos para asegurar nombres en español independientemente del locale.
+    """
     try:
-        formatted = target_date.strftime("%A %d de %B de %Y").capitalize()
+        # Obtener el nombre del día en inglés usando strftime como clave
+        day_name_en = target_date.strftime("%A")
+        # Traducir usando el mapeo, con fallback al inglés capitalizado si no se encuentra (poco probable)
+        day_name_str = DAYS_EN_TO_ES.get(day_name_en, day_name_en.capitalize())
+
+        if weekday_override:  # Si hay un conflicto y queremos mostrar el día que el usuario dijo
+            # Asumimos que weekday_override ya viene en español y capitalizado si es necesario,
+            # o lo capitalizamos aquí. Si weekday_override viene de fixed_weekday_keyword,
+            # ese keyword ya debería estar en español (ej. 'martes').
+            day_name_str = weekday_override.capitalize()
+
+        # Obtener el nombre del mes en inglés usando strftime como clave
+        month_name_en = target_date.strftime("%B")
+        # Traducir usando el mapeo, con fallback al inglés capitalizado
+        month_name_str = MONTHS_EN_TO_ES.get(month_name_en, month_name_en.capitalize())
+        
+        formatted = f"{day_name_str} {target_date.day} de {month_name_str} de {target_date.year}"
+
         if relative_time == "mañana":
             formatted += ", por la mañana"
         elif relative_time == "tarde":
@@ -245,104 +271,208 @@ def format_date_nicely(target_date: date, relative_time: str = None) -> str:
         return formatted
     except Exception as e:
         logger.error(f"Error formateando fecha {target_date}: {e}")
-        return target_date.strftime('%Y-%m-%d') # Fallback
+        # Fallback a formato ISO si todo lo demás falla
+        return target_date.strftime('%Y-%m-%d')
 
-# === Función Calculadora (Meses Simplificados) ===
-def calculate_structured_date(relative_date: str = None, fixed_weekday: str = None, relative_time: str = None) -> dict:
+
+
+
+
+# === Función Calculadora REFORZADA ===
+def calculate_structured_date(
+    text_input: str = None,
+    day: int = None,
+    month: (str | int) = None,
+    year: int = None,
+    fixed_weekday: str = None,
+    relative_time: str = None
+) -> dict:
     """
-    Calcula una fecha objetivo basada en palabras clave relativas.
-    VERSION MEJORADA: Maneja más casos y lógica de "próximo día". Meses simplificados.
+    Calcula una fecha objetivo basada en componentes de fecha o texto relativo.
+    Prioriza componentes numéricos (day, month, year) si se proporcionan.
+    Maneja discrepancias entre 'fixed_weekday' y la fecha numérica.
 
     Args:
-        relative_date (str, optional): 'hoy', 'mañana', ..., 'en un mes', 'en dos meses', etc.
+        text_input (str, optional): Frase relativa como 'hoy', 'mañana', 'próxima semana'.
+                                     Usado si day, month, year no son suficientes.
+        day (int, optional): Número del día (1-31).
+        month (str|int, optional): Nombre del mes ('enero', 'febrero') o número (1-12).
+        year (int, optional): Año (ej. 2025).
         fixed_weekday (str, optional): 'lunes', 'martes', ..., 'domingo'.
         relative_time (str, optional): 'mañana' (am) o 'tarde' (pm).
 
     Returns:
-        dict: {'calculated_date_str': 'YYYY-MM-DD', 'readable_description': ..., 'target_hour_pref': ...}
+        dict: {'calculated_date_str': 'YYYY-MM-DD',
+               'readable_description': 'Martes 20 de mayo de 2025, por la tarde',
+               'target_hour_pref': 'HH:MM',
+               'weekday_conflict_note': 'Nota sobre discrepancia de día (opcional)'}
               o {'error': 'Mensaje de error'}
     """
-    logger.info(f"📅 Calculando fecha estructurada: relative='{relative_date}', weekday='{fixed_weekday}', time='{relative_time}'")
+    logger.info(f"📅 Calculando fecha: text='{text_input}', d={day},m={month},y={year}, wd='{fixed_weekday}', rt='{relative_time}'")
     try:
         now = get_cancun_time()
         today = now.date()
-        base_date = today
-
-        # Palabras clave normalizadas
-        relative_date_keyword = (relative_date or "hoy").lower().strip()
+        
+        # Normalizar inputs
+        text_input_keyword = (text_input or "").lower().strip()
         fixed_weekday_keyword = (fixed_weekday or "").lower().strip()
         time_keyword = (relative_time or "").lower().strip()
 
-        # Diccionario para días de la semana
-        weekdays_es = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
-        target_weekday_num = weekdays_es.get(fixed_weekday_keyword) if fixed_weekday_keyword else None
+        # Mapeo de meses y días
+        meses_es_a_num = {
+            "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+            "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
+        }
+        weekdays_es_to_num = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
+        num_to_weekdays_es = {v: k.capitalize() for k, v in weekdays_es_to_num.items() if k not in ["miercoles", "sabado"]} # Para notas
 
-        # --- 1. Calcular Base Date según relative_date ---
-        is_relative_week = False
+        target_date = None
+        weekday_conflict_note = None
+        
+        # --- Prioridad 1: Usar day, month, year si están completos ---
+        current_year = today.year
+        calculated_year = year or current_year
+        
+        calculated_month_num = None
+        if isinstance(month, int):
+            calculated_month_num = month
+        elif isinstance(month, str) and month.lower() in meses_es_a_num:
+            calculated_month_num = meses_es_a_num[month.lower()]
+        elif month is None and day is not None: # Si solo se da día, asumir mes actual
+            calculated_month_num = today.month
+            if year is None: # Y año actual si no se dio año
+                 calculated_year = today.year
 
-        if relative_date_keyword == "hoy":
-            base_date = today
-        elif relative_date_keyword == "mañana":
-            base_date = today + timedelta(days=1)
-        elif relative_date_keyword == "pasado mañana":
-            base_date = today + timedelta(days=2)
-        elif relative_date_keyword == "hoy en ocho":
-            base_date = today + timedelta(days=7)
-        elif relative_date_keyword == "de mañana en ocho":
-             base_date = today + timedelta(days=8)
-        elif relative_date_keyword == "en 15 dias":
-             base_date = today + timedelta(days=15)
-        # === INICIO: CAMBIO PARA MESES (SIMPLIFICADO) ===
-        elif relative_date_keyword == "en un mes":
-             base_date = today + timedelta(days=30) # Simplificado a 30 días
-        elif relative_date_keyword == "en dos meses":
-             base_date = today + timedelta(days=60) # Simplificado a 60 días
-        elif relative_date_keyword == "en tres meses":
-             base_date = today + timedelta(days=90) # Simplificado a 90 días
-        # === FIN: CAMBIO PARA MESES ===
-        elif "semana" in relative_date_keyword:
-            is_relative_week = True
-            days_until_monday = (0 - today.weekday() + 7) % 7
-            if days_until_monday == 0:
-                days_until_monday = 7
-            base_date = today + timedelta(days=days_until_monday)
-        elif relative_date_keyword not in ["hoy"]:
-             if not fixed_weekday_keyword:
-                  return {"error": f"No reconozco el término relativo '{relative_date}'. Intenta con 'hoy', 'mañana', 'próxima semana', etc."}
+        if day is not None and calculated_month_num is not None:
+            try:
+                # Si el año es menor que el actual, y el mes ya pasó o es el actual y el día ya pasó, asumir el próximo año
+                if calculated_year < current_year or \
+                   (calculated_year == current_year and calculated_month_num < today.month) or \
+                   (calculated_year == current_year and calculated_month_num == today.month and day < today.day):
+                    if year is None: # Solo incrementa el año si no fue fijado explícitamente por el usuario
+                        calculated_year += 1
+                        logger.info(f"Fecha {day}/{calculated_month_num}/{year or current_year} interpretada como del próximo año: {calculated_year}")
 
-        target_date = base_date
+                target_date = date(calculated_year, calculated_month_num, day)
 
-        # --- 2. Ajustar por fixed_weekday si existe ---
-        if target_weekday_num is not None:
-            days_ahead = (target_weekday_num - base_date.weekday() + 7) % 7
-            if days_ahead == 0 and (not is_relative_week or base_date.weekday() == target_weekday_num) :
-                 days_ahead = 7
-            target_date = base_date + timedelta(days=days_ahead)
+                # Validar discrepancia con fixed_weekday
+                if fixed_weekday_keyword and fixed_weekday_keyword in weekdays_es_to_num:
+                    target_weekday_num_from_keyword = weekdays_es_to_num[fixed_weekday_keyword]
+                    actual_weekday_num_of_date = target_date.weekday()
+                    if actual_weekday_num_of_date != target_weekday_num_from_keyword:
+                        actual_day_name = target_date.strftime("%A").capitalize() # Usará locale (inglés si falla)
+                        try: # Intentar obtener nombre en español para la nota
+                            actual_day_name = format_date_nicely(target_date).split(' ')[0]
+                        except: pass
+                        
+                        weekday_conflict_note = (
+                            f"Mencionó {fixed_weekday_keyword.capitalize()}, pero el "
+                            f"{target_date.day} de {target_date.strftime('%B').capitalize()} de {target_date.year} "
+                            f"es {actual_day_name}."
+                        )
+                        # Por ahora, priorizamos la fecha numérica. La IA usará esta nota.
+                        logger.warning(f"Discrepancia de día: {weekday_conflict_note}")
 
-        # --- 3. Validar que la fecha final no sea pasada ---
+            except ValueError: # Día inválido para el mes/año (ej. 30 de Feb)
+                return {"error": f"La fecha {day}/{month}/{calculated_year} no es válida."}
+        
+        # --- Prioridad 2: Usar text_input para frases relativas si no se formó una fecha numérica ---
+        if target_date is None:
+            base_date_for_relative = today
+            is_relative_week = False
+
+            if not text_input_keyword and fixed_weekday_keyword: # Solo día de la semana
+                 text_input_keyword = "hoy" # Para que la lógica de 'próximo día' funcione desde hoy
+
+            if text_input_keyword == "hoy":
+                target_date = today
+            elif text_input_keyword == "mañana":
+                target_date = today + timedelta(days=1)
+            elif text_input_keyword == "pasado mañana":
+                target_date = today + timedelta(days=2)
+            elif text_input_keyword == "hoy en ocho":
+                target_date = today + timedelta(days=7)
+            elif text_input_keyword == "de mañana en ocho":
+                target_date = today + timedelta(days=8)
+            elif text_input_keyword == "en 15 dias":
+                target_date = today + timedelta(days=15)
+            elif text_input_keyword == "en un mes":
+                target_date = today + timedelta(days=30)
+            elif text_input_keyword == "en dos meses":
+                target_date = today + timedelta(days=60)
+            elif text_input_keyword == "en tres meses":
+                target_date = today + timedelta(days=90)
+            elif "semana" in text_input_keyword: # "proxima semana", "siguiente semana", etc.
+                is_relative_week = True
+                days_until_monday = (0 - today.weekday() + 7) % 7
+                if days_until_monday == 0: days_until_monday = 7
+                base_date_for_relative = today + timedelta(days=days_until_monday)
+                target_date = base_date_for_relative # Asignar a target_date
+            elif not text_input_keyword and not fixed_weekday_keyword: # No se dio nada útil
+                return {"error": "No especificó una fecha o término relativo que pueda entender."}
+            elif not text_input_keyword and fixed_weekday_keyword: # Solo se dio un dia de semana, base es hoy
+                 target_date = today
+            else: # Frase no reconocida en text_input
+                return {"error": f"No reconozco el término relativo '{text_input}'. Intenta con 'hoy', 'mañana', 'próxima semana', o una fecha específica."}
+
+            # Ajustar por fixed_weekday si se usó text_input y se dio fixed_weekday
+            # (ej. text_input="proxima semana", fixed_weekday="martes")
+            if fixed_weekday_keyword and fixed_weekday_keyword in weekdays_es_to_num:
+                # Usamos target_date (que ya podría ser el lunes de la prox sem) como base
+                current_base_for_weekday = target_date 
+                target_weekday_num_from_keyword = weekdays_es_to_num[fixed_weekday_keyword]
+                days_ahead = (target_weekday_num_from_keyword - current_base_for_weekday.weekday() + 7) % 7
+                
+                # Si el día calculado es el mismo que la base Y NO era una referencia a "próxima semana"
+                # O si es una referencia a "próxima semana" y el día base ya es el día deseado (ej. lunes de prox sem, y se pide lunes)
+                if days_ahead == 0:
+                    # Para "el [día]" o "próximo [día]", si cae hoy, queremos el de la sig. semana.
+                    # Para "[día] de la próxima semana", si el cálculo ya dio ese día, no sumar 7.
+                    if not is_relative_week or (is_relative_week and current_base_for_weekday.weekday() == target_weekday_num_from_keyword):
+                         days_ahead = 7
+                target_date = current_base_for_weekday + timedelta(days=days_ahead)
+
+        # --- Validación Final: Asegurar que la fecha no sea pasada ---
         if target_date < today:
-             logger.warning(f"Cálculo final resultó en fecha pasada ({target_date}), usando 'today' ({today}) como fallback.")
-             target_date = today
+            # Si después de todos los cálculos la fecha es pasada (ej. "el lunes" y hoy es viernes)
+            # y no era una fecha numérica específica que ya se ajustó para el futuro.
+            # Intentamos avanzar 7 días como última medida si es un día de semana.
+            if fixed_weekday_keyword and not (day and month): # Si no venía de una fecha D/M/A explícita
+                 logger.warning(f"Fecha calculada ({target_date}) era pasada, intentando +7 días.")
+                 target_date += timedelta(days=7)
+                 if target_date < today: # Aún pasada, error.
+                      return {"error": f"La fecha calculada ({target_date.strftime('%Y-%m-%d')}) sigue siendo en el pasado."}
+            else: # Si era fecha D/M/A o no se puede ajustar más
+                 return {"error": f"La fecha calculada ({target_date.strftime('%Y-%m-%d')}) es en el pasado."}
 
-        # --- 4. Determinar preferencia de hora ---
-        target_hour_pref = "09:30"
+
+        # --- Determinar preferencia de hora ---
+        target_hour_pref = "09:30" # Default
         if time_keyword == "tarde":
             target_hour_pref = "12:30"
         elif time_keyword == "mañana":
-             target_hour_pref = "09:30"
+            target_hour_pref = "09:30"
 
-        # --- 5. Formatear resultados ---
+        # --- Formatear resultados ---
         calculated_date_str = target_date.strftime('%Y-%m-%d')
-        readable_description = format_date_nicely(target_date, time_keyword or None)
+        # Pasamos el fixed_weekday_keyword original para que la descripción use el día que dijo el usuario si hay conflicto
+        readable_description = format_date_nicely(target_date, time_keyword or None, 
+                                                 weekday_override=fixed_weekday_keyword if weekday_conflict_note else None)
 
-        logger.info(f"✅ Fecha calculada: {calculated_date_str}, Desc: '{readable_description}', Hora Pref: {target_hour_pref}")
+        logger.info(f"✅ Fecha calculada: {calculated_date_str}, Desc: '{readable_description}', Hora Pref: {target_hour_pref}, Conflicto: {weekday_conflict_note}")
 
-        return {
+        response = {
             "calculated_date_str": calculated_date_str,
             "readable_description": readable_description,
             "target_hour_pref": target_hour_pref
         }
+        if weekday_conflict_note:
+            response["weekday_conflict_note"] = weekday_conflict_note
+        
+        return response
 
     except Exception as e:
         logger.error(f"❌ Error calculando fecha estructurada: {str(e)}", exc_info=True)
         return {"error": "Ocurrió un error técnico al calcular la fecha."}
+
+# --- Fin de la función ---

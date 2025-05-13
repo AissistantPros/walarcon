@@ -99,35 +99,45 @@ MAIN_TOOLS = [
 
 
 
-{
-    "type": "function",
-    "function": {
-        "name": "calculate_structured_date",
-        "description": "Calcula una fecha objetivo (YYYY-MM-DD), una descripción legible y una preferencia de hora ('09:30' o '12:30') basada en palabras clave relativas de tiempo/día. Útil para 'mañana', 'próxima semana', 'el martes por la tarde', 'de hoy en ocho', 'en un mes', etc.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "relative_date": {
-                    "type": "string",
-                    "description": "Keyword de tiempo relativo principal (ej: 'mañana', 'proxima semana', 'hoy en ocho', 'en un mes').",
-                    # Estas 'enum' ayudan a la IA pero podrían ser restrictivas. Se pueden quitar si dan problemas.
-                    "enum": ["hoy", "mañana", "pasado mañana", "proxima semana", "siguiente semana", "semana que entra", "hoy en ocho", "de mañana en ocho", "en 15 dias", "en un mes", "en dos meses", "en tres meses"]
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate_structured_date",
+            "description": "Calcula una fecha objetivo (YYYY-MM-DD), una descripción legible y una preferencia de hora ('09:30' para AM, '12:30' para PM) basada en componentes de fecha específicos o texto relativo. Usar para interpretar frases como 'mañana', 'próxima semana', 'el 15 de agosto', 'martes por la tarde', etc.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text_input": {
+                        "type": "string",
+                        "description": "Frase de fecha relativa o específica proporcionada por el usuario (ej: 'mañana', 'próxima semana', 'de hoy en ocho', 'el 15 de mayo', 'martes de la siguiente semana a las 4'). Usado si día, mes y año no se especifican completamente o para dar contexto."
+                    },
+                    "day": {
+                        "type": "integer",
+                        "description": "Número del día del mes (ej. 15)."
+                    },
+                    "month": {
+                        "type": "string", # La función Python maneja str (nombre o número) o int. JSON usa string aquí.
+                        "description": "Mes como número (ej. '8' para agosto) o nombre (ej. 'agosto')."
+                    },
+                    "year": {
+                        "type": "integer",
+                        "description": "Año en formato de cuatro dígitos (ej. 2025)."
+                    },
+                    "fixed_weekday": {
+                        "type": "string",
+                        "description": "Día específico de la semana (ej: 'lunes', 'martes', 'viernes').",
+                        "enum": ["lunes", "martes", "miércoles", "miercoles", "jueves", "viernes", "sábado", "sabado", "domingo"]
+                    },
+                    "relative_time": {
+                        "type": "string",
+                        "description": "Preferencia de hora del día: 'mañana' para horario AM o 'tarde' para horario PM.",
+                        "enum": ["mañana", "tarde"]
+                    }
                 },
-                "fixed_weekday": {
-                    "type": "string",
-                    "description": "Keyword para día específico de la semana (ej: 'lunes', 'martes').",
-                    "enum": ["lunes", "martes", "miércoles", "miercoles", "jueves", "viernes", "sábado", "sabado", "domingo"]
-                },
-                "relative_time": {
-                    "type": "string",
-                    "description": "Keyword para preferencia de hora del día ('mañana' o 'tarde').",
-                    "enum": ["mañana", "tarde"]
-                }
-            },
-            "required": [] # Ningún parámetro es obligatorio para llamar a la función
+                "required": [] # Todos los parámetros son opcionales; la función tiene lógica para manejarlos.
+            }
         }
-    }
-},
+    },
 
 
 
