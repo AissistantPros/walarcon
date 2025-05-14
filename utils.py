@@ -8,7 +8,7 @@ import os
 import json
 import logging
 import threading
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time as dt_time
 import pytz
 from dotenv import load_dotenv
 from decouple import config
@@ -16,6 +16,7 @@ from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
 from dateutil.parser import parse
 import locale
+import re
 
 # Cargar variables de entorno
 load_dotenv()
@@ -211,268 +212,372 @@ def convert_utc_to_cancun(utc_str):
 # =========================================
 # NUEVA FUNCIÓN PARA FECHAS RELATIVAS
 # =========================================
+# --- Constantes y Mapeos ---
+# (Asegúrate que GOOGLE_... y otros settings globales estén accesibles si son necesarios aquí,
+# aunque esta función trata de ser autocontenida en cuanto a lógica de fechas)
 
-# --- Mapeos para traducción de fecha a español ---
-# (Puedes colocar estos mapeos al inicio del archivo utils.py o justo antes de la función)
 DAYS_EN_TO_ES = {
-    "Monday": "Lunes",
-    "Tuesday": "Martes",
-    "Wednesday": "Miércoles",
-    "Thursday": "Jueves",
-    "Friday": "Viernes",
-    "Saturday": "Sábado",
-    "Sunday": "Domingo",
+    "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miércoles",
+    "Thursday": "Jueves", "Friday": "Viernes", "Saturday": "Sábado", "Sunday": "Domingo",
 }
-
 MONTHS_EN_TO_ES = {
-    "January": "Enero",
-    "February": "Febrero",
-    "March": "Marzo",
-    "April": "Abril",
-    "May": "Mayo",
-    "June": "Junio",
-    "July": "Julio",
-    "August": "Agosto",
-    "September": "Septiembre",
-    "October": "Octubre",
-    "November": "Noviembre",
-    "December": "Diciembre",
+    "January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
+    "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
+    "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre",
+}
+MESES_ES_A_NUM = {
+    "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+    "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
+}
+WEEKDAYS_ES_TO_NUM = {
+    "lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3,
+    "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6
 }
 
-def format_date_nicely(target_date: date, relative_time: str = None, weekday_override: str = None) -> str:
+# Horarios válidos de inicio de slots (debes tener esta lista igual que en buscarslot.py o importarla)
+VALID_SLOT_START_TIMES = [ 
+    "09:30", "10:15", "11:00", "11:45",
+    "12:30", "13:15", "14:00"
+]
+
+# --- Funciones de Ayuda (si no las tienes ya importables) ---
+def get_cancun_time():
+    """Obtiene la hora actual en Cancún."""
+    return datetime.now(pytz.timezone("America/Cancun"))
+
+
+
+
+
+
+def format_date_nicely(target_date_obj: date, time_keyword: str = None, weekday_override: str = None) -> str:
     """
     Formatea una fecha a 'DíaDeLaSemana DD de Mes de AAAA' en español.
     Puede incluir la parte del día y un override para el día de la semana si hay conflicto.
-    Utiliza mapeos internos para asegurar nombres en español independientemente del locale.
     """
     try:
-        # Obtener el nombre del día en inglés usando strftime como clave
-        day_name_en = target_date.strftime("%A")
-        # Traducir usando el mapeo, con fallback al inglés capitalizado si no se encuentra (poco probable)
+        day_name_en = target_date_obj.strftime("%A")
         day_name_str = DAYS_EN_TO_ES.get(day_name_en, day_name_en.capitalize())
 
-        if weekday_override:  # Si hay un conflicto y queremos mostrar el día que el usuario dijo
-            # Asumimos que weekday_override ya viene en español y capitalizado si es necesario,
-            # o lo capitalizamos aquí. Si weekday_override viene de fixed_weekday_keyword,
-            # ese keyword ya debería estar en español (ej. 'martes').
+        if weekday_override:
             day_name_str = weekday_override.capitalize()
 
-        # Obtener el nombre del mes en inglés usando strftime como clave
-        month_name_en = target_date.strftime("%B")
-        # Traducir usando el mapeo, con fallback al inglés capitalizado
+        month_name_en = target_date_obj.strftime("%B")
         month_name_str = MONTHS_EN_TO_ES.get(month_name_en, month_name_en.capitalize())
         
-        formatted = f"{day_name_str} {target_date.day} de {month_name_str} de {target_date.year}"
+        formatted = f"{day_name_str} {target_date_obj.day} de {month_name_str} de {target_date_obj.year}"
 
-        if relative_time == "mañana":
+        if time_keyword == "mañana":
             formatted += ", por la mañana"
-        elif relative_time == "tarde":
+        elif time_keyword == "tarde":
             formatted += ", por la tarde"
+        # Si se extrajo una hora específica y no es un slot exacto, podríamos añadir "alrededor de las..."
+        # Pero por ahora, la descripción se basa en el slot ajustado.
         return formatted
     except Exception as e:
-        logger.error(f"Error formateando fecha {target_date}: {e}")
-        # Fallback a formato ISO si todo lo demás falla
-        return target_date.strftime('%Y-%m-%d')
+        logger.error(f"Error formateando fecha {target_date_obj}: {e}")
+        return target_date_obj.strftime('%Y-%m-%d') # Fallback
 
 
 
 
 
-# === Función Calculadora REFORZADA ===
+def _adjust_time_to_next_valid_slot(requested_time_obj: dt_time, valid_starts: list) -> str | None:
+    """
+    Ajusta una hora solicitada al inicio del próximo slot válido.
+    valid_starts: lista de strings "HH:MM" de inicios de slot válidos.
+    """
+    # Convertir valid_starts a objetos time
+    valid_start_time_objs = []
+    for vt in valid_starts:
+        try:
+            valid_start_time_objs.append(datetime.strptime(vt, "%H:%M").time())
+        except ValueError:
+            logger.warning(f"Hora de slot inválida en VALID_SLOT_START_TIMES: {vt}")
+    
+    valid_start_time_objs.sort() # Asegurar orden
+
+    for valid_start in valid_start_time_objs:
+        if requested_time_obj <= valid_start:
+            return valid_start.strftime("%H:%M")
+    
+    # Si la hora solicitada es posterior a todos los slots válidos del día (ej. pide 3 PM y el último es 2 PM)
+    # Podríamos devolver None para indicar que no hay slot válido ese día a partir de esa hora,
+    # o el último slot si la intención es "lo más tarde posible pero no antes de X".
+    # Por ahora, si es posterior a todos, no hay ajuste directo posible para ESE MISMO DÍA.
+    return None
+
+
+
+
+
+
+
+
+
+# === Función Calculadora Principal ===
 def calculate_structured_date(
     text_input: str = None,
     day: int = None,
     month: (str | int) = None,
     year: int = None,
     fixed_weekday: str = None,
-    relative_time: str = None
+    relative_time: str = None # "mañana" o "tarde" que la IA puede extraer como parámetro
 ) -> dict:
-    """
-    Calcula una fecha objetivo basada en componentes de fecha o texto relativo.
-    Prioriza componentes numéricos (day, month, year) si se proporcionan.
-    Maneja discrepancias entre 'fixed_weekday' y la fecha numérica.
+    logger.info(
+        f"📅 calculate_structured_date INICIADO con: text_input='{text_input}', day={day}, "
+        f"month='{month}', year={year}, fixed_weekday='{fixed_weekday}', relative_time='{relative_time}'"
+    )
+    
+    now_cancun = get_cancun_time()
+    today = now_cancun.date()
 
-    Args:
-        text_input (str, optional): Frase relativa como 'hoy', 'mañana', 'próxima semana'.
-                                     Usado si day, month, year no son suficientes.
-        day (int, optional): Número del día (1-31).
-        month (str|int, optional): Nombre del mes ('enero', 'febrero') o número (1-12).
-        year (int, optional): Año (ej. 2025).
-        fixed_weekday (str, optional): 'lunes', 'martes', ..., 'domingo'.
-        relative_time (str, optional): 'mañana' (am) o 'tarde' (pm).
+    calculated_date_obj: date | None = None
+    weekday_conflict_note_val: str | None = None
+    error_val: str | None = None
+    requires_confirmation_val: bool = True # Default a True
+    search_range_end_date_val: str | None = None
+    extracted_specific_time_val: str | None = None # Formato "HH:MM"
+    adjusted_specific_time_val: str | None = None # Hora ajustada a slot válido "HH:MM"
+    
+    time_keyword_from_input: str = (relative_time or "").lower().strip() # "mañana" o "tarde"
 
-    Returns:
-        dict: {'calculated_date_str': 'YYYY-MM-DD',
-               'readable_description': 'Martes 20 de mayo de 2025, por la tarde',
-               'target_hour_pref': 'HH:MM',
-               'weekday_conflict_note': 'Nota sobre discrepancia de día (opcional)'}
-              o {'error': 'Mensaje de error'}
-    """
-    logger.info(f"📅 Calculando fecha: text='{text_input}', d={day},m={month},y={year}, wd='{fixed_weekday}', rt='{relative_time}'")
-    try:
-        now = get_cancun_time()
-        today = now.date()
-        
-        # Normalizar inputs
-        text_input_keyword = (text_input or "").lower().strip()
-        fixed_weekday_keyword = (fixed_weekday or "").lower().strip()
-        time_keyword = (relative_time or "").lower().strip()
+    text_input_original: str = (text_input or "").strip()
+    text_input_lower: str = text_input_original.lower()
+    fixed_weekday_keyword_lower: str = (fixed_weekday or "").lower().strip()
 
-        # Mapeo de meses y días
-        meses_es_a_num = {
-            "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
-            "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
-        }
-        weekdays_es_to_num = {"lunes": 0, "martes": 1, "miércoles": 2, "miercoles": 2, "jueves": 3, "viernes": 4, "sábado": 5, "sabado": 5, "domingo": 6}
-        num_to_weekdays_es = {v: k.capitalize() for k, v in weekdays_es_to_num.items() if k not in ["miercoles", "sabado"]} # Para notas
+    # 1. Extracción y Ajuste de Hora Específica del text_input
+    time_match = re.search(r"(?:a la(?:s)?\s*)?(\b\d{1,2}(?::\d{2})?\b)\s*(am|pm|hrs?\.?)?", text_input_lower, re.IGNORECASE)
+    if time_match:
+        hour_str = time_match.group(1)
+        am_pm_modifier = (time_match.group(2) or "").lower()
+        h_parts = hour_str.split(':')
+        try:
+            h = int(h_parts[0])
+            m = int(h_parts[1]) if len(h_parts) > 1 else 0
 
-        target_date = None
-        weekday_conflict_note = None
-        
-        # --- Prioridad 1: Usar day, month, year si están completos ---
-        current_year = today.year
-        calculated_year = year or current_year
-        
-        calculated_month_num = None
-        if isinstance(month, int):
-            calculated_month_num = month
-        elif isinstance(month, str) and month.lower() in meses_es_a_num:
-            calculated_month_num = meses_es_a_num[month.lower()]
-        elif month is None and day is not None: # Si solo se da día, asumir mes actual
-            calculated_month_num = today.month
-            if year is None: # Y año actual si no se dio año
-                 calculated_year = today.year
+            if "pm" in am_pm_modifier and h != 12: h += 12 # 12pm es 12:00, 1pm es 13:00
+            elif "am" in am_pm_modifier and h == 12: h = 0 # 12am es 00:00
 
-        if day is not None and calculated_month_num is not None:
-            try:
-                # Si el año es menor que el actual, y el mes ya pasó o es el actual y el día ya pasó, asumir el próximo año
-                if calculated_year < current_year or \
-                   (calculated_year == current_year and calculated_month_num < today.month) or \
-                   (calculated_year == current_year and calculated_month_num == today.month and day < today.day):
-                    if year is None: # Solo incrementa el año si no fue fijado explícitamente por el usuario
-                        calculated_year += 1
-                        logger.info(f"Fecha {day}/{calculated_month_num}/{year or current_year} interpretada como del próximo año: {calculated_year}")
-
-                target_date = date(calculated_year, calculated_month_num, day)
-
-                # Validar discrepancia con fixed_weekday
-                if fixed_weekday_keyword and fixed_weekday_keyword in weekdays_es_to_num:
-                    target_weekday_num_from_keyword = weekdays_es_to_num[fixed_weekday_keyword]
-                    actual_weekday_num_of_date = target_date.weekday()
-                    if actual_weekday_num_of_date != target_weekday_num_from_keyword:
-                        actual_day_name = target_date.strftime("%A").capitalize() # Usará locale (inglés si falla)
-                        try: # Intentar obtener nombre en español para la nota
-                            actual_day_name = format_date_nicely(target_date).split(' ')[0]
-                        except: pass
-                        
-                        weekday_conflict_note = (
-                            f"Mencionó {fixed_weekday_keyword.capitalize()}, pero el "
-                            f"{target_date.day} de {target_date.strftime('%B').capitalize()} de {target_date.year} "
-                            f"es {actual_day_name}."
-                        )
-                        # Por ahora, priorizamos la fecha numérica. La IA usará esta nota.
-                        logger.warning(f"Discrepancia de día: {weekday_conflict_note}")
-
-            except ValueError: # Día inválido para el mes/año (ej. 30 de Feb)
-                return {"error": f"La fecha {day}/{month}/{calculated_year} no es válida."}
-        
-        # --- Prioridad 2: Usar text_input para frases relativas si no se formó una fecha numérica ---
-        if target_date is None:
-            base_date_for_relative = today
-            is_relative_week = False
-
-            if not text_input_keyword and fixed_weekday_keyword: # Solo día de la semana
-                 text_input_keyword = "hoy" # Para que la lógica de 'próximo día' funcione desde hoy
-
-            if text_input_keyword == "hoy":
-                target_date = today
-            elif text_input_keyword == "mañana":
-                target_date = today + timedelta(days=1)
-            elif text_input_keyword == "pasado mañana":
-                target_date = today + timedelta(days=2)
-            elif text_input_keyword == "hoy en ocho":
-                target_date = today + timedelta(days=7)
-            elif text_input_keyword == "de mañana en ocho":
-                target_date = today + timedelta(days=8)
-            elif text_input_keyword == "en 15 dias":
-                target_date = today + timedelta(days=15)
-            elif text_input_keyword == "en un mes":
-                target_date = today + timedelta(days=30)
-            elif text_input_keyword == "en dos meses":
-                target_date = today + timedelta(days=60)
-            elif text_input_keyword == "en tres meses":
-                target_date = today + timedelta(days=90)
-            elif "semana" in text_input_keyword: # "proxima semana", "siguiente semana", etc.
-                is_relative_week = True
-                days_until_monday = (0 - today.weekday() + 7) % 7
-                if days_until_monday == 0: days_until_monday = 7
-                base_date_for_relative = today + timedelta(days=days_until_monday)
-                target_date = base_date_for_relative # Asignar a target_date
-            elif not text_input_keyword and not fixed_weekday_keyword: # No se dio nada útil
-                return {"error": "No especificó una fecha o término relativo que pueda entender."}
-            elif not text_input_keyword and fixed_weekday_keyword: # Solo se dio un dia de semana, base es hoy
-                 target_date = today
-            else: # Frase no reconocida en text_input
-                return {"error": f"No reconozco el término relativo '{text_input}'. Intenta con 'hoy', 'mañana', 'próxima semana', o una fecha específica."}
-
-            # Ajustar por fixed_weekday si se usó text_input y se dio fixed_weekday
-            # (ej. text_input="proxima semana", fixed_weekday="martes")
-            if fixed_weekday_keyword and fixed_weekday_keyword in weekdays_es_to_num:
-                # Usamos target_date (que ya podría ser el lunes de la prox sem) como base
-                current_base_for_weekday = target_date 
-                target_weekday_num_from_keyword = weekdays_es_to_num[fixed_weekday_keyword]
-                days_ahead = (target_weekday_num_from_keyword - current_base_for_weekday.weekday() + 7) % 7
+            if 0 <= h <= 23 and 0 <= m <= 59:
+                extracted_specific_time_val = f"{h:02d}:{m:02d}"
+                logger.info(f"Hora específica extraída de text_input: {extracted_specific_time_val}")
                 
-                # Si el día calculado es el mismo que la base Y NO era una referencia a "próxima semana"
-                # O si es una referencia a "próxima semana" y el día base ya es el día deseado (ej. lunes de prox sem, y se pide lunes)
-                if days_ahead == 0:
-                    # Para "el [día]" o "próximo [día]", si cae hoy, queremos el de la sig. semana.
-                    # Para "[día] de la próxima semana", si el cálculo ya dio ese día, no sumar 7.
-                    if not is_relative_week or (is_relative_week and current_base_for_weekday.weekday() == target_weekday_num_from_keyword):
-                         days_ahead = 7
-                target_date = current_base_for_weekday + timedelta(days=days_ahead)
+                # Ajustar la hora extraída al slot válido más cercano (posterior o igual)
+                requested_time_obj_for_adjust = datetime.strptime(extracted_specific_time_val, "%H:%M").time()
+                adjusted_time_str = _adjust_time_to_next_valid_slot(requested_time_obj_for_adjust, VALID_SLOT_START_TIMES)
+                
+                if adjusted_time_str:
+                    adjusted_specific_time_val = adjusted_time_str
+                    logger.info(f"Hora extraída '{extracted_specific_time_val}' ajustada a slot válido: '{adjusted_specific_time_val}'")
+                    if not time_keyword_from_input: # Inferir mañana/tarde del slot ajustado si no se dio
+                        adjusted_h = int(adjusted_specific_time_val.split(':')[0])
+                        time_keyword_from_input = "tarde" if adjusted_h >= 12 else "mañana"
+                else:
+                    logger.warning(f"No se pudo ajustar la hora '{extracted_specific_time_val}' a un slot válido de inicio para ese mismo día (podría ser muy tarde).")
+                    # Si no se pudo ajustar (ej. pide 10 PM), no debería usarse como filtro estricto,
+                    # pero podríamos mantener extracted_specific_time_val para informar al usuario.
+                    # Por ahora, si no se ajusta, no se pasa `specific_time_strict`.
+                    # error_val = f"La hora {extracted_specific_time_val} no es un horario de inicio de cita válido o es muy tarde."
+                    # No ponemos error aquí aún, dejemos que la búsqueda de slot falle si es necesario.
+                    pass # extracted_specific_time_val queda, pero adjusted_specific_time_val es None
+        except ValueError:
+            logger.warning(f"No se pudo parsear la hora extraída: {hour_str}")
+            extracted_specific_time_val = None # Resetear si el parseo falló
 
-        # --- Validación Final: Asegurar que la fecha no sea pasada ---
-        if target_date < today:
-            # Si después de todos los cálculos la fecha es pasada (ej. "el lunes" y hoy es viernes)
-            # y no era una fecha numérica específica que ya se ajustó para el futuro.
-            # Intentamos avanzar 7 días como última medida si es un día de semana.
-            if fixed_weekday_keyword and not (day and month): # Si no venía de una fecha D/M/A explícita
-                 logger.warning(f"Fecha calculada ({target_date}) era pasada, intentando +7 días.")
-                 target_date += timedelta(days=7)
-                 if target_date < today: # Aún pasada, error.
-                      return {"error": f"La fecha calculada ({target_date.strftime('%Y-%m-%d')}) sigue siendo en el pasado."}
-            else: # Si era fecha D/M/A o no se puede ajustar más
-                 return {"error": f"La fecha calculada ({target_date.strftime('%Y-%m-%d')}) es en el pasado."}
+    # 2. Inferir time_keyword_from_input (mañana/tarde) si no se dio y no se extrajo hora específica
+    if not time_keyword_from_input and not adjusted_specific_time_val: # Solo si no se pudo inferir de una hora ajustada
+        if "mañana" in text_input_lower and "pasado mañana" not in text_input_lower and "mañana en 8" not in text_input_lower:
+            time_keyword_from_input = "mañana"
+        elif "tarde" in text_input_lower:
+            time_keyword_from_input = "tarde"
 
+    # 3. Lógica de Fecha (D/M/Y y luego frases relativas)
+    # (Asegúrate que MESES_ES_A_NUM y WEEKDAYS_ES_TO_NUM estén definidos globalmente o aquí)
+    current_year_val = today.year
+    
+    if day is not None and month is not None : # Prioridad si se dan día y mes
+        calculated_year_val = year or current_year_val
+        calculated_month_num_val = None
+        if isinstance(month, int) and 1 <= month <= 12: calculated_month_num_val = month
+        elif isinstance(month, str):
+            if month.isdigit() and 1 <= int(month) <= 12: calculated_month_num_val = int(month)
+            elif month.lower() in MESES_ES_A_NUM: calculated_month_num_val = MESES_ES_A_NUM[month.lower()]
 
-        # --- Determinar preferencia de hora ---
-        target_hour_pref = "09:30" # Default
-        if time_keyword == "tarde":
-            target_hour_pref = "12:30"
-        elif time_keyword == "mañana":
-            target_hour_pref = "09:30"
+        if calculated_month_num_val:
+            try:
+                temp_date = date(calculated_year_val, calculated_month_num_val, day)
+                if temp_date < today and year is None: # Si es pasada Y el usuario no fijó el año
+                    logger.info(f"Fecha D/M ({day}/{month}) interpretada como pasada ({temp_date}), usando próximo año.")
+                    temp_date = date(calculated_year_val + 1, calculated_month_num_val, day)
+                
+                calculated_date_obj = temp_date
+                requires_confirmation_val = False # Fecha específica clara no requiere confirmación
+                
+                if fixed_weekday_keyword_lower and fixed_weekday_keyword_lower in WEEKDAYS_ES_TO_NUM:
+                    # ... (lógica de weekday_conflict_note_val como la tenías) ...
+                    # Ejemplo:
+                    target_weekday_num = WEEKDAYS_ES_TO_NUM[fixed_weekday_keyword_lower]
+                    actual_weekday_num = calculated_date_obj.weekday()
+                    if actual_weekday_num != target_weekday_num:
+                        actual_day_name_for_note = format_date_nicely(calculated_date_obj).split(' ')[0]
+                        month_name_for_note = format_date_nicely(calculated_date_obj).split(' de ')[1].capitalize()
+                        weekday_conflict_note_val = (
+                            f"Mencionó {fixed_weekday_keyword_lower.capitalize()}, pero el "
+                            f"{calculated_date_obj.day} de {month_name_for_note} de {calculated_date_obj.year} "
+                            f"es {actual_day_name_for_note}."
+                        )
+                        requires_confirmation_val = True # Conflicto sí requiere confirmación
+            except ValueError:
+                error_val = f"La fecha {day}/{month}/{calculated_year_val} no es válida."
+        else:
+            error_val = f"El mes '{month}' no es válido."
 
-        # --- Formatear resultados ---
-        calculated_date_str = target_date.strftime('%Y-%m-%d')
-        # Pasamos el fixed_weekday_keyword original para que la descripción use el día que dijo el usuario si hay conflicto
-        readable_description = format_date_nicely(target_date, time_keyword or None, 
-                                                 weekday_override=fixed_weekday_keyword if weekday_conflict_note else None)
-
-        logger.info(f"✅ Fecha calculada: {calculated_date_str}, Desc: '{readable_description}', Hora Pref: {target_hour_pref}, Conflicto: {weekday_conflict_note}")
-
-        response = {
-            "calculated_date_str": calculated_date_str,
-            "readable_description": readable_description,
-            "target_hour_pref": target_hour_pref
-        }
-        if weekday_conflict_note:
-            response["weekday_conflict_note"] = weekday_conflict_note
+    # Si no se pudo por D/M/Y, o si solo se dio día (ej. "el 16"), usar text_input
+    if calculated_date_obj is None and error_val is None:
+        requires_confirmation_val = True # Default para frases relativas
+        is_this_week_search_flag = False
         
-        return response
+        normalized_text_input = text_input_lower
+        # Normalizaciones específicas (tus claves preferidas)
+        if "hoy en 8" in text_input_lower or "de hoy en 8" in text_input_lower or "en 8 dias" in text_input_lower or "en ocho dias" in text_input_lower:
+            normalized_text_input = "hoy_en_ocho_mx"
+        elif "mañana en 8" in text_input_lower or "de mañana en 8" in text_input_lower or "de manana en 8" in text_input_lower:
+            normalized_text_input = "manana_en_ocho_mx"
+        elif "en 15 dias" in text_input_lower or "en quince dias" in text_input_lower:
+            normalized_text_input = "en_quince_dias_mx"
+        elif "esta semana" in text_input_lower:
+            is_this_week_search_flag = True
+            normalized_text_input = "esta semana"
+        elif "próxima semana" in text_input_lower or "siguiente semana" in text_input_lower or "semana que viene" in text_input_lower or "semana que entra" in text_input_lower:
+            normalized_text_input = "proxima semana"
+        elif day is not None and not month and not year: # Si la IA pasó solo 'day' (ej. "el 16")
+            normalized_text_input = f"dia_especifico_{day}" # Crear clave única para este caso
 
-    except Exception as e:
-        logger.error(f"❌ Error calculando fecha estructurada: {str(e)}", exc_info=True)
-        return {"error": "Ocurrió un error técnico al calcular la fecha."}
+        if not normalized_text_input and fixed_weekday_keyword_lower:
+            normalized_text_input = "hoy" # Base para calcular próximo día de semana
 
-# --- Fin de la función ---
+        if normalized_text_input == "hoy":
+            calculated_date_obj = today
+            requires_confirmation_val = False
+        elif normalized_text_input == "mañana":
+            calculated_date_obj = today + timedelta(days=1)
+            requires_confirmation_val = False
+        elif normalized_text_input == "pasado mañana":
+            calculated_date_obj = today + timedelta(days=2)
+            requires_confirmation_val = False
+        elif normalized_text_input == "hoy_en_ocho_mx":
+            calculated_date_obj = today + timedelta(days=7)
+        elif normalized_text_input == "manana_en_ocho_mx":
+            calculated_date_obj = (today + timedelta(days=1)) + timedelta(days=7)
+        elif normalized_text_input == "en_quince_dias_mx":
+            calculated_date_obj = today + timedelta(days=14)
+        elif normalized_text_input == "en un mes": calculated_date_obj = today + timedelta(days=30)
+        elif normalized_text_input == "en dos meses": calculated_date_obj = today + timedelta(days=60)
+        elif normalized_text_input == "en tres meses": calculated_date_obj = today + timedelta(days=90)
+        elif normalized_text_input == "esta semana":
+            calculated_date_obj = today
+            days_to_saturday = 5 - today.weekday() # Lunes=0, Sabado=5
+            if days_to_saturday >= 0:
+                search_range_end_date_val = (today + timedelta(days=days_to_saturday)).strftime('%Y-%m-%d')
+            requires_confirmation_val = False # Intención directa de búsqueda
+        elif normalized_text_input == "proxima semana":
+            days_to_next_monday = (0 - today.weekday() + 7) % 7
+            if days_to_next_monday == 0 and today.weekday() == 0: days_to_next_monday = 7
+            calculated_date_obj = today + timedelta(days=days_to_next_monday)
+        elif normalized_text_input.startswith("dia_especifico_"):
+            try:
+                specific_day = int(normalized_text_input.split("_")[-1])
+                # Asumir mes actual si solo se da el día. Si el día ya pasó este mes, asumir próximo mes.
+                calculated_month_for_day = today.month
+                calculated_year_for_day = today.year
+                if specific_day < today.day:
+                    calculated_month_for_day +=1
+                    if calculated_month_for_day > 12:
+                        calculated_month_for_day = 1
+                        calculated_year_for_day +=1
+                calculated_date_obj = date(calculated_year_for_day, calculated_month_for_day, specific_day)
+                requires_confirmation_val = False # Tratar como fecha específica
+            except ValueError:
+                error_val = f"El día '{specific_day}' no es válido para el mes calculado."
+
+        # Ajustar por fixed_weekday si se usó text_input y se calculó una base
+        if calculated_date_obj and fixed_weekday_keyword_lower and fixed_weekday_keyword_lower in WEEKDAYS_ES_TO_NUM:
+            target_weekday_num = WEEKDAYS_ES_TO_NUM[fixed_weekday_keyword_lower]
+            days_ahead = (target_weekday_num - calculated_date_obj.weekday() + 7) % 7
+            # Si ya es ese día de la semana Y NO es un cálculo de "próxima semana X", avanzar una semana.
+            if days_ahead == 0 and not normalized_text_input.startswith("proxima"):
+                 days_ahead = 7
+            calculated_date_obj += timedelta(days=days_ahead)
+            requires_confirmation_val = True # Ajuste por día de semana requiere confirmación
+
+        if not calculated_date_obj and not error_val:
+            error_val = f"No logro reconocer la frase '{text_input_original}'. Intente con 'hoy', 'mañana', 'próxima semana', o una fecha específica."
+
+    # 4. Validación final: Fecha no pasada
+    if calculated_date_obj and calculated_date_obj < today and error_val is None:
+        error_val = f"La fecha {format_date_nicely(calculated_date_obj)} es pasada. Por favor, indique una fecha futura."
+        calculated_date_obj = None # Invalidar
+
+    # 5. Preparar diccionario de respuesta
+    if error_val:
+        logger.warning(f"Error en calculate_structured_date: {error_val}")
+        return {"error": error_val}
+
+    if not calculated_date_obj:
+        logger.error("calculated_date_obj es None sin error_val seteado al final.")
+        return {"error": "No se pudo determinar una fecha válida."}
+
+    target_hour_pref_val = "09:30" # Default
+    if time_keyword_from_input == "tarde": target_hour_pref_val = "12:30"
+    elif time_keyword_from_input == "mañana": target_hour_pref_val = "09:30"
+    
+    # Si se ajustó una hora específica a un slot válido, esa es la preferencia más fuerte
+    if adjusted_specific_time_val:
+        target_hour_pref_val = adjusted_specific_time_val
+        # Si se ajustó la hora, usualmente no se requiere confirmación de la fecha si esta era clara
+        if not requires_confirmation_val: # Mantiene False si ya era False
+            pass 
+        else: # Si era True por ej. por "próxima semana a las 10", se vuelve False por la hora específica.
+             requires_confirmation_val = False 
+    elif extracted_specific_time_val and not adjusted_specific_time_val:
+        # Si se extrajo hora pero no se pudo ajustar (ej. "a las 10 PM"),
+        # no la usamos para target_hour_pref, pero la IA podría mencionarlo.
+        # La IA NO pasará esta hora como specific_time_strict a find_next_available_slot.
+        # No cambiamos target_hour_pref_val aquí, se queda con mañana/tarde o default.
+        logger.info(f"Se extrajo hora '{extracted_specific_time_val}' pero no se ajustó a slot; se usará preferencia mañana/tarde.")
+
+
+    readable_description_val = format_date_nicely(
+        calculated_date_obj,
+        time_keyword_from_input, # Para "por la mañana/tarde"
+        weekday_override=fixed_weekday_keyword_lower if weekday_conflict_note_val else None
+    )
+    # Si se ajustó una hora, incorporar la hora ajustada en la descripción
+    if adjusted_specific_time_val:
+         readable_description_val += f" a las {datetime.strptime(adjusted_specific_time_val, '%H:%M').strftime('%I:%M %p').lower()}"
+
+
+    if is_this_week_search_flag and not adjusted_specific_time_val and not extracted_specific_time_val : # Solo si es "esta semana" sin hora específica
+        readable_description_val = "para buscar disponibilidad esta semana"
+        if time_keyword_from_input == "mañana": readable_description_val += ", por la mañana"
+        elif time_keyword_from_input == "tarde": readable_description_val += ", por la tarde"
+
+
+    calculated_date_str_val = calculated_date_obj.strftime('%Y-%m-%d')
+
+    response = {
+        "calculated_date_str": calculated_date_str_val,
+        "readable_description": readable_description_val,
+        "target_hour_pref": target_hour_pref_val,
+        "relative_time_keyword": time_keyword_from_input if time_keyword_from_input else None,
+        "extracted_specific_time": adjusted_specific_time_val, # DEVOLVEMOS LA AJUSTADA (o None si no se pudo ajustar)
+        "search_range_end_date": search_range_end_date_val,
+        "requires_confirmation": requires_confirmation_val,
+        "weekday_conflict_note": weekday_conflict_note_val,
+        "error": None # Si llegamos aquí, no hay error
+    }
+    
+    final_response = {k: v for k, v in response.items() if v is not None}
+    logger.info(f"✅ calculate_structured_date RETORNANDO: {final_response}")
+    return final_response

@@ -3,7 +3,7 @@
 """
 aiagent – motor de decisión para la asistente telefónica
 ────────────────────────────────────────────────────────
-• Único modelo → gpt-4o-mini
+• Único modelo → gpt-4.1-mini
 • Flujos main / edit / delete con redirecciones internas
 • Herramienta parse_relative_date para expresiones como “próximo martes”
 • Métricas de latencia (🕒 ms) en todos los pases Chat-GPT
@@ -102,41 +102,42 @@ MAIN_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "calculate_structured_date",
-            "description": "Calcula una fecha objetivo (YYYY-MM-DD), una descripción legible y una preferencia de hora ('09:30' para AM, '12:30' para PM) basada en componentes de fecha específicos o texto relativo. Usar para interpretar frases como 'mañana', 'próxima semana', 'el 15 de agosto', 'martes por la tarde', etc.",
+            "name": "find_next_available_slot",
+            "description": "Busca el próximo horario disponible para una cita. Puede filtrar por fecha específica, preferencia de mañana/tarde, una hora exacta, o buscar la opción más urgente.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "text_input": {
+                    "target_date": {
                         "type": "string",
-                        "description": "Frase de fecha relativa o específica proporcionada por el usuario (ej: 'mañana', 'próxima semana', 'de hoy en ocho', 'el 15 de mayo', 'martes de la siguiente semana a las 4'). Usado si día, mes y año no se especifican completamente o para dar contexto."
+                        "format": "date", # O 'YYYY-MM-DD' si prefieres ser explícito en la descripción
+                        "description": "Fecha específica para iniciar la búsqueda (formato YYYY-MM-DD). Opcional."
                     },
-                    "day": {
-                        "type": "integer",
-                        "description": "Número del día del mes (ej. 15)."
-                    },
-                    "month": {
-                        "type": "string", # La función Python maneja str (nombre o número) o int. JSON usa string aquí.
-                        "description": "Mes como número (ej. '8' para agosto) o nombre (ej. 'agosto')."
-                    },
-                    "year": {
-                        "type": "integer",
-                        "description": "Año en formato de cuatro dígitos (ej. 2025)."
-                    },
-                    "fixed_weekday": {
+                    "target_hour": {
                         "type": "string",
-                        "description": "Día específico de la semana (ej: 'lunes', 'martes', 'viernes').",
-                        "enum": ["lunes", "martes", "miércoles", "miercoles", "jueves", "viernes", "sábado", "sabado", "domingo"]
+                        "description": "Hora preferida como 'HH:MM' (ej. '09:30', '14:00'). Se usa como preferencia suave si no hay filtros estrictos. Opcional."
                     },
-                    "relative_time": {
+                    "urgent": {
+                        "type": "boolean",
+                        "description": "Si es True, busca el primer slot disponible lo más pronto posible, ignorando target_date. Default: False."
+                    },
+                    "search_range_end_date": { # NUEVO
                         "type": "string",
-                        "description": "Preferencia de hora del día: 'mañana' para horario AM o 'tarde' para horario PM.",
+                        "format": "date", # O 'YYYY-MM-DD'
+                        "description": "Fecha límite para la búsqueda (formato YYYY-MM-DD). Útil para casos como 'esta semana'. Opcional."
+                    },
+                    "time_of_day_strict": { # NUEVO
+                        "type": "string",
+                        "description": "Filtro estricto para franja horaria. Usar 'mañana' (antes de 12 PM) o 'tarde' (12 PM en adelante). Opcional.",
                         "enum": ["mañana", "tarde"]
+                    },
+                    "specific_time_strict": { # NUEVO
+                        "type": "string",
+                        "description": "Filtro estricto para una hora de inicio específica (formato HH:MM, ej. '10:15'). Opcional."
                     }
                 },
-                "required": [] # Todos los parámetros son opcionales; la función tiene lógica para manejarlos.
-            }
-        }
+                "required": [] # Todos los parámetros son opcionales, la función tiene defaults o lógica para manejarlos.
+            },
+        },
     },
 
 
@@ -259,6 +260,11 @@ def handle_tool_execution(tc) -> Dict:
 
         if fn == "find_next_available_slot":
             return {"slot": find_next_available_slot(**args)}
+
+
+
+
+
 
         if fn == "create_calendar_event":
             phone = args.get("phone", "")
