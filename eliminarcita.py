@@ -1,133 +1,85 @@
 # eliminarcita.py
-#  -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Módulo para la eliminación de citas en Google Calendar.
-Permite buscar y eliminar eventos en la agenda del consultorio.
-Admite original_start_time para elegir la cita exacta a borrar.
+La IA debe proveer el event_id de la cita a eliminar, obtenido previamente
+mediante search_calendar_event_by_phone.
 """
 
 import logging
-from fastapi import APIRouter, HTTPException
+import pytz # Para _validate_iso_datetime si se mantiene para alguna validación
 from datetime import datetime
-import pytz
+# from fastapi import HTTPException # No necesario si no hay endpoint
+
 from utils import (
     initialize_google_calendar,
-    GOOGLE_CALENDAR_ID,
-    search_calendar_event_by_phone
+    GOOGLE_CALENDAR_ID
+    # search_calendar_event_by_phone, # Es llamado por la IA antes de llamar a esta función
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO) # Ajusta el nivel según necesites
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
-
-def _validate_iso_datetime(dt_str):
-    """
-    Valida y convierte un string ISO8601 con zona horaria
-    a un objeto datetime (zona Cancún).
-    """
+def _validate_iso_datetime_string_simple(dt_str: str) -> bool:
+    """Valida si el string parece un ISO datetime. No convierte."""
     try:
-        dt = datetime.fromisoformat(dt_str)
-        if not dt.tzinfo:
-            raise ValueError("Falta zona horaria")
-        return dt.astimezone(pytz.timezone("America/Cancun"))
-    except Exception as e:
-        raise ValueError(f"Fecha/hora inválida: {dt_str}")
+        datetime.fromisoformat(dt_str.replace("Z", "+00:00")) # Reemplazar Z para compatibilidad
+        return True
+    except ValueError:
+        return False
 
-def delete_calendar_event(phone: str, original_start_time: str = None, patient_name: str = None):
+def delete_calendar_event(event_id: str, original_start_time_iso: str | None = None):
     """
-    Elimina la cita que coincida con 'phone' y 'original_start_time'.
-    Si no se especifica 'original_start_time' y hay múltiples citas, se devuelven en 'multiple_events'.
+    Elimina la cita especificada por event_id.
+    original_start_time_iso es opcional y solo para confirmación o logging si se desea.
+
+    Parámetros:
+        event_id (str): El ID único del evento de Google Calendar a eliminar.
+        original_start_time_iso (str, opcional): Hora de inicio original para logging o una capa extra de confirmación (no usada para la operación de borrado por ID).
+
+    Retorna:
+        Un diccionario con un mensaje de éxito o un diccionario con una clave "error".
     """
+    logger.info(f"Intentando eliminar evento ID: {event_id}"
+                f"{f' (hora original confirmada: {original_start_time_iso})' if original_start_time_iso else ''}")
+
+    if not event_id:
+        logger.error("No se proporcionó event_id para eliminar la cita.")
+        return {"error": "No se especificó el ID de la cita a eliminar."}
+
+    # Validación opcional del formato de original_start_time_iso si se usa
+    if original_start_time_iso and not _validate_iso_datetime_string_simple(original_start_time_iso):
+        logger.warning(f"El formato de original_start_time_iso ('{original_start_time_iso}') parece inválido, pero se procederá con la eliminación por ID.")
+        # No es un error fatal ya que el event_id es lo principal.
+
     try:
-        if not phone or len(phone) != 10 or not phone.isdigit():
-            return {"error": "El número de teléfono debe ser de 10 dígitos."}
-
         service = initialize_google_calendar()
-        events = search_calendar_event_by_phone(phone)
-        if not events:
-            return {"error": "No se encontraron citas con ese número."}
+        
+        # Opcional: Antes de borrar, podrías obtener el evento para loguear su 'summary'
+        try:
+            event_to_delete = service.events().get(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute()
+            event_summary = event_to_delete.get('summary', '(cita sin título)')
+            logger.info(f"Se procederá a eliminar la cita: '{event_summary}' (ID: {event_id})")
+        except Exception as e_get:
+            logger.warning(f"No se pudo obtener el evento {event_id} antes de eliminar (puede que ya no exista o ID incorrecto): {e_get}")
+            # Si no se puede obtener, igual intentar borrar si la IA está segura del ID.
+            # O podrías devolver un error aquí si consideras que es necesario confirmar que existe antes de borrar.
+            # Por ahora, se procede a intentar el borrado.
+            event_summary = "(no se pudo obtener resumen)"
 
-        # Si user no especifica 'original_start_time' y hay más de 1 => devolvemos multiple
-        if not original_start_time:
-            if len(events) > 1:
-                return {
-                    "multiple_events": True,
-                    "events_found": _convert_events_list(events),
-                    "message": "Se encontraron múltiples citas con este número. Indique cuál eliminar."
-                }
-            else:
-                # Solo 1
-                evt_to_delete = events[0]
-        else:
-            # localizamos la cita con original_start_time
-            target_dt = _validate_iso_datetime(original_start_time)
-            evt_to_delete = None
 
-            for e in events:
-                start_str = e["start"]["dateTime"]  # "2025-04-22T09:30:00-05:00"
-                start_dt = _validate_iso_datetime(start_str)
-
-                # si coincide ±1 min
-                if abs((start_dt - target_dt).total_seconds()) < 60:
-                    evt_to_delete = e
-                    break
-
-            if not evt_to_delete:
-                # No coincidió => devolvemos la lista
-                return {
-                    "multiple_events": True,
-                    "events_found": _convert_events_list(events),
-                    "message": "No se encontró cita con ese horario exacto. Seleccione cuál desea eliminar."
-                }
-
-        service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=evt_to_delete["id"]).execute()
-        logger.info(f"✅ Cita eliminada para {evt_to_delete.get('summary','(sin nombre)')}")
-
+        service.events().delete(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute()
+        
+        logger.info(f"✅ Cita eliminada exitosamente. Evento ID: {event_id}, Resumen: {event_summary}")
         return {
-            "message": f"La cita '{evt_to_delete.get('summary','(sin nombre)')}' fue eliminada con éxito."
+            "message": f"La cita para '{event_summary}' ha sido eliminada con éxito.",
+            "deleted_event_id": event_id
         }
 
-    except ValueError as ve:
-        logger.error(f"❌ Error al eliminar cita: {str(ve)}")
-        return {"error": str(ve)}
     except Exception as e:
-        logger.error(f"❌ Error en Google Calendar: {str(e)}")
-        return {"error": "GOOGLE_CALENDAR_UNAVAILABLE"}
-
-def _convert_events_list(events):
-    """
-    Convierte la lista de 'events' a un formato simple.
-    """
-    simplified = []
-    for evt in events:
-        simplified.append({
-            "id": evt["id"],
-            "name": evt.get("summary", "(sin nombre)"),
-            "start": evt["start"]["dateTime"],
-            "end": evt["end"]["dateTime"]
-        })
-    return simplified
-
-
-@router.delete("/eliminar-cita")
-async def api_delete_calendar_event(phone: str, original_start_time: str = None, patient_name: str = None):
-    """
-    Endpoint para eliminar una cita en Google Calendar.
-    Parámetros:
-    - phone (str): Número de teléfono (10 dígitos).
-    - original_start_time (str, opcional): Fecha-hora ISO con zona horaria de la cita a eliminar.
-    - patient_name (str, opcional): Nombre del paciente (si se quiere filtrar).
-    
-    Retorna dict con confirmación de eliminación o lista de citas si hay múltiples.
-    """
-    try:
-        result = delete_calendar_event(phone, original_start_time, patient_name)
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
-        return result
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"❌ Error al eliminar cita en endpoint /eliminar-cita: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
+        logger.error(f"❌ Error en la función delete_calendar_event al intentar eliminar ID {event_id}: {str(e)}", exc_info=True)
+        # Revisa si el error es porque el evento no existe (ej. 'HttpError 404')
+        if hasattr(e, 'resp') and hasattr(e.resp, 'status') and e.resp.status == 404:
+             logger.warning(f"El evento con ID {event_id} no fue encontrado. Es posible que ya haya sido eliminado.")
+             return {"error": f"La cita con ID {event_id} no fue encontrada. Es posible que ya haya sido eliminada."}
+        return {"error": f"Ocurrió un error en el servidor al intentar eliminar la cita: {str(e)}"}

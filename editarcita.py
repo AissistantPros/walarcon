@@ -1,217 +1,146 @@
 # editarcita.py
 # -*- coding: utf-8 -*-
 """
-Módulo para edición segura de citas con validación de horarios, agregando la lógica
-para calcular new_end automáticamente si no se provee, con base a 45 minutos.
+Módulo para edición de citas.
+La verificación de disponibilidad del nuevo slot se asume que fue hecha
+previamente por process_appointment_request.
 """
 
 import logging
-import pytz
-from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException
+import pytz # Para manejo de zonas horarias si es necesario internamente
+import re # Para parsear la descripción
+from datetime import datetime, timedelta # timedelta podría no ser necesario si new_end_time_iso siempre se provee
+
+
+# Importaciones de utils deben ser correctas
 from utils import (
     initialize_google_calendar,
-    GOOGLE_CALENDAR_ID,
-    search_calendar_event_by_phone,
-    is_slot_available,
-    get_cached_availability
+    GOOGLE_CALENDAR_ID
+
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO) # Ajusta el nivel según necesites
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
-
-def validate_and_convert_time(time_str: str):
-    """Valida y convierte a datetime con zona horaria."""
-    try:
-        dt = datetime.fromisoformat(time_str)
-        if not dt.tzinfo:
-            raise ValueError("Falta zona horaria")
-        return dt
-    except ValueError as e:
-        logger.error(f"❌ Formato de tiempo inválido: {str(e)}")
-        raise HTTPException(status_code=400, detail="Formato inválido (usar ISO8601 con zona horaria)")
-
-def _parse_reason_from_description(description: str):
-    """Extrae 'Motivo: XYZ' de la descripción, si existe."""
+def _parse_field_from_description(description: str, field_name: str, is_phone: bool = False) -> str | None:
+    """
+    Extrae un campo específico de la descripción.
+    Ejemplo: field_name="Motivo" o field_name="Teléfono".
+    """
     if not description:
         return None
-    lines = description.split("\n")
-    for line in lines:
-        if "motivo:" in line.lower():
-            return line.split("motivo:")[-1].strip()
+    # Usar re.IGNORECASE para ser más robusto
+    # Para teléfono, busca dígitos y algunos caracteres comunes, limpiándolos después.
+    pattern_str = rf"{field_name}:\s*(.*)"
+    match = re.search(pattern_str, description, re.IGNORECASE | re.MULTILINE)
+    if match:
+        value = match.group(1).strip()
+        if is_phone:
+            # Limpiar caracteres no numéricos si es un teléfono
+            return re.sub(r"[^\d]", "", value)
+        return value
     return None
 
-def _convert_events_list(events: list):
-    """
-    Convierte la lista de 'events' de Google Calendar en un formato simple
-    para que la IA o el usuario elijan cuál editar.
-    """
-    simplified = []
-    for evt in events:
-        name = evt.get("summary", "(sin nombre)")
-        start_dt = evt["start"]["dateTime"]
-        end_dt = evt["end"]["dateTime"]
-        description = evt.get("description", "")
-        reason = _parse_reason_from_description(description)
 
-        simplified.append({
-            "id": evt["id"],
-            "name": name,
-            "start": start_dt,
-            "end": end_dt,
-            "reason": reason
-        })
-    return simplified
-
-def edit_calendar_event(phone: str, original_start: str, new_start: str, new_end: str = None):
-    """
-    Edita una cita existente.
-    - phone: número de teléfono (usado para buscar la(s) cita(s)).
-    - original_start: fecha-hora ISO con zona horaria de la cita a editar.
-    - new_start: fecha-hora ISO con zona horaria para la nueva cita.
-    - new_end: opcional. Si no se provee, se calcula automáticamente sumando 45 min a 'new_start'.
-
-    1. Busca citas con 'phone'.
-    2. Si hay múltiples y no se especifica 'original_start', se devuelven todas
-       para que la IA decida cuál editar.
-    3. Si se especifica 'original_start', se intenta localizar esa cita exacta.
-    4. Se patchan solo 'start' y 'end', manteniendo 'summary' (nombre) y 'description' (motivo, phone) intactos.
-    """
-
-    try:
-        if len(phone) != 10 or not phone.isdigit():
-            raise ValueError("Teléfono inválido (debe tener 10 dígitos)")
-
-        # Buscar evento(s)
-        events = search_calendar_event_by_phone(phone)
-        if not events:
-            return {"error": "No se encontró ninguna cita con ese número"}
-
-        # Si no hay 'original_start', y hay > 1, devolvemos la lista de citas para que la IA pregunte
-        if not original_start:
-            if len(events) > 1:
-                return {
-                    "multiple_events": True,
-                    "events_found": _convert_events_list(events),
-                    "message": "Se encontraron múltiples citas con este número. Indique cuál desea editar."
-                }
-            else:
-                target_evt = events[0]
-        else:
-            # Validamos la fecha/hora original
-            original_dt = validate_and_convert_time(original_start)
-            target_evt = None
-            for e in events:
-                start_str = e["start"]["dateTime"]
-                start_dt = validate_and_convert_time(start_str)
-                # Convertimos a tz Cancún para comparar
-                # asumiendo que start_str ya es '2025-04-22T09:30:00-05:00'
-                start_dt = start_dt.astimezone(pytz.timezone("America/Cancun"))
-                original_dt = original_dt.astimezone(pytz.timezone("America/Cancun"))
-
-                # Usamos un umbral de ~1 min para considerar "igual"
-                if abs((start_dt - original_dt).total_seconds()) < 60:
-                    target_evt = e
-                    break
-
-            if not target_evt:
-                return {
-                    "multiple_events": True,
-                    "events_found": _convert_events_list(events),
-                    "message": (
-                        "No se encontró una cita con ese horario exacto. "
-                        "Por favor seleccione cuál de la lista desea editar."
-                    )
-                }
-
-        # A partir de aquí, 'target_evt' es la cita a editar
-        # Convertimos new_start en datetime
-        new_start_dt = validate_and_convert_time(new_start)
-        new_start_dt = new_start_dt.astimezone(pytz.timezone("America/Cancun"))
-
-        # Si no especifican new_end, sumamos 45 min
-        if not new_end:
-            new_end_dt = new_start_dt + timedelta(minutes=45)
-        else:
-            new_end_dt = validate_and_convert_time(new_end)
-            new_end_dt = new_end_dt.astimezone(pytz.timezone("America/Cancun"))
-
-        # Verificar disponibilidad
-        busy_slots = get_cached_availability()
-        if not is_slot_available(new_start_dt, new_end_dt, busy_slots):
-            return {"error": "Horario no disponible"}
-
-        service = initialize_google_calendar()
-        updated_event = service.events().patch(
-            calendarId=GOOGLE_CALENDAR_ID,
-            eventId=target_evt["id"],
-            body={
-                "start": {"dateTime": new_start_dt.isoformat(), "timeZone": "America/Cancun"},
-                "end": {"dateTime": new_end_dt.isoformat(), "timeZone": "America/Cancun"}
-            }
-        ).execute()
-
-        logger.info(f"✅ Cita editada exitosamente: {updated_event['id']}")
-        reason_in_event = _parse_reason_from_description(target_evt.get("description", ""))
-
-        return {
-            "id": updated_event["id"],
-            "start": updated_event["start"]["dateTime"],
-            "end": updated_event["end"]["dateTime"],
-            "name": target_evt.get("summary", "(sin nombre)"),
-            "reason": reason_in_event,
-        }
-
-    except ValueError as ve:
-        logger.error(f"❌ Error de validación en edit_calendar_event: {str(ve)}")
-        return {"error": str(ve)}
-    except Exception as e:
-        logger.error(f"❌ Error en Google Calendar: {str(e)}")
-        return {"error": "CALENDAR_UNAVAILABLE"}
-
-
-@router.put("/editar-cita")
-async def api_edit_calendar_event(
-    phone: str,
-    original_start: str = None,
-    new_start: str = None,
-    new_end: str = None
+def edit_calendar_event(
+    event_id: str,
+    new_start_time_iso: str,
+    new_end_time_iso: str,
+    # Los siguientes son opcionales, si la IA los provee para actualizar
+    new_name: str | None = None,
+    new_reason: str | None = None,
+    new_phone_for_description: str | None = None # Nuevo teléfono para actualizar en la descripción
 ):
     """
-    Endpoint para editar una cita.
-    - phone: número de WhatsApp de 10 dígitos (obligatorio).
-    - original_start: fecha-hora ISO con zona horaria de la cita original (opcional).
-    - new_start: nueva fecha-hora ISO con zona horaria (opcional).
-    - new_end: nueva fecha-hora ISO con zona horaria (opcional).
-      Si no se pasa, el sistema asume 45min (new_start_dt + 45min).
+    Edita una cita existente utilizando su event_id.
+    La disponibilidad del nuevo horario (new_start_time_iso, new_end_time_iso)
+    DEBE haber sido verificada y confirmada previamente por la IA usando 'process_appointment_request'.
 
-    Si hay múltiples citas y no proporcionas original_start, se devolverá
-    un objeto con multiple_events=True y la lista de eventos encontrados.
+    Parámetros:
+        event_id (str): El ID único del evento de Google Calendar a modificar.
+        new_start_time_iso (str): Nueva hora de inicio en formato ISO8601 con offset.
+        new_end_time_iso (str): Nueva hora de fin en formato ISO8601 con offset.
+        new_name (str, opcional): Nuevo nombre del paciente (summary del evento).
+        new_reason (str, opcional): Nuevo motivo para la descripción.
+        new_phone_for_description (str, opcional): Nuevo teléfono para la descripción.
+
+    Retorna:
+        Un diccionario con los detalles del evento actualizado o un diccionario con una clave "error".
     """
+    logger.info(f"Intentando editar evento ID: {event_id} para nuevo horario: {new_start_time_iso}")
     try:
-        if not new_start:
-            raise HTTPException(
-                status_code=400,
-                detail="Se requiere new_start en formato ISO8601 con zona horaria."
-            )
+        service = initialize_google_calendar()
 
-        result = edit_calendar_event(phone, original_start, new_start, new_end)
+        # 1. Obtener el evento original para acceder a su summary y description actuales
+        try:
+            original_event = service.events().get(calendarId=GOOGLE_CALENDAR_ID, eventId=event_id).execute()
+        except Exception as e_get:
+            logger.error(f"Error al obtener el evento original ({event_id}) para editar: {e_get}")
+            return {"error": f"No se pudo encontrar la cita original con ID {event_id} para modificar."}
 
-        if "error" in result:
-            raise HTTPException(status_code=400, detail=result["error"])
+        # 2. Validar formato de los nuevos tiempos (básico, `process_appointment_request` hizo el trabajo duro)
+        try:
+            datetime.fromisoformat(new_start_time_iso)
+            datetime.fromisoformat(new_end_time_iso)
+        except ValueError:
+            logger.error(f"Formato ISO inválido para new_start_time_iso ('{new_start_time_iso}') o new_end_time_iso ('{new_end_time_iso}').")
+            return {"error": "El nuevo formato de hora para la cita es inválido."}
 
-        if "multiple_events" in result and result["multiple_events"]:
-            return result
-
-        return {
-            "message": "✅ Cita actualizada",
-            "edited_event": result
+        # 3. Preparar el cuerpo del evento para la actualización (patch)
+        updated_body = {
+            "start": {"dateTime": new_start_time_iso, "timeZone": "America/Cancun"}, # Google Calendar maneja la zona horaria
+            "end": {"dateTime": new_end_time_iso, "timeZone": "America/Cancun"}
         }
 
-    except HTTPException as he:
-        raise he
+        # Actualizar summary (nombre) si se provee uno nuevo
+        if new_name:
+            updated_body["summary"] = new_name
+        else:
+            updated_body["summary"] = original_event.get("summary", "Cita") # Mantener original si no hay nuevo
+
+        # Reconstruir la descripción si se actualiza el motivo o el teléfono
+        original_description = original_event.get("description", "")
+        
+        # Extraer teléfono y motivo actuales de la descripción original
+        current_phone_in_desc = _parse_field_from_description(original_description, "Teléfono", is_phone=True)
+        current_reason_in_desc = _parse_field_from_description(original_description, "Motivo")
+
+        # Usar los nuevos valores si se proveen, si no, los actuales de la descripción
+        phone_to_write = new_phone_for_description if new_phone_for_description else current_phone_in_desc
+        reason_to_write = new_reason if new_reason else current_reason_in_desc
+        
+        new_description_parts = []
+        if phone_to_write:
+            new_description_parts.append(f"📞 Teléfono: {phone_to_write}")
+        if reason_to_write:
+            new_description_parts.append(f"📝 Motivo: {reason_to_write}")
+        
+        if new_description_parts: # Si hay teléfono o motivo para escribir
+            updated_body["description"] = "\n".join(new_description_parts)
+        elif original_description: # Si no hay nuevos pero había descripción original
+            updated_body["description"] = original_description
+        # Si no hay nuevos y no había descripción original, no se añade campo description.
+
+        # 4. Realizar la actualización (patch)
+        updated_event = service.events().patch(
+            calendarId=GOOGLE_CALENDAR_ID,
+            eventId=event_id,
+            body=updated_body
+        ).execute()
+
+        logger.info(f"✅ Cita editada exitosamente. Evento ID: {updated_event.get('id')}")
+        
+        # Devolver la información clave del evento actualizado
+        return {
+            "id": updated_event.get("id"),
+            "name": updated_event.get("summary"),
+            "start_time_iso": updated_event.get("start", {}).get("dateTime"),
+            "end_time_iso": updated_event.get("end", {}).get("dateTime"),
+            "reason": _parse_field_from_description(updated_event.get("description", ""), "Motivo"),
+            "phone_in_description": _parse_field_from_description(updated_event.get("description", ""), "Teléfono", is_phone=True),
+            "message": "Cita actualizada exitosamente."
+        }
+
     except Exception as e:
-        logger.error(f"❌ Error crítico en endpoint /editar-cita: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
+        logger.error(f"❌ Error general en la función edit_calendar_event: {str(e)}", exc_info=True)
+        return {"error": f"Ocurrió un error en el servidor al intentar editar la cita: {str(e)}"}

@@ -10,12 +10,12 @@ from datetime import datetime
 import pytz
 from fastapi import APIRouter, HTTPException
 from utils import initialize_google_calendar, GOOGLE_CALENDAR_ID, get_cancun_time
-from buscarslot import find_next_available_slot
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+
 
 def validate_iso_datetime(dt_str: str):
     """Valida formato ISO8601 con zona horaria."""
@@ -83,39 +83,4 @@ def create_calendar_event(name: str, phone: str, reason: str, start_time: str, e
         logger.error(f"❌ Error en Google Calendar: {str(e)}")
         return {"error": "CALENDAR_UNAVAILABLE"}
 
-@router.post("/crear-cita")
-async def api_create_calendar_event(name: str, phone: str, reason: str = None, target_date: str = None, target_hour: str = None):
-    try:
-        # Validación de parámetros
-        if not name.strip():
-            raise HTTPException(status_code=400, detail="El nombre no puede estar vacío")
-        
-        # Buscar slot disponible con validación
-        slot = find_next_available_slot(target_date, target_hour)
-        if "error" in slot:
-            raise HTTPException(status_code=409, detail=slot["error"])
 
-        # Crear evento
-        event_data = create_calendar_event(
-            name=name,
-            phone=phone,
-            reason=reason,
-            start_time=slot["start_time"],
-            end_time=slot["end_time"]
-        )
-
-        if "error" in event_data:
-            raise HTTPException(status_code=500, detail=event_data["error"])
-
-        return {
-            "message": "✅ Cita creada exitosamente",
-            "event_id": event_data["id"],
-            "start": event_data["start"],
-            "end": event_data["end"]
-        }
-
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        logger.error(f"❌ Error crítico: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
