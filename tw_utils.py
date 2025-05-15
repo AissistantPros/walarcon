@@ -1019,14 +1019,14 @@ class TwilioWebSocketManager:
 
     async def _play_audio_bytes(self, pcm_ulaw_bytes: bytes) -> None:
         """
-        Envía audio (ya en μ-law, 8 kHz) al <Stream> de Twilio.
-        Mientras se reproduce, alimenta a Deepgram con frames de silencio
-        cada 5 s para que no cierre la conexión (código 1011).
+        Envía audio (μ-law 8 kHz) al <Stream> de Twilio y, mientras se reproduce,
+        mantiene viva la conexión con Deepgram enviándole pequeños frames de silencio
+        cada 5 s.  Garantiza compatibilidad con Twilio usando paquetes de ≤640 bytes.
         """
         if not pcm_ulaw_bytes or not self.websocket:
             return
 
-        # --- 1.  Arrancar ‘silence feeder’ hacia Deepgram -------------------
+        # 1)  Arrancar ‘silence feeder’ hacia Deepgram
         silence_task = None
         if self.stt_streamer and self.stt_streamer._started:
             silence_task = asyncio.create_task(
@@ -1034,28 +1034,40 @@ class TwilioWebSocketManager:
                 name="SilenceFeeder"
             )
 
-        # --- 2.  Marcar que la IA está hablando ----------------------------
+        # 2)  Marcar que la IA está hablando
         self.is_speaking = True
-        chunk_size = 1900                # ≈ 20 ms @ 8 kHz μ-law (Twilio recomienda ≤ 1900 B)
+        self.last_activity_ts = self._now()
+
+        chunk_size = 640               # 80 ms (640 B) @ 8 kHz μ-law  → seguro para Twilio
+        inter_packet_sleep = 0.08      # 80 ms para acompasar con el tamaño
+
         total_sent = 0
         try:
-            for i in range(0, len(pcm_ulaw_bytes), chunk_size):
+            # 🔸 Siempre enviamos un paquete “de arranque” muy pequeño
+            #     (ayuda a que Twilio empiece a emitir audio inmediatamente)
+            first = pcm_ulaw_bytes[:160]   # 20 ms
+            await self.websocket.send_json({
+                "event": "media",
+                "media": {"payload": base64.b64encode(first).decode("ascii")}
+            })
+            total_sent += len(first)
+            await asyncio.sleep(0.02)
+
+            # 🔸 Resto del audio en trozos de 640 B
+            for i in range(160, len(pcm_ulaw_bytes), chunk_size):
                 if self.call_ended:
                     break
                 chunk = pcm_ulaw_bytes[i:i + chunk_size]
                 await self.websocket.send_json({
                     "event": "media",
-                    "media": {
-                        "payload": base64.b64encode(chunk).decode("ascii")
-                    }
+                    "media": {"payload": base64.b64encode(chunk).decode("ascii")}
                 })
                 total_sent += len(chunk)
-                # Twilio espera ≈ 20 ms entre paquetes de 160 samples ⇒ 20 ms ≈ 0.02 s
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(inter_packet_sleep)
 
             logger.info(f"🔊 PLAY_AUDIO Fin reproducción. Enviados {total_sent} bytes.")
         finally:
-            # --- 3.  Detener ‘silence feeder’ ------------------------------
+            # 3)  Detener ‘silence feeder’
             if silence_task and not silence_task.done():
                 silence_task.cancel()
                 try:
@@ -1063,7 +1075,7 @@ class TwilioWebSocketManager:
                 except asyncio.CancelledError:
                     pass
 
-            # --- 4.  Desmarcar speaking & reset timers ---------------------
+            # 4)  Desmarcar speaking
             self.is_speaking = False
             self.last_activity_ts = self._now()
 
@@ -1258,6 +1270,9 @@ def set_debug(active: bool = True) -> None:
     for name in modules_to_set:
          logging.getLogger(name).setLevel(level)
     logger.info(f"Nivel de log establecido a {'DEBUG' if active else 'INFO'} para módulos relevantes.")
+
+
+
 
 # --- Inicialización del Nivel de Log ---
 set_debug(True) # Descomenta para activar DEBUG por defecto
