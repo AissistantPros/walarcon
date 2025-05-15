@@ -104,14 +104,11 @@ class DeepgramSTTStreamer:
                 sample_rate=8000,
                 channels=1,
                 smart_format=True,
-                interim_results=True, # Importante para el flujo conversacional
-                endpointing=False, # O un valor si quieres que Deepgram detecte finales de frase
-                utterance_end_ms="1700", # Si usas endpointing
-                vad_events=False, # Configurar a True si quieres eventos VAD explícitos
-                # keepalive="true" # Esta opción es para el SDK de Python, verificar si se pasa así
-                                 # o si es un método separado. La documentación sugiere que
-                                 # el SDK lo maneja si se especifica, pero en otros SDKs es un mensaje.
-                                 # Por ahora, lo manejaremos con send_keep_alive() explícito.
+                interim_results=True, 
+                endpointing=False, 
+                utterance_end_ms="1000", 
+                vad_events=False, 
+               
             )
             
             ##logger.debug(f"Opciones de Deepgram para start: {options}")
@@ -321,5 +318,5 @@ class DeepgramSTTStreamer:
     async def _on_unhandled(self, _connection, event_data, *args, **kwargs):
         logger.warning(f"Evento Deepgram NO MANEJADO recibido: {event_data}")
 
-    async def _on_metadata(self, _connection, metadata, *args, **kwargs):
-        logger.debug(f"Metadatos de Deepgram recibidos: {metadata}")
+    #async def _on_metadata(self, _connection, metadata, *args, **kwargs):
+        ##logger.debug(f"Metadatos de Deepgram recibidos: {metadata}")
