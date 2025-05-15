@@ -318,5 +318,5 @@ class DeepgramSTTStreamer:
     async def _on_unhandled(self, _connection, event_data, *args, **kwargs):
         logger.warning(f"Evento Deepgram NO MANEJADO recibido: {event_data}")
 
-    #async def _on_metadata(self, _connection, metadata, *args, **kwargs):
-        ##logger.debug(f"Metadatos de Deepgram recibidos: {metadata}")
+    async def _on_metadata(self, _connection, metadata, *args, **kwargs):
+        logger.debug(f"Metadatos de Deepgram recibidos: {metadata}")
