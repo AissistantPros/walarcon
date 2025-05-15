@@ -265,13 +265,13 @@ class DeepgramSTTStreamer:
             logger.info("🧹 Estado de DeepgramSTTStreamer limpiado después del cierre.")
 
     # --- Callbacks de Eventos de Deepgram ---
-    def _on_open(self, _connection, *args, **kwargs): # _connection es dg_connection
+    async def _on_open(self, _connection, *args, **kwargs): # _connection es dg_connection
         logger.info("🔛 Conexión Deepgram ABIERTA (evento Open recibido).")
         self._started = True
         self._is_closing = False
         self._is_reconnecting = False # Si se abrió, ya no estamos reconectando
 
-    def _on_transcript(self, _connection, result, *args, **kwargs):
+    async def _on_transcript(self, _connection, result, *args, **kwargs):
         if not result or not hasattr(result, 'channel') or not result.channel.alternatives or not result.channel.alternatives[0].transcript:
             # logger.debug("Recibido resultado de transcripción vacío o malformado.")
             return
@@ -284,7 +284,7 @@ class DeepgramSTTStreamer:
             # logger.debug(f"Transcript vacío recibido. is_final: {result.is_final}")
 
 
-    def _on_close(self, _connection, *args, **kwargs): # Evento de Deepgram cuando ELLOS cierran
+    async def _on_close(self, _connection, *args, **kwargs): # Evento de Deepgram cuando ELLOS cierran
         logger.warning(f"🔒 Conexión Deepgram CERRADA (evento Close [{args}] [{kwargs}] recibido desde Deepgram).")
         was_started_before_event = self._started # Capturar el estado antes de modificarlo
         
@@ -304,7 +304,7 @@ class DeepgramSTTStreamer:
              logger.info("_on_close recibido mientras ya se estaba reconectando. No se iniciará nueva reconexión.")
 
 
-    def _on_error(self, _connection, error, *args, **kwargs): # Evento de Deepgram
+    async def _on_error(self, _connection, error, *args, **kwargs): # Evento de Deepgram
         logger.error(f"💥 Error en conexión Deepgram (evento Error recibido): {error}")
         was_started_before_event = self._started
 
@@ -318,8 +318,8 @@ class DeepgramSTTStreamer:
         elif self._is_reconnecting:
             logger.info("_on_error recibido mientras ya se estaba reconectando. No se iniciará nueva reconexión.")
             
-    def _on_unhandled(self, _connection, event_data, *args, **kwargs):
+    async def _on_unhandled(self, _connection, event_data, *args, **kwargs):
         logger.warning(f"Evento Deepgram NO MANEJADO recibido: {event_data}")
 
-    def _on_metadata(self, _connection, metadata, *args, **kwargs):
+    async def _on_metadata(self, _connection, metadata, *args, **kwargs):
         logger.debug(f"Metadatos de Deepgram recibidos: {metadata}")
