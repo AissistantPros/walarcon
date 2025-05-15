@@ -143,9 +143,11 @@ def parse_relative_date(q: str, today: date) -> Optional[date]:
 
     # — de hoy/mañana en N —
     if m := re.search(r"\b(hoy|mañana)\s+en\s+(\d+|\w+)", q_l):
-        base = 0 if m.group(1) == "hoy" else 1
-        n = _word_to_int(m.group(2))
+        base = 0 if m.group(1) == "hoy" else 1          # “mañana” = hoy+1
+        n = _word_to_int(m.group(2))                    # número capturado (1-30)
         if n:
+            if n == 8:                                  # caso especial de costumbre
+                return today + timedelta(days=base + 7)
             return today + timedelta(days=base + n)
 
     # — en N días / semanas / meses —
@@ -330,6 +332,11 @@ def process_appointment_request(
             return [s for s in slots if dt_time(11, 0) <= datetime.strptime(s, "%H:%M").time() <= dt_time(13, 15)]
         return slots
 
+
+
+
+
+
     # —— búsqueda de slot —— (máx 120 días)
     for day_offset in range(0, 120):
         chk_date = target_date + timedelta(days=day_offset)
@@ -342,10 +349,24 @@ def process_appointment_request(
         # franja pedida
         free_slots = _filter_by_kw(free_slots)
 
-        # regla 6 h para el día actual
+        
+
+
+        # ── regla de “6 h” + cierre diario ────────────────────────────
         if chk_date == today:
-            limit = (now + timedelta(hours=MIN_ADVANCE_BOOKING_HOURS)).time()
-            free_slots = [s for s in free_slots if datetime.strptime(s, "%H:%M").time() >= limit]
+            future_dt = now + timedelta(hours=MIN_ADVANCE_BOOKING_HOURS)
+
+            # 1) si el +6 h ya cae en otro día  ➜  descarta el día de hoy
+            # 2) si ya son ≥ 14:00 h           ➜  día cerrado
+            if future_dt.date() != today or now.time() >= dt_time(14, 0):
+                free_slots = []
+            else:
+                limit = future_dt.time()
+                free_slots = [
+                    s for s in free_slots
+                    if datetime.strptime(s, "%H:%M").time() >= limit
+                ]
+
 
         if free_slots:
             slot_start = free_slots[0]
