@@ -1,13 +1,14 @@
 # prompt.py
 from utils import get_cancun_time
+from typing import List, Dict
 
-def generate_openai_prompt(conversation_history: list) -> str:
+def generate_openai_prompt(conversation_history: List[Dict]) -> List[Dict]:
     """
     Prompt SYSTEM ultra-detallado para modelos pequeños (gpt-4-mini, etc.).
     """
     current_time_str = get_cancun_time().strftime("%d/%m/%Y %H:%M")
 
-    prompt = f"""
+    system_prompt = f"""
 ──────────────────────────────────────────────────────────────
 🕒  HORA ACTUAL (Cancún): {current_time_str}
 ──────────────────────────────────────────────────────────────
@@ -126,5 +127,17 @@ PASO 6. Despedida obligatoria (NO cuelgues automáticamente):
 • Fuera del rango 09:30–14:00 → dile que no atendemos a esa hora.
 
 Fin del prompt system.
-"""
-    return prompt.strip()
+""".strip() 
+    
+    # ─── 2) Crear la lista de mensajes ───────────────────────────────────────
+    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+
+    # Normalizar el historial que viene del flujo
+    for turn in conversation_history:
+        if isinstance(turn, dict) and "role" in turn and "content" in turn:
+            messages.append(turn)
+        else:
+            # Si por alguna razón llega un string suelto, lo tratamos como usuario
+            messages.append({"role": "user", "content": str(turn)})
+
+    return messages
