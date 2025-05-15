@@ -114,7 +114,7 @@ class DeepgramSTTStreamer:
                                  # Por ahora, lo manejaremos con send_keep_alive() explícito.
             )
             
-            logger.debug(f"Opciones de Deepgram para start: {options}")
+            ##logger.debug(f"Opciones de Deepgram para start: {options}")
             await self.dg_connection.start(options)
             # El callback _on_open será el encargado de poner self._started = True
             # y self._is_reconnecting = False al tener éxito.
@@ -203,7 +203,7 @@ class DeepgramSTTStreamer:
 
         if self.dg_connection and self._started and not self._is_closing and not self._is_reconnecting:
             try:
-                logger.info("Intentando enviar KeepAlive a Deepgram...")
+                ##logger.info("Intentando enviar KeepAlive a Deepgram...")
                 await self.dg_connection.send(json.dumps({"type": "KeepAlive"}))
                 logger.info("🔵 KeepAlive enviado a Deepgram.")
                 return True

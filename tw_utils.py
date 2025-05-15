@@ -293,7 +293,7 @@ class TwilioWebSocketManager:
                     received_call_sid = start_data.get("callSid")
                     if received_call_sid and self.call_sid != received_call_sid:
                          self.call_sid = received_call_sid
-                         logger.info(f"📞 CallSid actualizado a: {self.call_sid}")
+                         ##logger.info(f"📞 CallSid actualizado a: {self.call_sid}")
                     logger.info(f"▶️ Evento 'start'. StreamSid: {self.stream_sid}. CallSid: {self.call_sid or 'N/A'}")
                     
                     ts_greet_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -302,7 +302,7 @@ class TwilioWebSocketManager:
                     logger.info(f"👋 Saludo: '{greeting_text}'")
                     audio_saludo = text_to_speech(greeting_text)
                     await self._play_audio_bytes(audio_saludo)
-                    logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Greeting TTS finished.")
+                    ##logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Greeting TTS finished.")
 
 
 
@@ -430,7 +430,7 @@ class TwilioWebSocketManager:
     async def _periodic_keep_alive_task(self):
             """Tarea en segundo plano que envía KeepAlives periódicos a Deepgram."""
             log_prefix = f"KeepAliveTask_{self.call_sid or str(id(self))[-6:]}" # ID más corto para logs
-            logger.info(f"[{log_prefix}] Iniciando tarea periódica de KeepAlive para Deepgram.")
+            ##logger.info(f"[{log_prefix}] Iniciando tarea periódica de KeepAlive para Deepgram.")
             
             # Usar una constante de la clase o global si prefieres este intervalo
             keep_alive_interval_seconds = 4.0 
@@ -459,7 +459,7 @@ class TwilioWebSocketManager:
                         can_send_keepalive = True
                 
                 if can_send_keepalive:
-                    logger.debug(f"[{log_prefix}] Enviando KeepAlive periódico a Deepgram. STT Status: {stt_status_for_log}")
+                    ##logger.debug(f"[{log_prefix}] Enviando KeepAlive periódico a Deepgram. STT Status: {stt_status_for_log}")
                     success = await self.stt_streamer.send_keep_alive() 
                     if not success:
                         logger.warning(f"[{log_prefix}] El KeepAlive periódico pudo haber fallado. "
@@ -697,7 +697,7 @@ class TwilioWebSocketManager:
             """
             ts_reactivar_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             log_prefix = f"ReactivarSTT_{self.call_sid or str(id(self))[-6:]}"
-            logger.info(f"[{log_prefix}] ⏱️ Iniciando proceso de reactivación de STT Post-TTS.")
+            ##logger.info(f"[{log_prefix}] ⏱️ Iniciando proceso de reactivación de STT Post-TTS.")
 
             if self.call_ended:
                 logger.info(f"[{log_prefix}] Llamada ya terminó. No se procede con la reactivación de STT.")
@@ -750,7 +750,7 @@ class TwilioWebSocketManager:
                 
                 # Procesar buffer de Twilio
                 if self.audio_buffer_twilio:
-                    logger.info(f"[{log_prefix}] Procesando {len(self.audio_buffer_twilio)} chunks del buffer de Twilio...")
+                    #logger.info(f"[{log_prefix}] Procesando {len(self.audio_buffer_twilio)} chunks del buffer de Twilio...")
                     # Crear una copia para iterar por si la lista se modifica (aunque no debería aquí)
                     buffered_chunks_to_send = list(self.audio_buffer_twilio)
                     self.audio_buffer_twilio.clear() # Limpiar buffer original inmediatamente
@@ -774,13 +774,13 @@ class TwilioWebSocketManager:
                             # Re-añadir los chunks no enviados al buffer principal
                             self.audio_buffer_twilio.extend(buffered_chunks_to_send[i:])
                             break 
-                    logger.info(f"[{log_prefix}] Buffer de Twilio procesado.")
+                    #logger.info(f"[{log_prefix}] Buffer de Twilio procesado.")
                 else:
                     logger.info(f"[{log_prefix}] Buffer de Twilio vacío, no hay nada que procesar.")
                 
                 if self.ignorar_stt: # Solo cambiar si estaba True
                     self.ignorar_stt = False 
-                    logger.info(f"[{log_prefix}] ✅ Flag 'ignorar_stt' puesto a False.")
+                    #logger.info(f"[{log_prefix}] ✅ Flag 'ignorar_stt' puesto a False.")
                 # else:
                     # logger.debug(f"[{log_prefix}] Flag 'ignorar_stt' ya era False.")
             
@@ -845,7 +845,7 @@ class TwilioWebSocketManager:
 
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
             ts_gpt_call_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.info(f"⏱️ TS:[{ts_gpt_call_end}] PROCESS_GPT Respuesta OpenAI recibida. ⏱️ DUR:[{gpt_duration_ms:.1f} ms]")
+            ##logger.info(f"⏱️ TS:[{ts_gpt_call_end}] PROCESS_GPT Respuesta OpenAI recibida. ⏱️ DUR:[{gpt_duration_ms:.1f} ms]")
 
             if self.call_ended: return # Verificar después de llamada potencialmente larga
 
@@ -889,7 +889,7 @@ class TwilioWebSocketManager:
 
             start_tts_gen = self._now()
             ts_tts_gen_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"⏱️ TS:[{ts_tts_gen_start}] PROCESS_GPT Calling TTS...")
+            ##logger.debug(f"⏱️ TS:[{ts_tts_gen_start}] PROCESS_GPT Calling TTS...")
             audio_para_reproducir = text_to_speech(reply_cleaned) # Guardar en variable local
             tts_gen_duration_ms = (self._now() - start_tts_gen) * 1000
             ts_tts_gen_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -936,7 +936,7 @@ class TwilioWebSocketManager:
 
                 ts_check_delay = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
                 # Loguear sólo si es relevante (ej. > 3 segundos) para no saturar
-                if real_latency > 3.0:
+                if real_latency > 4.0:
                      logger.info(f"⏱️ TS:[{ts_check_delay}] PROCESS_GPT Latency Check: Diff={real_latency:.3f}s, Threshold={latency_threshold}s")
 
                 if real_latency > latency_threshold:
