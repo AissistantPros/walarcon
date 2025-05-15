@@ -41,7 +41,7 @@ logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuev
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .43
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
 LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 4 # Umbral para mensaje de espera
 HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
@@ -91,6 +91,11 @@ class TwilioWebSocketManager:
         self.conversation_history: List[dict] = []
         self.speaking_lock = asyncio.Lock() 
         
+
+        self.audio_buffer_twilio: List[bytes] = []       # Buffer para audio de Twilio
+        self.keep_alive_task: Optional[asyncio.Task] = None # Tarea para el KeepAlive periódico
+        self.close_dg_task: Optional[asyncio.Task] = None   # Tarea para el cierre de Deepgram antes del TTS
+
 
       # ### MODIFICADO ### Cargar audio de espera directamente como bytes
         self.hold_audio_mulaw_bytes: bytes = b""
@@ -210,20 +215,50 @@ class TwilioWebSocketManager:
         except Exception as e_preload:
             logger.warning(f"⚠️ Precarga de datos falló: {e_preload}", exc_info=False) 
 
+
+
+
+
+
+
+
         # --- Iniciar Deepgram ---
         ts_dg_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
         logger.debug(f"⏱️ TS:[{ts_dg_start}] HANDLE_WS Deepgram Init Start")
+        monitor_task = None # Definir monitor_task aquí para que exista en el scope del finally
         try:
             dg_start_pc = self._now()
-            self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
-            await self.stt_streamer.start_streaming()
+            if not self.stt_streamer: # Crear instancia si no existe (útil si el manager se reutilizara)
+                 self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
+            
+            await self.stt_streamer.start_streaming() # Intenta iniciar la conexión
             dg_duration = (self._now() - dg_start_pc) * 1000
-            logger.info(f"✅ Deepgram STT iniciado. ⏱️ DUR:[{dg_duration:.1f}ms]")
+            
+            if self.stt_streamer._started: # Verificar si realmente se inició
+                logger.info(f"✅ Deepgram STT iniciado. ⏱️ DUR:[{dg_duration:.1f}ms]")
+                # >>> INICIO: NUEVO BLOQUE PARA INICIAR TAREA KEEPALIVE <<<
+                if not self.keep_alive_task or self.keep_alive_task.done(): # Solo si no existe o ya terminó
+                    self.keep_alive_task = asyncio.create_task(
+                        self._periodic_keep_alive_task(), 
+                        name=f"KeepAliveTask_{self.call_sid or str(id(self))[-6:]}" 
+                    )
+                    logger.info(f"Tarea KeepAlive iniciada: {self.keep_alive_task.get_name()}")
+                # >>> FIN: NUEVO BLOQUE PARA INICIAR TAREA KEEPALIVE <<<
+            else: 
+                logger.critical(f"❌ CRÍTICO: Deepgram STT NO PUDO INICIARSE después del intento. ⏱️ DUR:[{dg_duration:.1f}ms]")
+                await self._shutdown(reason="Deepgram Initial Connection Failed")
+                return # Salir de handle_twilio_websocket si Deepgram no inicia
         except Exception as e_dg_start:
-            logger.critical(f"❌ CRÍTICO: Deepgram no arrancó: {e_dg_start}", exc_info=True)
-            await self._safe_close_websocket(code=1011, reason="STT Initialization Failed")
-            CURRENT_CALL_MANAGER = None
+            logger.critical(f"❌ CRÍTICO: Excepción al intentar iniciar Deepgram: {e_dg_start}", exc_info=True)
+            # self._safe_close_websocket ya no es necesario aquí si _shutdown maneja el cierre del websocket de Twilio
+            await self._shutdown(reason="STT Initialization Exception") # _shutdown debería manejar la limpieza
+            # CURRENT_CALL_MANAGER = None # _shutdown o el finally de handle_twilio_websocket deberían manejar esto
             return
+
+
+
+
+
 
         # --- Tarea de Monitoreo ---
         monitor_task = asyncio.create_task(self._monitor_call_timeout(), name=f"MonitorTask_{self.call_sid or id(self)}")
@@ -270,18 +305,58 @@ class TwilioWebSocketManager:
                     logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Greeting TTS finished.")
 
 
+
+
+
+
                 elif event == "media":
-                    ts_media_start = self._now()
-                    # logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Media event START")
-                    if not self.ignorar_stt and not self.is_speaking:
-                        payload = data.get("media", {}).get("payload")
-                        if payload and self.stt_streamer:
+                    # ts_media_start = self._now() # Descomentar si necesitas medir esta parte
+                    payload_b64 = data.get("media", {}).get("payload")
+
+                    if payload_b64:
+                        decoded_payload = base64.b64decode(payload_b64)
+                        
+                        # Determinar si el audio debe ir al buffer o directo a Deepgram
+                        buffer_audio = False
+                        if self.is_speaking:
+                            # Si la IA está hablando, descartamos el audio (no lo bufferizamos ni lo enviamos)
+                            # logger.debug("Audio de Twilio IGNORADO (IA está hablando).")
+                            pass # No hacer nada con el audio
+                        elif self.ignorar_stt:
+                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque ignorar_stt es True.")
+                            buffer_audio = True
+                        elif not self.stt_streamer:
+                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no existe.")
+                            buffer_audio = True
+                        elif not self.stt_streamer._started:
+                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no está _started.")
+                            buffer_audio = True
+                        elif self.stt_streamer._is_reconnecting:
+                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer se está reconectando.")
+                            buffer_audio = True
+                        # No necesitamos chequear _is_closing aquí porque si está _is_closing, _started debería ser False.
+
+                        if buffer_audio:
+                            self.audio_buffer_twilio.append(decoded_payload)
+                        elif self.stt_streamer: # Implica que está _started, no _is_reconnecting, no ignorar_stt, y la IA no habla
                             try:
-                                # No añadir log aquí por verbosidad, el streamer lo hará si es necesario
-                                await self.stt_streamer.send_audio(base64.b64decode(payload))
+                                # logger.debug(f"Enviando audio directo a Deepgram ({len(decoded_payload)} bytes).")
+                                await self.stt_streamer.send_audio(decoded_payload)
                             except Exception as e_send_audio:
-                                logger.error(f"Error enviando audio a Deepgram: {e_send_audio}")
-                    # logger.debug(f"⏱️ DUR:[{(self._now() - ts_media_start)*1000:.1f}ms] HANDLE_WS Media event END")
+                                logger.error(f"Error enviando audio directo a Deepgram: {e_send_audio}")
+                                # Si send_audio falla, el streamer mismo intentará reconectar.
+                                # Podríamos también añadir al buffer aquí como fallback, pero
+                                # podría ser redundante si el streamer maneja bien su reconexión.
+                                # Por ahora, confiamos en la reconexión del streamer.
+                    # else:
+                        # logger.debug("Evento 'media' recibido sin payload.")
+                    # logger.debug(f"⏱️ DUR_MEDIA_HANDLING: [{(self._now() - ts_media_start)*1000:.1f}ms]")
+
+
+
+
+
+
 
 
                 elif event == "stop":
@@ -306,15 +381,93 @@ class TwilioWebSocketManager:
             logger.error(f"❌ Error fatal en bucle principal WebSocket: {e_main_loop}", exc_info=True)
             await self._shutdown(reason=f"Main Loop Error: {type(e_main_loop).__name__}")
         finally:
-            # Asegurar limpieza final
-            if monitor_task and not monitor_task.done():
-                monitor_task.cancel()
-                logger.debug(" Cancelando tarea de monitoreo en finally...")
-            logger.info(f"🏁 Finalizado handle_twilio_websocket. CallSid: {self.call_sid or 'N/A'}")
-            if CURRENT_CALL_MANAGER is self:
-                CURRENT_CALL_MANAGER = None
+                    # Asegurar limpieza final
+                    logger.info(f"🏁 Iniciando bloque finally de handle_twilio_websocket. CallSid: {self.call_sid or 'N/A'}") 
+                    
+                    # >>> INICIO: NUEVO BLOQUE PARA CANCELAR TAREA KEEPALIVE <<<
+                    if self.keep_alive_task and not self.keep_alive_task.done(): 
+                        logger.info("Cancelando tarea de KeepAlive periódico en finally de handle_twilio_websocket...")
+                        self.keep_alive_task.cancel()
+                        try:
+                            # Esperar brevemente para permitir que la cancelación se procese
+                            await asyncio.wait_for(self.keep_alive_task, timeout=0.5) 
+                        except asyncio.TimeoutError:
+                            logger.warning("Timeout (0.5s) esperando la cancelación de la tarea KeepAlive en finally.")
+                        except asyncio.CancelledError: 
+                            logger.debug("Tarea KeepAlive (en finally) ya estaba cancelada o se canceló a tiempo.")
+                        except Exception as e_cancel_ka_finally: 
+                            logger.error(f"Error durante la espera de cancelación de KeepAlive en finally: {e_cancel_ka_finally}")
+                        self.keep_alive_task = None # Limpiar la referencia
+                    # >>> FIN: NUEVO BLOQUE PARA CANCELAR TAREA KEEPALIVE <<<
+
+                    if monitor_task and not monitor_task.done(): # 'monitor_task' se define antes del try
+                        logger.info("Cancelando tarea de monitoreo en finally...") # Log mejorado
+                        monitor_task.cancel()
+                        try:
+                            await asyncio.wait_for(monitor_task, timeout=0.5) # Espera breve similar
+                        except asyncio.TimeoutError:
+                            logger.warning("Timeout (0.5s) esperando la cancelación de la tarea de monitoreo.")
+                        except asyncio.CancelledError:
+                            logger.debug("Tarea de monitoreo ya estaba cancelada o se canceló a tiempo.")
+                        except Exception as e_cancel_mon:
+                            logger.error(f"Error durante la espera de cancelación de la tarea de monitoreo: {e_cancel_mon}")
+                    
+                    # Asegurar que _shutdown se llama si no se hizo ya por otra razón,
+                    # pero solo si la llamada no terminó "naturalmente" por un _shutdown previo.
+                    if not self.call_ended:
+                        logger.warning("Llamada no marcada como finalizada en finally de handle_twilio_websocket, llamando a _shutdown como precaución.")
+                        await self._shutdown(reason="Cleanup in handle_twilio_websocket finally")
+
+                    logger.info(f"🏁 Finalizado handle_twilio_websocket (post-finally). CallSid: {self.call_sid or 'N/A'}")
+                    if CURRENT_CALL_MANAGER is self: 
+                        CURRENT_CALL_MANAGER = None
 
 
+
+
+
+
+    async def _periodic_keep_alive_task(self):
+            """Tarea en segundo plano que envía KeepAlives periódicos a Deepgram."""
+            log_prefix = f"KeepAliveTask_{self.call_sid or str(id(self))[-6:]}" # ID más corto para logs
+            logger.info(f"[{log_prefix}] Iniciando tarea periódica de KeepAlive para Deepgram.")
+            
+            # Usar una constante de la clase o global si prefieres este intervalo
+            keep_alive_interval_seconds = 4.0 
+
+            while not self.call_ended:
+                await asyncio.sleep(keep_alive_interval_seconds)
+
+                if self.call_ended: 
+                    logger.debug(f"[{log_prefix}] Llamada terminada, deteniendo ciclo de KeepAlives.")
+                    break
+
+                can_send_keepalive = False
+                stt_status_for_log = "N/A" # Para logging
+
+                if self.stt_streamer:
+                    # Guardar estados para evitar múltiples accesos y para logging claro
+                    streamer_started = self.stt_streamer._started
+                    streamer_closing = self.stt_streamer._is_closing
+                    streamer_reconnecting = self.stt_streamer._is_reconnecting
+                    
+                    stt_status_for_log = (f"started={streamer_started}, "
+                                        f"closing={streamer_closing}, "
+                                        f"reconnecting={streamer_reconnecting}")
+                    
+                    if streamer_started and not streamer_closing and not streamer_reconnecting:
+                        can_send_keepalive = True
+                
+                if can_send_keepalive:
+                    logger.debug(f"[{log_prefix}] Enviando KeepAlive periódico a Deepgram. STT Status: {stt_status_for_log}")
+                    success = await self.stt_streamer.send_keep_alive() 
+                    if not success:
+                        logger.warning(f"[{log_prefix}] El KeepAlive periódico pudo haber fallado. "
+                                    "DeepgramSTTStreamer (si detecta el fallo en send_keep_alive) debería gestionar la reconexión.")
+                else:
+                    logger.debug(f"[{log_prefix}] KeepAlive periódico OMITIDO. Call ended: {self.call_ended}. STT Status: {stt_status_for_log}")
+
+            logger.info(f"[{log_prefix}] Tarea periódica de KeepAlive para Deepgram finalizada.")
 
 
 
@@ -538,25 +691,110 @@ class TwilioWebSocketManager:
 
 
     async def _reactivar_stt_despues_de_envio(self):
-        """Desactiva el flag 'ignorar_stt'."""
-        ts_reactivar_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        # logger.debug(f"⏱️ TS:[{ts_reactivar_start}] REACTIVAR_STT START")
-        # No necesitamos sleep aquí si la llamada a GPT/TTS ya tuvo sus pausas.
-        # await asyncio.sleep(0.1) 
+            """
+            Se llama después de que la IA ha hablado.
+            Verifica/restablece la conexión de Deepgram, procesa el buffer de audio y reactiva el STT.
+            """
+            ts_reactivar_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+            log_prefix = f"ReactivarSTT_{self.call_sid or str(id(self))[-6:]}"
+            logger.info(f"[{log_prefix}] ⏱️ Iniciando proceso de reactivación de STT Post-TTS.")
 
-        if not self.call_ended: 
-            if self.ignorar_stt:
-                 self.ignorar_stt = False
-                 logger.info(f"✅ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] REACTIVAR_STT: Flag 'ignorar_stt' puesto a False.")
+            if self.call_ended:
+                logger.info(f"[{log_prefix}] Llamada ya terminó. No se procede con la reactivación de STT.")
+                # Asegurarse de que la tarea de cierre de DG (si la usamos) se maneje
+                if self.close_dg_task and not self.close_dg_task.done():
+                    logger.debug(f"[{log_prefix}] Cancelando tarea de cierre de Deepgram pendiente (close_dg_task).")
+                    self.close_dg_task.cancel()
+                return
+
+            # Si implementamos el cierre proactivo de Deepgram ANTES del TTS, esperamos aquí.
+            # Por ahora, con la estrategia de KeepAlive periódico, close_dg_task podría no usarse activamente en cada turno.
+            if self.close_dg_task: # Si la tarea existe (fue creada en _proceder_a_enviar)
+                if not self.close_dg_task.done():
+                    logger.info(f"[{log_prefix}] Esperando a que la tarea de cierre de Deepgram (close_dg_task) se complete...")
+                    try:
+                        await asyncio.wait_for(self.close_dg_task, timeout=1.0) # Esperar un poco
+                        logger.info(f"[{log_prefix}] Tarea de cierre de Deepgram (close_dg_task) completada.")
+                    except asyncio.TimeoutError:
+                        logger.warning(f"[{log_prefix}] Timeout esperando la tarea de cierre de Deepgram (close_dg_task).")
+                    except Exception as e_wait_close:
+                        logger.warning(f"[{log_prefix}] Error esperando tarea de cierre de Deepgram (close_dg_task): {e_wait_close}")
+                # else:
+                    # logger.debug(f"[{log_prefix}] Tarea de cierre de Deepgram (close_dg_task) ya había completado.")
+                self.close_dg_task = None # Limpiar la referencia a la tarea
+
+            # Verificar estado de Deepgram y reintentar conexión si es necesario
+            streamer_is_operational = False
+            if self.stt_streamer:
+                if self.stt_streamer._started and not self.stt_streamer._is_closing and not self.stt_streamer._is_reconnecting:
+                    streamer_is_operational = True
+                
+                if not streamer_is_operational:
+                    logger.warning(f"[{log_prefix}] Deepgram no está operativo (started={self.stt_streamer._started}, "
+                                f"closing={self.stt_streamer._is_closing}, reconnecting={self.stt_streamer._is_reconnecting}). "
+                                "Intentando reconexión explícita...")
+                    await self.stt_streamer.attempt_reconnect() # Intentar reconectar con reintentos
+                    
+                    # Re-evaluar después del intento de reconexión
+                    if self.stt_streamer._started and not self.stt_streamer._is_closing and not self.stt_streamer._is_reconnecting:
+                        streamer_is_operational = True
+                        logger.info(f"[{log_prefix}] ✅ Reconexión explícita a Deepgram EXITOSA.")
+                    else:
+                        logger.error(f"[{log_prefix}] ❌ Reconexión explícita a Deepgram FALLÓ después de reintentos.")
             else:
-                 logger.debug("   REACTIVAR_STT: No necesario (ignorar_stt ya era False).")
+                logger.error(f"[{log_prefix}] ❌ No hay instancia de STT Streamer para reactivar.")
+
+
+            if streamer_is_operational and self.stt_streamer: # Doble chequeo por si stt_streamer se volvió None
+                logger.info(f"[{log_prefix}] ✅ Conexión Deepgram operativa.")
+                
+                # Procesar buffer de Twilio
+                if self.audio_buffer_twilio:
+                    logger.info(f"[{log_prefix}] Procesando {len(self.audio_buffer_twilio)} chunks del buffer de Twilio...")
+                    # Crear una copia para iterar por si la lista se modifica (aunque no debería aquí)
+                    buffered_chunks_to_send = list(self.audio_buffer_twilio)
+                    self.audio_buffer_twilio.clear() # Limpiar buffer original inmediatamente
+
+                    for i, chunk_data in enumerate(buffered_chunks_to_send):
+                        # Re-chequear estado del streamer antes de cada envío del buffer, por si acaso
+                        if self.stt_streamer and self.stt_streamer._started and \
+                        not self.stt_streamer._is_closing and not self.stt_streamer._is_reconnecting:
+                            try:
+                                # logger.debug(f"[{log_prefix}] Enviando chunk {i+1} del buffer a Deepgram.")
+                                await self.stt_streamer.send_audio(chunk_data)
+                            except Exception as e_send_buffer:
+                                logger.error(f"[{log_prefix}] Error enviando chunk {i+1} del buffer a Deepgram: {e_send_buffer}")
+                                # Si falla aquí, el audio restante del buffer podría perderse o
+                                # podríamos volver a añadirlo al inicio del buffer.
+                                # Por simplicidad, por ahora no lo re-añadimos.
+                                break 
+                        else:
+                            logger.warning(f"[{log_prefix}] Deepgram dejó de estar operativo durante el procesamiento del buffer. "
+                                        f"Chunks restantes del buffer ({len(buffered_chunks_to_send) - i}) no enviados.")
+                            # Re-añadir los chunks no enviados al buffer principal
+                            self.audio_buffer_twilio.extend(buffered_chunks_to_send[i:])
+                            break 
+                    logger.info(f"[{log_prefix}] Buffer de Twilio procesado.")
+                else:
+                    logger.info(f"[{log_prefix}] Buffer de Twilio vacío, no hay nada que procesar.")
+                
+                if self.ignorar_stt: # Solo cambiar si estaba True
+                    self.ignorar_stt = False 
+                    logger.info(f"[{log_prefix}] ✅ Flag 'ignorar_stt' puesto a False.")
+                # else:
+                    # logger.debug(f"[{log_prefix}] Flag 'ignorar_stt' ya era False.")
             
-            # Considerar si reiniciar el timer de pausa aquí es bueno o no.
-            # Reiniciarlo podría colgar si el usuario no habla después del TTS.
-            # No reiniciarlo significa que la próxima actividad del usuario lo iniciará.
-            # Vamos a NO reiniciarlo explícitamente aquí.
-        else:
-             logger.debug("   REACTIVAR_STT: Llamada ya terminó, no se reactiva.")
+            else: # Deepgram no está operativo incluso después del intento de reconexión
+                logger.error(f"[{log_prefix}] ❌ Deepgram NO está operativo después de intentos. "
+                            f"STT no se reactivará completamente. ignorar_stt permanecerá {self.ignorar_stt}.")
+                # En este punto, self.ignorar_stt debería seguir siendo True si no se pudo reactivar,
+                # para que el audio siga yendo al buffer.
+                # Podríamos considerar un self._shutdown() aquí si STT es absolutamente crítico.
+                if not self.call_ended: # Solo si la llamada no está ya terminando por otra razón
+                    logger.critical(f"[{log_prefix}] STT no pudo reactivarse. Iniciando shutdown de la llamada.")
+                    await self._shutdown(reason="Critical STT Reactivation Failure")
+        
+            logger.info(f"[{log_prefix}] 🏁 FIN Reactivación STT Post-TTS. Estado ignorar_stt: {self.ignorar_stt}")
 
 
 
@@ -565,7 +803,8 @@ class TwilioWebSocketManager:
 
 
 
-    # ### MODIFICADO ### Añadir parámetro last_final_ts
+
+    
     async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
         """Llama a GPT, maneja respuesta y TTS, con Timestamps y Hold Message."""
         ts_process_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -915,77 +1154,76 @@ class TwilioWebSocketManager:
 
     async def _shutdown(self, reason: str = "Unknown"):
             """Cierra conexiones y tareas de forma ordenada, con timeouts."""
-            ts_shutdown_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            if self.call_ended:
-                logger.debug(f"⚠️ Intento de shutdown múltiple ignorado (Razón original: {self.shutdown_reason}). Nueva razón: {reason}")
+            # ts_shutdown_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3] # Movido abajo
+            if self.call_ended and self.shutdown_reason != "N/A": 
+                logger.info(f"Intento de shutdown múltiple ignorado. Razón original: {self.shutdown_reason}. Nueva razón: {reason}")
                 return
 
-            self.call_ended = True
-            self.shutdown_reason = reason
-            logger.info(f"🔻 TS:[{ts_shutdown_start}] SHUTDOWN Iniciando... Razón: {self.shutdown_reason}") # Usar self.shutdown_reason
+            ts_shutdown_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+            # Solo loguear "Iniciando" si no es un shutdown múltiple o si la razón es nueva y significativa
+            if not self.call_ended or (self.call_ended and self.shutdown_reason == "N/A"):
+                 logger.info(f"🔻 TS:[{ts_shutdown_start}] SHUTDOWN Iniciando... Razón: {reason}")
+            
+            self.call_ended = True 
+            if self.shutdown_reason == "N/A": 
+                self.shutdown_reason = reason
 
-            # Cancelar tareas activas
-            tasks_to_cancel = {
-                "PausaTimer": self.temporizador_pausa,
-                "GPTTask": self.current_gpt_task
-                # No necesitamos cancelar self.monitor_task aquí, se cancelará en el finally de handle_twilio_websocket
+            # --- Cancelar KeepAlive Task ---
+            if self.keep_alive_task and not self.keep_alive_task.done():
+                logger.info(f"Cancelando tarea de KeepAlive periódico durante shutdown (Razón: {self.shutdown_reason})...")
+                self.keep_alive_task.cancel()
+                # No es crucial esperar aquí con wait_for para acelerar el shutdown,
+                # la tarea _periodic_keep_alive_task debería terminar al ver self.call_ended.
+            self.keep_alive_task = None # Limpiar referencia inmediatamente
+
+            # --- Cancelar otras tareas activas ---
+            # (Tu código original para cancelar PausaTimer y GPTTask estaba bien,
+            # solo me aseguro que se limpien las referencias y añado close_dg_task si lo usamos)
+            tasks_to_cancel_map = {
+                "PausaTimer": "temporizador_pausa",
+                "GPTTask": "current_gpt_task",
+                "CloseDGTask": "close_dg_task" # Si añades self.close_dg_task
             }
-            for name, task in tasks_to_cancel.items():
-                if task and not task.done():
-                    task.cancel()
-                    logger.debug(f"🔴 SHUTDOWN: Cancelando Tarea {name}...")
+
+            for task_name_log, attr_name in tasks_to_cancel_map.items():
+                task_instance = getattr(self, attr_name, None)
+                if task_instance and not task_instance.done():
+                    logger.debug(f"🔴 SHUTDOWN: Cancelando Tarea {task_name_log}...")
+                    task_instance.cancel()
                     try:
-                        # No esperamos indefinidamente por la cancelación de la tarea aquí,
-                        # solo la marcamos para cancelar. El await podría colgar.
-                        # await asyncio.wait_for(task, timeout=0.1) # Opción si quieres esperar un poco
-                        logger.debug(f"✅ SHUTDOWN: Tarea {name} marcada para cancelación.")
+                        # Espera muy breve para que la cancelación se propague
+                        await asyncio.wait_for(task_instance, timeout=0.1) 
                     except asyncio.TimeoutError:
-                        logger.warning(f"⚠️ SHUTDOWN: Tarea {name} no confirmó cancelación a tiempo (timeout breve).")
-                    except Exception as e: # Capturar otras excepciones de cancelación
-                        logger.error(f"❌ SHUTDOWN: Error durante la cancelación de Tarea {name}: {e}")
-                # Limpiar referencia
-                if name == "PausaTimer": self.temporizador_pausa = None
-                if name == "GPTTask": self.current_gpt_task = None
+                        logger.debug(f"Timeout breve esperando cancelación de {task_name_log}.")
+                    except asyncio.CancelledError:
+                        logger.debug(f"Tarea {task_name_log} ya cancelada.")
+                    except Exception: # Capturar cualquier otra excepción
+                        pass # Ignorar para no bloquear shutdown
+                setattr(self, attr_name, None) # Limpiar la referencia (ej. self.temporizador_pausa = None)
 
-            # Cerrar Deepgram primero
+
+            # --- Cerrar Deepgram streamer explícitamente ---
             if self.stt_streamer:
+                logger.debug("   SHUTDOWN: Llamando a stt_streamer.close() explícitamente...")
                 try:
-                    logger.debug("   SHUTDOWN Cerrando Deepgram de manera explícita...")
-                    await asyncio.wait_for(self.stt_streamer.close(), timeout=2.0) # Timeout de 2s
-                    logger.info("✅ SHUTDOWN Conexión Deepgram cerrada (o timeout).")
-                except asyncio.TimeoutError:
-                    logger.warning("⚠️ SHUTDOWN: Timeout (2s) al cerrar Deepgram.")
-                except Exception as e_dg_close:
-                    logger.error(f"❌ SHUTDOWN Error al cerrar Deepgram: {e_dg_close}", exc_info=True)
-                finally:
-                    self.stt_streamer = None # Asegurar que se limpia
+                    await self.stt_streamer.close() 
+                    logger.info("✅ SHUTDOWN: stt_streamer.close() invocado (o ya estaba cerrado/en proceso).")
+                except Exception as e_dg_close_final:
+                    logger.error(f"❌ SHUTDOWN: Error en la llamada final a stt_streamer.close(): {e_dg_close_final}", exc_info=True)
+                finally: # Asegurar que la referencia se limpia
+                    self.stt_streamer = None
 
-            # Cerrar WebSocket
-            if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
-                try:
-                    logger.debug(f"🚪 SHUTDOWN Cerrando WebSocket (Code: 1000, Reason: {self.shutdown_reason[:100]})")
-                    await asyncio.wait_for(self.websocket.close(code=1000, reason=self.shutdown_reason), timeout=2.0) # Timeout de 2s
-                    logger.info("✅ SHUTDOWN WebSocket cerrado (o timeout).")
-                except asyncio.TimeoutError:
-                    logger.warning("⚠️ SHUTDOWN: Timeout (2s) al cerrar WebSocket.")
-                except Exception as e_ws_close:
-                    # Es común que aquí ya esté cerrado por la otra parte, especialmente si Deepgram cerró primero.
-                    logger.warning(f"⚠️ SHUTDOWN: Error/Advertencia al cerrar WebSocket (puede estar ya cerrado): {e_ws_close}")
-                finally:
-                    self.websocket = None # Asegurar que se limpia
-            else:
-                logger.debug("🟢 SHUTDOWN: WebSocket ya estaba cerrado o no conectado en el momento del intento de cierre.")
+            # --- Cerrar WebSocket de Twilio ---
+            await self._safe_close_websocket(code=1000, reason=self.shutdown_reason)
 
-
-            # Limpiar estado
+            # --- Limpiar buffers y conversación ---
             self.conversation_history.clear()
             self.finales_acumulados.clear()
+            if hasattr(self, 'audio_buffer_twilio'): # Por si este código se ejecuta antes de que __init__ lo cree
+                self.audio_buffer_twilio.clear() 
+
             ts_shutdown_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.info(f"🏁 TS:[{ts_shutdown_end}] SHUTDOWN Completado (Razón: {self.shutdown_reason}).")
-
-
-
-
 
 
 
