@@ -45,7 +45,8 @@ PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
 LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 4.5 # Umbral para mensaje de espera
 HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
-
+SILENCE_FRAME = b'\x00' * 160          # 20 ms de μ-law @ 8 kHz
+SILENCE_PERIOD = 5.0                  # cada 5 seg envía un paquete
 
 # --- Otras Constantes Globales ---
 CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
@@ -427,6 +428,25 @@ class TwilioWebSocketManager:
 
 
 
+
+    async def _feed_silence_to_deepgram(self):
+        """
+        Mientras self.is_speaking sea True, envía un frame de silencio a Deepgram
+        cada SILENCE_PERIOD segundos para evitar el timeout 1011.
+        """
+        try:
+            while self.is_speaking and self.stt_streamer and self.stt_streamer._started:
+                await self.stt_streamer.send_audio(SILENCE_FRAME)
+                await asyncio.sleep(SILENCE_PERIOD)
+        except Exception as e:
+            logger.debug(f"[SilenceFeeder] terminó por excepción: {e}")
+
+
+
+
+
+
+
     async def _periodic_keep_alive_task(self):
             """Tarea en segundo plano que envía KeepAlives periódicos a Deepgram."""
             log_prefix = f"KeepAliveTask_{self.call_sid or str(id(self))[-6:]}" # ID más corto para logs
@@ -468,8 +488,6 @@ class TwilioWebSocketManager:
                     logger.debug(f"[{log_prefix}] KeepAlive periódico OMITIDO. Call ended: {self.call_ended}. STT Status: {stt_status_for_log}")
 
             logger.info(f"[{log_prefix}] Tarea periódica de KeepAlive para Deepgram finalizada.")
-
-
 
 
 
@@ -670,7 +688,6 @@ class TwilioWebSocketManager:
 
 
 
-    # ### MODIFICADO ### Añadir parámetro last_final_ts
     async def process_gpt_and_reactivate_stt(self, texto_para_gpt: str, last_final_ts: Optional[float]):
         """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
         ts_wrapper_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -998,78 +1015,57 @@ class TwilioWebSocketManager:
 
 
 
-
-
-
-
-
     # --- Funciones Auxiliares 
 
-    async def _play_audio_bytes(self, audio_data: bytes):
-        """Envía audio mu-law a Twilio, manejando estado y logs con TS."""
-        ts_play_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        # logger.debug(f"⏱️ TS:[{ts_play_start}] PLAY_AUDIO START")
-        
-        if self.call_ended or not audio_data or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
-            logger.debug(f"   PLAY_AUDIO Ignorando: call_ended={self.call_ended}, no_data={not audio_data}, ws_bad_state={not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED}")
+    async def _play_audio_bytes(self, pcm_ulaw_bytes: bytes) -> None:
+        """
+        Envía audio (ya en μ-law, 8 kHz) al <Stream> de Twilio.
+        Mientras se reproduce, alimenta a Deepgram con frames de silencio
+        cada 5 s para que no cierre la conexión (código 1011).
+        """
+        if not pcm_ulaw_bytes or not self.websocket:
             return
 
-        tts_start_pc = self._now() # Para medir duración total
-        ##logger.info(f"🔊 Iniciando reproducción TTS ({len(audio_data)} bytes)...")
-        
-        acquired_lock = False
+        # --- 1.  Arrancar ‘silence feeder’ hacia Deepgram -------------------
+        silence_task = None
+        if self.stt_streamer and self.stt_streamer._started:
+            silence_task = asyncio.create_task(
+                self._feed_silence_to_deepgram(),
+                name="SilenceFeeder"
+            )
+
+        # --- 2.  Marcar que la IA está hablando ----------------------------
+        self.is_speaking = True
+        chunk_size = 1900                # ≈ 20 ms @ 8 kHz μ-law (Twilio recomienda ≤ 1900 B)
+        total_sent = 0
         try:
-            ts_lock_acq_start = self._now()
-            await self.speaking_lock.acquire()
-            self.is_speaking = True
-            acquired_lock = True
-            # logger.debug(f"   PLAY_AUDIO Lock adquirido ({(self._now()-ts_lock_acq_start)*1000:.1f}ms), is_speaking = True")
-
-            chunk_size = 320 
-            sent_bytes = 0
-            start_send_loop_pc = self._now()
-            ts_send_loop_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            ##logger.debug(f"⏱️ TS:[{ts_send_loop_start}] PLAY_AUDIO Loop de envío iniciado.")
-
-            for offset in range(0, len(audio_data), chunk_size):
-                if self.call_ended: 
-                    logger.warning("🛑 Reproducción TTS interrumpida por fin de llamada.")
-                    break 
-                
-                chunk = audio_data[offset : offset + chunk_size]
-                media_message = json.dumps({
+            for i in range(0, len(pcm_ulaw_bytes), chunk_size):
+                if self.call_ended:
+                    break
+                chunk = pcm_ulaw_bytes[i:i + chunk_size]
+                await self.websocket.send_json({
                     "event": "media",
-                    "streamSid": self.stream_sid,
-                    "media": {"payload": base64.b64encode(chunk).decode("utf-8")},
+                    "media": {
+                        "payload": base64.b64encode(chunk).decode("ascii")
+                    }
                 })
+                total_sent += len(chunk)
+                # Twilio espera ≈ 20 ms entre paquetes de 160 samples ⇒ 20 ms ≈ 0.02 s
+                await asyncio.sleep(0.02)
 
-                try:
-                    await self.websocket.send_text(media_message)
-                    sent_bytes += len(chunk)
-                    await asyncio.sleep(chunk_size / 8000.0) # Espera tiempo real del chunk
-                except Exception as e_send:
-                     logger.error(f"❌ Error enviando chunk de audio a Twilio: {e_send}")
-                     await self._shutdown(reason="WebSocket Send Error during TTS")
-                     break
-
-            loop_duration_pc = self._now() - start_send_loop_pc
-            ts_send_loop_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            if not self.call_ended: 
-                 logger.info(f"🔇 TS:[{ts_send_loop_end}] PLAY_AUDIO Fin reproducción. Enviados {sent_bytes} bytes. ⏱️ DUR_SEND_LOOP:[{loop_duration_pc*1000:.1f}ms]")
-
-        except Exception as e_play:
-             logger.error(f"❌ Error durante _play_audio_bytes: {e_play}", exc_info=True)
+            logger.info(f"🔊 PLAY_AUDIO Fin reproducción. Enviados {total_sent} bytes.")
         finally:
-            # Liberar el lock y resetear el flag
-            if acquired_lock:
-                self.is_speaking = False
-                self.speaking_lock.release()
-                # logger.debug("   PLAY_AUDIO Lock liberado, is_speaking = False")
-            ts_play_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            total_play_dur_pc = self._now() - tts_start_pc
-            ##logger.debug(f"⏱️ TS:[{ts_play_end}] PLAY_AUDIO END. ⏱️ DUR_TOTAL:[{total_play_dur_pc*1000:.1f}ms]")
+            # --- 3.  Detener ‘silence feeder’ ------------------------------
+            if silence_task and not silence_task.done():
+                silence_task.cancel()
+                try:
+                    await silence_task
+                except asyncio.CancelledError:
+                    pass
 
-
+            # --- 4.  Desmarcar speaking & reset timers ---------------------
+            self.is_speaking = False
+            self.last_activity_ts = self._now()
 
 
 
