@@ -377,9 +377,10 @@ def process_appointment_request(
 
 
 
+    # —— búsqueda de slot —— (máx 120 días) ────────────────────────────────
+    is_this_week = any(p in user_query_for_date_time.lower() for p in SINONIMOS_SEMANA)
+    days_until_saturday = (5 - target_date.weekday()) % 7  # 0=Lun … 5=Sáb
 
-
-    # —— búsqueda de slot —— (máx 120 días)
     for day_offset in range(0, 120):
         chk_date = target_date + timedelta(days=day_offset)
         if chk_date.weekday() == 6:       # domingo
@@ -388,18 +389,12 @@ def process_appointment_request(
         day_key = chk_date.strftime("%Y-%m-%d")
         free_slots = free_slots_cache.get(day_key, []).copy()
 
-        # franja pedida
+        # franja pedida (mañana / tarde / mediodía, etc.)
         free_slots = _filter_by_kw(free_slots)
 
-        
-
-
-        # ── regla de “6 h” + cierre diario ────────────────────────────
+        # ── regla “6 h antes” + cierre diario ──────────────────────────────
         if chk_date == today:
             future_dt = now + timedelta(hours=MIN_ADVANCE_BOOKING_HOURS)
-
-            # 1) si el +6 h ya cae en otro día  ➜  descarta el día de hoy
-            # 2) si ya son ≥ 14:00 h           ➜  día cerrado
             if future_dt.date() != today or now.time() >= dt_time(14, 0):
                 free_slots = []
             else:
@@ -409,53 +404,53 @@ def process_appointment_request(
                     if datetime.strptime(s, "%H:%M").time() >= limit
                 ]
 
-
-
+        # ─ regla “más tarde / más temprano” ───────────────────────────────
         if free_slots and (more_late_param or more_early_param):
-            # --- Aplicar desplazamiento “más tarde / más temprano” ----------
             if more_late_param:
-                # Avanzamos 4 horarios si pidió "más tarde"
-                free_slots = free_slots[1:5]   # Próximos 4 horarios (máximo)
-
+                free_slots = free_slots[1:5]       # siguientes 4
             if more_early_param:
-                # Retrocedemos 4 horarios si pidió "más temprano"
-                free_slots = free_slots[-5:-1] # Anteriores 4 horarios (máximo)
-
-            # Si después del filtrado no hay horarios disponibles
+                free_slots = free_slots[-5:-1]     # anteriores 4
             if not free_slots:
                 return {
                     "status": "NO_MORE_LATE" if more_late_param else "NO_MORE_EARLY",
                     "message": "sin_disponibilidad",
                 }
 
-        # ─ Filtramos por franja si el usuario la pidió
+        # ─ Filtrar por franja explícita (“tarde”, “mañana”…) —─────────────
         if explicit_time_preference_param:
             free_slots = _slots_for_franja(free_slots, explicit_time_preference_param)
 
-        # ─ Si la franja solicitada está vacía, devolvemos un aviso específico
+        # ─ Si tras todos los filtros no quedó nada, seguimos con el día ↓──
         if not free_slots:
+            continue   # ⬅️  ANTES devolvía NO_SLOT_FRANJA
+
+        # ─ Si la consulta era “esta semana” y el hueco es > sábado, avisa ──
+        if is_this_week and day_offset > days_until_saturday:
+            available = free_slots[:4]
+            pretty_list = [_pretty_hhmm(h) for h in available]
             return {
-                "status": "NO_SLOT_FRANJA",
-                "requested_date_iso": target_date.isoformat(),
-                "requested_franja": explicit_time_preference_param,
+                "status": "SLOT_FOUND_LATER",
+                "requested_date_iso": requested_date_iso,
+                "suggested_date_iso": chk_date.isoformat(),
+                "available_slots": available,
+                "available_pretty": pretty_list,
             }
 
-        # ─ Tomamos hasta 4 horarios (de la franja o del día)
-        available = free_slots[:4] if not (is_urgent_param or more_late_param or more_early_param) else free_slots[:4]
+        # ─ Devolver los horarios del día hallado ──────────────────────────
+        available = free_slots[:4]
         pretty_list = [_pretty_hhmm(h) for h in available]
-
         return {
             "status": "SLOT_LIST",
-            "date_iso": target_date.isoformat(),
-            "available_slots": available,        # ['11:45', '12:30', '13:15', '14:00']
-            "available_pretty": pretty_list      # ['once cuarenta y cinco…', 'doce treinta…']
+            "date_iso": chk_date.isoformat(),
+            "available_slots": available,
+            "available_pretty": pretty_list,
         }
 
-        # ─ Si no encontramos ningún slot en los próximos 4 meses
-        return {
-            "status": "NO_SLOT",
-            "message": "sin_disponibilidad",
-            "requested_date_iso": requested_date_iso,
-            "requested_time_kw": time_kw,
-            "is_urgent": is_urgent_param,
-        }
+    # ─ Si no se encontró nada en 120 días ─────────────────────────────────
+    return {
+        "status": "NO_SLOT",
+        "message": "sin_disponibilidad",
+        "requested_date_iso": requested_date_iso,
+        "requested_time_kw": time_kw,
+        "is_urgent": is_urgent_param,
+    }
