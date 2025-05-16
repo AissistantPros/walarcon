@@ -428,7 +428,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
                          logger.error(f"Error procesando detect_intent en Pase 2: {e_intent}")
 
 
-        logger.debug("OpenAI Main Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
+        #logger.debug("OpenAI Main Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
         return response_pase2.content or "No tengo una respuesta en este momento."
 
     except Exception as e:

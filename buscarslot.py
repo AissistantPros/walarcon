@@ -379,7 +379,8 @@ def process_appointment_request(
 
     # —— búsqueda de slot —— (máx 120 días) ────────────────────────────────
     is_this_week = any(p in user_query_for_date_time.lower() for p in SINONIMOS_SEMANA)
-    days_until_saturday = (5 - target_date.weekday()) % 7  # 0=Lun … 5=Sáb
+    days_until_saturday = (5 - today.weekday()) % 7  # 0=Lun … 5=Sáb
+    is_today_request = target_date == today and "hoy" in user_query_for_date_time.lower()
 
     for day_offset in range(0, 120):
         chk_date = target_date + timedelta(days=day_offset)
@@ -426,6 +427,17 @@ def process_appointment_request(
 
         # ─ Si la consulta era “esta semana” y el hueco es > sábado, avisa ──
         if is_this_week and day_offset > days_until_saturday:
+            available = free_slots[:4]
+            pretty_list = [_pretty_hhmm(h) for h in available]
+            return {
+                "status": "SLOT_FOUND_LATER",
+                "requested_date_iso": requested_date_iso,
+                "suggested_date_iso": chk_date.isoformat(),
+                "available_slots": available,
+                "available_pretty": pretty_list,
+            }
+        # ─ Si la consulta era “hoy” y el hueco cae otro día, avisa ─────────
+        if is_today_request and day_offset > 0:
             available = free_slots[:4]
             pretty_list = [_pretty_hhmm(h) for h in available]
             return {

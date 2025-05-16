@@ -512,12 +512,12 @@ class TwilioWebSocketManager:
             self.ultimo_evento_fue_parcial = not is_final 
             
             log_text_brief = transcript.strip()[:60] + ('...' if len(transcript.strip()) > 60 else '')
-            logger.debug(f"🎤 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Activity: final={is_final}, flag_parcial={self.ultimo_evento_fue_parcial}, text='{log_text_brief}'")
+            #logger.debug(f"🎤 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Activity: final={is_final}, flag_parcial={self.ultimo_evento_fue_parcial}, text='{log_text_brief}'")
 
             if is_final:
                 self.last_final_ts = ahora_pc # Actualizar TS del último final
                 self.last_final_stt_timestamp = ahora_pc
-                logger.info(f"📥 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Final Recibido: '{transcript.strip()}'")
+                #logger.info(f"📥 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Final Recibido: '{transcript.strip()}'")
                 self.finales_acumulados.append(transcript.strip())
             else:
                  # Loguear parciales solo si el nivel de log es TRACE o similar (si lo implementas)
@@ -561,7 +561,7 @@ class TwilioWebSocketManager:
             ##logger.debug(f"⌛ TS:[{ts_sleep_end}] INTENTAR_ENVIAR Timer completado. Tiempo real desde últ_act: {elapsed_activity:.2f}s / desde últ_final: {elapsed_final:.2f}s")
 
             if self.call_ended:
-                logger.debug("⚠️ INTENTAR_ENVIAR: Llamada finalizada durante espera. Abortando.")
+                #logger.debug("⚠️ INTENTAR_ENVIAR: Llamada finalizada durante espera. Abortando.")
                 return
 
             if not self.finales_acumulados:
@@ -573,29 +573,29 @@ class TwilioWebSocketManager:
             
             # CONDICIÓN 1: Timeout Máximo (Failsafe)
             if elapsed_activity >= timeout_maximo:
-                logger.warning(f"⚠️ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Timeout máximo ({timeout_maximo:.1f}s) alcanzado (elapsed={elapsed_activity:.2f}s). Forzando envío.")
+                #logger.warning(f"⚠️ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Timeout máximo ({timeout_maximo:.1f}s) alcanzado (elapsed={elapsed_activity:.2f}s). Forzando envío.")
                 await self._proceder_a_enviar() 
                 return
 
             # CONDICIÓN 2: Pausa Normal y Último Evento fue FINAL
             # Comparamos con umbral ligeramente menor para evitar problemas de precisión flotante
             if elapsed_activity >= (tiempo_espera - 0.1) and not self.ultimo_evento_fue_parcial:
-                logger.info(f"✅ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Pausa normal ({tiempo_espera:.1f}s) detectada después de FINAL. Procediendo.")
+                #logger.info(f"✅ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Pausa normal ({tiempo_espera:.1f}s) detectada después de FINAL. Procediendo.")
                 await self._proceder_a_enviar() 
                 return
                 
             # CONDICIÓN 3: Pausa Normal pero Último Evento fue PARCIAL
             if elapsed_activity >= (tiempo_espera - 0.1) and self.ultimo_evento_fue_parcial:
-                logger.info(f"⏸️ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Pausa normal ({tiempo_espera:.1f}s) detectada después de PARCIAL. Esperando 'is_final=true' correspondiente...")
+                #logger.info(f"⏸️ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Pausa normal ({tiempo_espera:.1f}s) detectada después de PARCIAL. Esperando 'is_final=true' correspondiente...")
                 # No enviamos, esperamos que el final reinicie el timer.
                 # El failsafe (Condición 1) eventualmente actuará si el final nunca llega.
                 return
 
-            logger.debug(f"❔ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Timer cumplido, pero ninguna condición de envío activa.")
+            #logger.debug(f"❔ TS:[{ts_sleep_end}] INTENTAR_ENVIAR: Timer cumplido, pero ninguna condición de envío activa.")
 
         except asyncio.CancelledError:
             ts_cancel = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"🛑 TS:[{ts_cancel}] INTENTAR_ENVIAR: Timer de pausa cancelado/reiniciado (normal).")
+            #logger.debug(f"🛑 TS:[{ts_cancel}] INTENTAR_ENVIAR: Timer de pausa cancelado/reiniciado (normal).")
         except Exception as e:
             ts_error = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.error(f"❌ TS:[{ts_error}] Error en _intentar_enviar_si_pausa: {e}", exc_info=True)
@@ -610,10 +610,10 @@ class TwilioWebSocketManager:
     async def _proceder_a_enviar(self):
             """Prepara y envía acumulados, activa 'ignorar_stt', con Timestamps."""
             ts_proceder_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"⏱️ TS:[{ts_proceder_start}] PROCEDER_ENVIAR START")
+            #logger.debug(f"⏱️ TS:[{ts_proceder_start}] PROCEDER_ENVIAR START")
 
             if not self.finales_acumulados or self.call_ended or self.ignorar_stt:
-                logger.warning(f"⚠️ PROCEDER_ENVIAR Abortado: finales_empty={not self.finales_acumulados}, call_ended={self.call_ended}, ignorar_stt={self.ignorar_stt}")
+                #logger.warning(f"⚠️ PROCEDER_ENVIAR Abortado: finales_empty={not self.finales_acumulados}, call_ended={self.call_ended}, ignorar_stt={self.ignorar_stt}")
                 # Si abortamos, aseguramos que el timestamp se limpie si no hay finales
                 if not self.finales_acumulados:
                     self.last_final_stt_timestamp = None
@@ -624,7 +624,7 @@ class TwilioWebSocketManager:
             num_finales = len(self.finales_acumulados)
 
             if not mensaje_acumulado:
-                logger.warning(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Mensaje acumulado vacío. Limpiando y abortando.")
+                #logger.warning(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] PROCEDER_ENVIAR Mensaje acumulado vacío. Limpiando y abortando.")
                 self.finales_acumulados.clear()
                 self.ultimo_evento_fue_parcial = False
                 # Asegurarse de resetear también el timestamp si abortamos aquí
@@ -670,7 +670,7 @@ class TwilioWebSocketManager:
 
                     # Iniciar la nueva tarea GPT que reactivará STT
                     ts_gpt_start_task = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-                    logger.info(f"🌐 TS:[{ts_gpt_start_task}] PROCEDER_ENVIAR Iniciando tarea para GPT...")
+                    #logger.info(f"🌐 TS:[{ts_gpt_start_task}] PROCEDER_ENVIAR Iniciando tarea para GPT...")
                     self.current_gpt_task = asyncio.create_task(
                         # ### MODIFICADO ### Pasar el timestamp capturado
                         self.process_gpt_and_reactivate_stt(mensaje_acumulado, final_ts_for_this_batch),
@@ -825,7 +825,7 @@ class TwilioWebSocketManager:
     async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
         """Llama a GPT, maneja respuesta y TTS, con Timestamps y Hold Message."""
         ts_process_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        logger.debug(f"⏱️ TS:[{ts_process_start}] PROCESS_GPT START")
+        #logger.debug(f"⏱️ TS:[{ts_process_start}] PROCESS_GPT START")
 
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             logger.warning("⚠️ PROCESS_GPT Ignorado: llamada terminada o WS desconectado.")
