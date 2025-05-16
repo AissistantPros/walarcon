@@ -92,6 +92,14 @@ MAIN_TOOLS = [
                         "type": ["string", "integer"], # Puede ser nombre o número
                         "description": "Mes, como nombre (ej. 'mayo', 'enero') o número (ej. 5, 1) si el usuario lo menciona. Opcional."
                     },
+                    "more_late_param": { 
+                        "type": "boolean",
+                        "description": "Cuando el usuario pide ‘más tarde’. Opcional." 
+                    },
+                    "more_early_param": { 
+                        "type": "boolean", 
+                        "description": "Cuando el usuario pide ‘más temprano’. Opcional." 
+                    },
                     "year_param": {
                         "type": "integer",
                         "description": "Año si el usuario lo especifica (ej. 2025). Opcional, si no se da, se asume el actual o el siguiente si la fecha es pasada."
@@ -142,7 +150,7 @@ MAIN_TOOLS = [
                 "properties": {
                     "intention": {
                         "type": "string",
-                        "enum": ["create", "edit", "delete", "informational", "unknown"],
+                        "enum": ["create", "edit", "delete", "informational", "unknown", "more_late", "more_early"],
                         "description": "La intención detectada del usuario."
                     }
                 },
@@ -317,6 +325,12 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
         logger.exception("Error crítico durante la ejecución de la herramienta %s", fn_name)
         # Devuelve un error genérico para que la IA pueda intentar manejarlo o informar al usuario.
         return {"error": f"Error interno al ejecutar {fn_name}: {str(e)}"}
+
+
+
+
+
+
 
 
 # ══════════════════ CORE – MAIN FLOW (AGENDAR) ═══════════════════
@@ -541,6 +555,16 @@ async def _two_pass_flow(
         return f"Lo siento, ocurrió un error al intentar {flow_tag.lower()} la cita. Por favor, intente más tarde."
 
 
+
+
+
+
+
+
+
+
+
+
 # ══════════════════ PUBLIC HELPERS (para flujos específicos) ═══════
 async def generate_openai_response_edit(history: List[Dict], model: str = "gpt-4.1-mini") -> str:
     # Necesitas un prompt específico para editar, ej. prompts/prompt_editar_cita.py
@@ -560,6 +584,14 @@ async def generate_openai_response_edit(history: List[Dict], model: str = "gpt-4
     # Adaptar cómo se usa prompt_editar_cita según si devuelve un string o modifica el historial.
     # Por ahora, asumo que devuelve un string para el system prompt.
     return await _two_pass_flow(history, prompt_editar_cita, EDIT_TOOLS, model, "EDIT")
+
+
+
+
+
+
+
+
 
 
 async def generate_openai_response_delete(history: List[Dict], model: str = "gpt-4.1-mini") -> str:

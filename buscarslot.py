@@ -102,7 +102,7 @@ def format_date_nicely(target_date_obj: date, time_keyword: Optional[str] = None
     if weekday_override:
         day_name_es = weekday_override.capitalize()
     month_es = MONTHS_EN_TO_ES.get(target_date_obj.strftime("%B"), "")
-    text = f"{day_name_es} {target_date_obj.day} de {month_es} de {target_date_obj.year}"
+    text = f"{day_name_es} {target_date_obj.day} de {month_es}"
     if specific_time_hhmm:
         hhmm = datetime.strptime(specific_time_hhmm, "%H:%M").time()
         text += f" a las {hhmm.strftime('%I:%M %p').lower().lstrip('0')}"
@@ -269,6 +269,34 @@ def ensure_cache_is_fresh() -> None:
 
 
 
+def _slots_for_franja(slots_del_dia: list[str], franja: str) -> list[str]:
+    """Devuelve los slots del día que caen en la franja (‘mañana’ / ‘tarde’)."""
+    if franja == "mañana":
+        return [s for s in slots_del_dia if s < "11:45"]
+    if franja == "tarde":
+        return [s for s in slots_del_dia if s >= "11:45"]
+    return slots_del_dia                     # fallback “cualquiera”
+
+def _pretty_hhmm(hhmm: str) -> str:
+    """Formatea '11:45' ➜ 'once cuarenta y cinco de la mañana/tarde'."""
+    t = datetime.strptime(hhmm, "%H:%M")
+    suf = "de la mañana" if t.hour < 12 else "de la tarde"
+    return t.strftime("%I:%M").lstrip("0") + f" {suf}"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ──────────── FUNCIÓN PRINCIPAL PARA LA IA ──────────────────────────────────
@@ -282,6 +310,8 @@ def process_appointment_request(
     fixed_weekday_param: Optional[str] = None,
     explicit_time_preference_param: Optional[str] = None,
     is_urgent_param: bool = False,
+    more_late_param: bool = False, 
+    more_early_param: bool = False
 ) -> Dict:
     """
     Devuelve un diccionario para la IA con:
@@ -380,30 +410,52 @@ def process_appointment_request(
                 ]
 
 
-        if free_slots:
-            slot_start = free_slots[0]
-            slot_end = next(st["end"] for st in SLOT_TIMES if st["start"] == slot_start)
-            tz = pytz.timezone("America/Cancun")
-            start_dt = tz.localize(datetime.combine(chk_date, datetime.strptime(slot_start, "%H:%M").time()))
-            end_dt = tz.localize(datetime.combine(chk_date, datetime.strptime(slot_end, "%H:%M").time()))
-            pretty = format_date_nicely(chk_date, time_kw, specific_time_hhmm=slot_start)
-            status = "SLOT_FOUND" if chk_date == target_date else "SLOT_FOUND_LATER"
+
+        if free_slots and (more_late_param or more_early_param):
+            # --- Aplicar desplazamiento “más tarde / más temprano” ----------
+            if more_late_param:
+                # Avanzamos 4 horarios si pidió "más tarde"
+                free_slots = free_slots[1:5]   # Próximos 4 horarios (máximo)
+
+            if more_early_param:
+                # Retrocedemos 4 horarios si pidió "más temprano"
+                free_slots = free_slots[-5:-1] # Anteriores 4 horarios (máximo)
+
+            # Si después del filtrado no hay horarios disponibles
+            if not free_slots:
+                return {
+                    "status": "NO_MORE_LATE" if more_late_param else "NO_MORE_EARLY",
+                    "message": "sin_disponibilidad",
+                }
+
+        # ─ Filtramos por franja si el usuario la pidió
+        if explicit_time_preference_param:
+            free_slots = _slots_for_franja(free_slots, explicit_time_preference_param)
+
+        # ─ Si la franja solicitada está vacía, devolvemos un aviso específico
+        if not free_slots:
             return {
-                "status": status,
-                "start_iso": start_dt.isoformat(),
-                "end_iso": end_dt.isoformat(),
-                "pretty": pretty,
-                "requested_date_iso": requested_date_iso,
-                "suggested_date_iso": chk_date.isoformat(),
-                "requested_time_kw": time_kw,
-                "is_urgent": is_urgent_param,
+                "status": "NO_SLOT_FRANJA",
+                "requested_date_iso": target_date.isoformat(),
+                "requested_franja": explicit_time_preference_param,
             }
 
-    # si no encontramos nada en 4 meses
-    return {
-        "status": "NO_SLOT",
-        "message": "sin_disponibilidad",
-        "requested_date_iso": requested_date_iso,
-        "requested_time_kw": time_kw,
-        "is_urgent": is_urgent_param,
-    }
+        # ─ Tomamos hasta 4 horarios (de la franja o del día)
+        available = free_slots[:4] if not (is_urgent_param or more_late_param or more_early_param) else free_slots[:4]
+        pretty_list = [_pretty_hhmm(h) for h in available]
+
+        return {
+            "status": "SLOT_LIST",
+            "date_iso": target_date.isoformat(),
+            "available_slots": available,        # ['11:45', '12:30', '13:15', '14:00']
+            "available_pretty": pretty_list      # ['once cuarenta y cinco…', 'doce treinta…']
+        }
+
+        # ─ Si no encontramos ningún slot en los próximos 4 meses
+        return {
+            "status": "NO_SLOT",
+            "message": "sin_disponibilidad",
+            "requested_date_iso": requested_date_iso,
+            "requested_time_kw": time_kw,
+            "is_urgent": is_urgent_param,
+        }

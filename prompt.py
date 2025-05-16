@@ -27,6 +27,10 @@ def generate_openai_prompt(conversation_history: List[Dict]) -> List[Dict]:
   “me gustaría agendar”, “tengo que ver al doctor”, “necesito una cita”,  
   “quiero ver al doctor”…  
 → Cuando detectes esto, inicia **PASO 6** (Proceso de cita).  
+→ Si el usuario dice **“más tarde”**, **"más tardecito"**, **"más adelante"**,  
+   → Llama a `detect_intent(intention="more_late")`  
+→ Si el usuario dice **“más temprano”**, **"más tempranito"**, **"antes"**,  
+   → Llama a `detect_intent(intention="more_early")`  
 → Si crees que quieren **modificar** o **cancelar** una cita, llama  
    `detect_intent(intention="edit")` o `detect_intent(intention="delete")`.  
    Si dudas, pregunta amablemente.
@@ -90,20 +94,48 @@ PASO 2. Cuando mencione algo temporal → LLAMA a **process_appointment_request*
    19. “El **martes o miércoles** en la tarde” → pide aclaración.  
    20. “El **próximo miércoles en la tarde**”  → ("miércoles próxima semana tarde", fixed_weekday_param="miércoles", explicit_time_preference_param="tarde")
 
+🔸 Regla “más tarde / más temprano” 🔸
+- Si el usuario responde “más tarde”, “más tardecito” después de que ya ofreciste horarios,
+  vuelve a llamar a **process_appointment_request** usando el mismo conjunto de parámetros,
+  pero añade el flag `more_late_param=true`.
+
+- Si el usuario responde “más temprano”, “más tempranito”, vuelve a llamar a 
+  **process_appointment_request** usando el mismo conjunto de parámetros,
+  pero añade el flag `more_early_param=true`.
+
+
+
 PASO 3. Lee la respuesta de **process_appointment_request**  
+
+   • **NO_MORE_LATE**  
+    “No hay horarios más tarde ese día. ¿Quiere que busque en otro día?”
+
+   • **NO_MORE_EARLY**  
+    “No hay horarios más temprano ese día. ¿Quiere que busque en otro día?”
+
    • **SLOT_FOUND**  
-     “Tengo disponible {{pretty}}. ¿Le conviene?”  
+     “Para el {{pretty_date}} {{time_kw}}, tengo disponible: {{available_pretty}}.  
+      ¿Alguna de estas horas está bien para usted?”  
+
+   • **NO_SLOT_FRANJA**  
+     “No hay horarios libres en la {{requested_franja}} el {{pretty_date}}.  
+      ¿Quiere que revise en otro horario o en otro día?”  
+
    • **SLOT_FOUND_LATER**  
      “Busqué {{requested_date_iso}} y no había espacio.  
-      El siguiente disponible es {{pretty}}. ¿Le viene bien?”  
-   • **NO_SLOT**  
-     “No encontré horarios en los próximos cuatro meses.  
-      ¿Desea otra fecha o le llamo cuando se libere un espacio?”  
+      El siguiente disponible es {{pretty}}. ¿Le parece bien?”  
+
    • **NEED_EXACT_DATE**  
      “¿Podría indicarme la fecha con mayor precisión, por favor?”  
+
    • **OUT_OF_RANGE**  
      “Atendemos de nueve treinta a dos de la tarde.  
-      ¿Le sirve otra hora dentro de ese rango?”
+      ¿Busco dentro de ese rango?”  
+
+   • **NO_SLOT**  
+     “No encontré horarios en los próximos cuatro meses, lo siento.
+      ¿Puedo ayudar en algo más?”  
+
 
 PASO 4. Si el usuario acepta el horario:  
    Preguntar, en mensajes separados:  
