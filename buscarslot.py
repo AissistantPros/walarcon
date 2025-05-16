@@ -46,6 +46,10 @@ WEEKDAYS_ES_TO_NUM = {
 SINONIMOS_HOY = {
     "hoy", "ahorita", "hoy mismo", "en el transcurso del día", "hoy mero",
 }
+SINONIMOS_SEMANA = {
+    "esta semana", "en esta semana", "esta misma semana", "en esta misma semana", "para esta semana",
+    "para esta misma semana",
+}
 SINONIMOS_MANANA = {
     "mañana", "mañana mismo", "para mañana",
 }
@@ -129,7 +133,8 @@ def parse_time_of_day(q: str) -> Optional[str]:
 def parse_relative_date(q: str, today: date) -> Optional[date]:
     """
     Devuelve un objeto datetime.date o None si no se reconoce la frase.
-    Solo interpreta expresiones relativas o de día-semana / fin de semana.
+    Interpreta expresiones relativas, “de hoy en ocho”, días de la semana,
+    ‘fin de semana’, y ahora también “esta semana”.
     """
     q_l = q.lower().strip()
 
@@ -140,6 +145,12 @@ def parse_relative_date(q: str, today: date) -> Optional[date]:
         return today + timedelta(days=1)
     if "pasado mañana" in q_l:
         return today + timedelta(days=2)
+
+    # — esta semana / en esta semana —
+    #   ⇒ devolvemos el propio 'today' para que process_appointment_request
+    #      sepa que la intención es la semana actual (sin día fijo aún).
+    if any(phrase in q_l for phrase in SINONIMOS_SEMANA):
+        return today  # marcador de “semana actual”
 
     # — de hoy/mañana en N —
     if m := re.search(r"\b(hoy|mañana)\s+en\s+(\d+|\w+)", q_l):
@@ -166,7 +177,8 @@ def parse_relative_date(q: str, today: date) -> Optional[date]:
             return today + rd(months=n)
 
     # — próxima / siguiente semana —
-    if any(p in q_l for p in ["próxima semana", "la semana que viene", "la semana que entra", "para la otra semana", "la siguiente semana"]):
+    if any(p in q_l for p in ["próxima semana", "la semana que viene", "la semana que entra",
+                              "para la otra semana", "la siguiente semana"]):
         days_until_monday = (7 - today.weekday()) % 7 or 7
         return today + timedelta(days=days_until_monday)
 
