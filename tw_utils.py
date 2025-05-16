@@ -48,6 +48,9 @@ HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta corre
 SILENCE_FRAME = b'\x00' * 160          # 20 ms de μ-law @ 8 kHz
 SILENCE_PERIOD = 5.0                  # cada 5 seg envía un paquete
 
+
+
+
 # --- Otras Constantes Globales ---
 CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
 CALL_MAX_DURATION = 600 
@@ -821,6 +824,17 @@ class TwilioWebSocketManager:
 
 
 
+
+
+
+
+
+
+
+
+
+
+
     
     async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
         """Llama a GPT, maneja respuesta y TTS, con Timestamps y Hold Message."""
@@ -850,6 +864,8 @@ class TwilioWebSocketManager:
             # --- Llamada a OpenAI ---
             start_gpt_call = self._now()
             ts_gpt_call_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+            latency_timer = asyncio.create_task(self._latency_guard())
+
             logger.debug(f"⏱️ TS:[{ts_gpt_call_start}] PROCESS_GPT Calling generate_openai_response_main...")
 
             model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini") # Usar config con fallback
@@ -859,6 +875,8 @@ class TwilioWebSocketManager:
                 history=mensajes_para_gpt,
                 model=model_a_usar
             )
+            latency_timer.cancel()
+
 
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
             ts_gpt_call_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -944,35 +962,7 @@ class TwilioWebSocketManager:
         # Este bloque se ejecuta siempre, incluso si hubo errores en GPT/TTS,
         # para intentar reproducir al menos el mensaje de error si se pudo generar.
         try:
-            # ### NUEVO ### Check de Latencia y Mensaje de Espera
-            play_hold_message = False
-            if last_final_ts is not None and not self.call_ended: # Añadir check de call_ended
-                current_time_before_play = self._now()
-                real_latency = current_time_before_play - last_final_ts
-                latency_threshold = LATENCY_THRESHOLD_FOR_HOLD_MESSAGE # Usar constante
 
-                ts_check_delay = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-                # Loguear sólo si es relevante (ej. > 3 segundos) para no saturar
-                if real_latency > 4.0:
-                     logger.info(f"⏱️ TS:[{ts_check_delay}] PROCESS_GPT Latency Check: Diff={real_latency:.3f}s, Threshold={latency_threshold}s")
-
-                if real_latency > latency_threshold:
-                    if self.hold_audio_mulaw_bytes:
-                        logger.info(f"⚠️ TS:[{ts_check_delay}] Real latency ({real_latency:.2f}s) EXCEEDED threshold ({latency_threshold}s). Playing hold message.")
-                        play_hold_message = True
-                    else:
-                        logger.warning(f"⚠️ TS:[{ts_check_delay}] Real latency ({real_latency:.2f}s) exceeded threshold, but hold audio is not loaded.")
-            # ### FIN Check Latencia ###
-
-            # Reproducir mensaje de espera si es necesario y la llamada sigue activa
-            if play_hold_message and not self.call_ended:
-                ts_hold_play_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-                logger.debug(f"⏱️ TS:[{ts_hold_play_start}] PROCESS_GPT Playing hold audio...")
-                await self._play_audio_bytes(self.hold_audio_mulaw_bytes)
-                # No añadir sleep aquí, _play_audio_bytes ya espera
-                ts_hold_play_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-                logger.debug(f"⏱️ TS:[{ts_hold_play_end}] PROCESS_GPT Hold audio finished.")
-            # ### FIN Reproducción Espera ###
 
             # Reproducir la respuesta principal (o el audio de error si se generó) si la llamada sigue activa
             if audio_para_reproducir and not self.call_ended:
@@ -1006,13 +996,40 @@ class TwilioWebSocketManager:
              # await self._shutdown(reason="Audio Playback Error")
 
         finally:
-             # El finally del wrapper se encarga de reactivar STT
-             ts_process_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-             logger.debug(f"⏱️ TS:[{ts_process_end}] PROCESS_GPT END")
+            # Cancela el temporizador si sigue activo
+            try:
+                if latency_timer and not latency_timer.done():
+                    latency_timer.cancel()
+            except NameError:
+                pass  # latency_timer no se creó por alguna excepción temprana
+            ts_process_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+            logger.debug(f"⏱️ TS:[{ts_process_end}] PROCESS_GPT END")
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+    async def _latency_guard(self) -> None:
+        """Reproduce el clip de espera si GPT tarda más del umbral."""
+        try:
+            await asyncio.sleep(LATENCY_THRESHOLD_FOR_HOLD_MESSAGE)
+            if not self.call_ended and self.websocket and \
+            self.websocket.client_state == WebSocketState.CONNECTED:
+                logger.info("⏳ GPT sigue pensando; reproduciendo mensaje de espera.")
+                await self._play_hold_message()
+        except asyncio.CancelledError:
+            pass
 
 
     # --- Funciones Auxiliares 
@@ -1072,6 +1089,26 @@ class TwilioWebSocketManager:
 
             self.is_speaking = False
             self.last_activity_ts = self._now()
+
+
+
+    async def _play_hold_message(self) -> None:
+        """Reproduce el mensaje de espera en segundo plano."""
+        if self.hold_audio_mulaw_bytes:
+            try:
+                # Log para indicar el inicio de la reproducción
+                logger.info("🔊 Reproduciendo mensaje de espera...")
+
+                # Verifica que la conexión aún esté activa antes de reproducir
+                if self.websocket and self.websocket.client_state == WebSocketState.CONNECTED:
+                    await self._play_audio_bytes(self.hold_audio_mulaw_bytes)
+                    logger.info("✅ Mensaje de espera reproducido con éxito.")
+                else:
+                    logger.warning("⚠️ WebSocket no está conectado, no se puede reproducir el mensaje de espera.")
+            except Exception as e:
+                logger.error(f"❌ Error al reproducir mensaje de espera: {e}")
+        else:
+            logger.warning("⚠️ No se encontró el mensaje de espera en memoria.")
 
 
 

@@ -130,6 +130,36 @@ def parse_time_of_day(q: str) -> Optional[str]:
     return None
 
 
+
+
+
+
+FRANJAS_KWS = {"mañana", "tarde", "mediodia", "mediodía", "medio día"}
+
+def split_day_and_franja(q: str) -> Tuple[str, Optional[str]]:
+    """
+    Separa frases como 'mañana tarde' en ('mañana', 'tarde').
+    Devuelve (texto_fecha, franja_o_None).
+    """
+    q_l = q.lower().strip()
+    words = q_l.split()
+    date_kw = None
+    franja_kw = None
+    for w in words:
+        if w in FRANJAS_KWS:
+            franja_kw = w
+        else:
+            date_kw = date_kw + " " + w if date_kw else w
+    return (date_kw or q_l, franja_kw)
+
+
+
+
+
+
+
+
+
 def parse_relative_date(q: str, today: date) -> Optional[date]:
     """
     Devuelve un objeto datetime.date o None si no se reconoce la frase.
@@ -325,6 +355,14 @@ def process_appointment_request(
     ensure_cache_is_fresh()
     now = get_cancun_time()
     today = now.date()
+
+
+    # ——— pre-parse: separar franja si vino pegada (ej. 'mañana tarde') ———
+    user_query_for_date_time, inferred_franja = split_day_and_franja(user_query_for_date_time)
+    if inferred_franja and not explicit_time_preference_param:
+        explicit_time_preference_param = inferred_franja
+
+
 
     # —— urgencia implícita ——
     if not is_urgent_param and any(k in user_query_for_date_time.lower() for k in URGENCIA_KWS):

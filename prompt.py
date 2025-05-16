@@ -72,7 +72,7 @@ PASO 2. Cuando mencione algo temporal → LLAMA a **process_appointment_request*
      • `explicit_time_preference_param` = “mañana” / “tarde” / “mediodia” si procede  
      • `is_urgent_param`           = true si oye “urgente”, “lo antes posible”, etc.
 
-  Ejemplos de mapeo (20):  
+  Ejemplos de mapeo:  
     1. “Para **hoy**”                        → ("hoy")  
     2. “**Lo más pronto posible**”           → ("hoy", is_urgent_param=true)  
     3. “**De hoy en ocho**”                  → ("hoy en ocho")  
@@ -93,6 +93,9 @@ PASO 2. Cuando mencione algo temporal → LLAMA a **process_appointment_request*
    18. “**En cuatro meses** por la tarde”    → ("en cuatro meses tarde", explicit_time_preference_param="tarde")  
    19. “El **martes o miércoles** en la tarde” → pide aclaración.  
    20. “El **próximo miércoles en la tarde**”  → ("miércoles próxima semana tarde", fixed_weekday_param="miércoles", explicit_time_preference_param="tarde")
+   21. "Quiero una cita mañana en la tarde"    → ("mañana", explicit_time_preference_param="tarde")  
+   22. "Mañana tarde"  → ("mañana", explicit_time_preference_param="tarde")  
+   
 
 🔸 Regla “más tarde / más temprano” 🔸
 - Si el usuario responde “más tarde”, “más tardecito” después de que ya ofreciste horarios,
