@@ -4,7 +4,7 @@ import json
 import asyncio
 import logging
 import warnings
-from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions
+from deepgram import DeepgramClient, LiveTranscriptionEvents, LiveOptions, DeepgramClientOptions # <--- ASEGÚRATE QUE ESTÉ ASÍ
 # from fastapi.websockets import WebSocketState # No se usa directamente aquí
 
 logger = logging.getLogger("deepgram_stt_streamer")
@@ -24,24 +24,28 @@ if not DEEPGRAM_KEY:
 
 
 class DeepgramSTTStreamer:
-    def __init__(self, callback):
+    def __init__(self, callback, on_disconnect_callback=None): 
         """
         callback: función que recibe transcript (str) e is_final (bool)
+        on_disconnect_callback: función a llamar cuando Deepgram se desconecta inesperadamente
         """
         self.callback = callback
+        self.on_disconnect_callback = on_disconnect_callback # <--- NUEVA LÍNEA
         self.deepgram = None
-        if DEEPGRAM_KEY: # Solo inicializar cliente si la KEY existe
+        if DEEPGRAM_KEY:
             try:
-                self.deepgram = DeepgramClient(DEEPGRAM_KEY)
+                # Activa KeepAlive aquí
+                config = DeepgramClientOptions(options={"keepalive": "true"})
+                self.deepgram = DeepgramClient(DEEPGRAM_KEY, config) 
             except Exception as e:
                 logger.error(f"FALLO AL INICIALIZAR DeepgramClient: {e}")
-                self.deepgram = None # Asegurar que es None si falla
+                self.deepgram = None
         else:
             logger.error("DeepgramClient no se inicializó porque DEEPGRAM_KEY falta.")
 
         self.dg_connection = None
-        self._started = False           # Indica si la conexión está activa y operativa
-        self._is_closing = False        # Flag para indicar un cierre manual en curso
+        self._started = False
+        self._is_closing = False
 
     async def start_streaming(self):
         """
@@ -93,7 +97,7 @@ class DeepgramSTTStreamer:
             )
 
             await self.dg_connection.start(options)
-            # _on_open se encargará de self._started = True
+          
 
         except Exception as e:
             logger.error(f"❌ Error CRÍTICO durante start_streaming de Deepgram: {e}", exc_info=True)
@@ -178,27 +182,42 @@ class DeepgramSTTStreamer:
             # logger.debug(f"Transcript vacío recibido. is_final: {result.is_final}")
 
 
+# Dentro de la clase DeepgramSTTStreamer:
+
     async def _on_close(self, _connection, *args, **kwargs): # Evento de Deepgram cuando ELLOS cierran
         logger.warning(f"🔒 Conexión Deepgram CERRADA (evento Close [{args}] [{kwargs}] recibido desde Deepgram).")
-        was_started_before_event = self._started # Capturar el estado antes de modificarlo
         
-        self.dg_connection = None # La conexión ya no es válida
+
+        self.dg_connection = None
         self._started = False
         self._is_closing = False # Ya está cerrada, no "cerrándose" desde nuestro lado
-        logger.info("Evento _on_close de Deepgram procesado. La conexión está cerrada.")
+
+        # Notificar al manager para posible reconexión
+        if self.on_disconnect_callback:
+            logger.info("Evento _on_close: Notificando al manager para posible reconexión.")
+            try:
+                await self.on_disconnect_callback()
+            except Exception as e:
+                logger.error(f"Error al llamar a on_disconnect_callback desde _on_close: {e}")
+        else:
+            logger.info("Evento _on_close de Deepgram procesado. No hay callback de desconexión configurado.")
+
+
 
 
     async def _on_error(self, _connection, error, *args, **kwargs):
         logger.error(f"💥 Error en conexión Deepgram (evento Error recibido): {error}")
 
-        self.dg_connection = None
+        self.dg_connection = None # La conexión ya no es válida
         self._started = False
-        self._is_closing = False
+        self._is_closing = False # No está "cerrándose", simplemente falló
 
-        logger.info("Evento _on_error de Deepgram procesado. La conexión no es válida.")
-            
-    async def _on_unhandled(self, _connection, event_data, *args, **kwargs):
-        logger.warning(f"Evento Deepgram NO MANEJADO recibido: {event_data}")
-
-    async def _on_metadata(self, _connection, metadata, *args, **kwargs):
-        logger.debug(f"Metadatos de Deepgram recibidos: {metadata}")
+        # Notificar al manager para posible reconexión
+        if self.on_disconnect_callback:
+            logger.info("Evento _on_error: Notificando al manager para posible reconexión.")
+            try:
+                await self.on_disconnect_callback()
+            except Exception as e:
+                logger.error(f"Error al llamar a on_disconnect_callback desde _on_error: {e}")
+        else:
+            logger.info("Evento _on_error de Deepgram procesado. No hay callback de desconexión configurado.")

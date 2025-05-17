@@ -188,7 +188,10 @@ class TwilioWebSocketManager:
         try:
             dg_start_pc = self._now()
             if not self.stt_streamer: # Crear instancia si no existe (útil si el manager se reutilizara)
-                 self.stt_streamer = DeepgramSTTStreamer(self._stt_callback)
+                 self.stt_streamer = DeepgramSTTStreamer(
+                     callback=self._stt_callback,
+                     on_disconnect_callback=self._reconnect_deepgram_if_needed
+                 )
             
             await self.stt_streamer.start_streaming() # Intenta iniciar la conexión
             dg_duration = (self._now() - dg_start_pc) * 1000
@@ -317,6 +320,84 @@ class TwilioWebSocketManager:
                     logger.info(f"🏁 Finalizado handle_twilio_websocket (post-finally). CallSid: {self.call_sid or 'N/A'}")
                     if CURRENT_CALL_MANAGER is self: 
                         CURRENT_CALL_MANAGER = None
+
+
+
+
+
+# Dentro de la clase TwilioWebSocketManager:
+
+    async def _reconnect_deepgram_if_needed(self):
+        """
+        Intenta reconectar a Deepgram si la llamada aún está activa.
+        Este método es llamado como callback por DeepgramSTTStreamer en caso de desconexión.
+        """
+        if self.call_ended:
+            logger.info("RECONEXIÓN DG: Llamada ya finalizada. No se intentará reconectar a Deepgram.")
+            return
+
+        if not self.stt_streamer: # Por si acaso, aunque no debería pasar si stt_streamer lo llamó
+            logger.error("RECONEXIÓN DG: stt_streamer no existe. No se puede reconectar.")
+            return
+
+        # Pequeña pausa para evitar bucles de reconexión muy rápidos si algo falla persistentemente
+        await asyncio.sleep(1) # Espera 1 segundo antes de reintentar
+
+        logger.info("RECONEXIÓN DG: Intentando reconectar a Deepgram...")
+
+        # Crear una nueva instancia de DeepgramSTTStreamer.
+        # Es importante pasarle de nuevo self._reconnect_deepgram_if_needed
+        # para que futuras desconexiones también puedan ser manejadas.
+        try:
+            # Primero, intentamos cerrar la instancia anterior de forma limpia si aún existe y tiene conexión
+            if self.stt_streamer and self.stt_streamer.dg_connection:
+                logger.info("RECONEXIÓN DG: Cerrando conexión anterior de Deepgram antes de reintentar...")
+                await self.stt_streamer.close() # Llama al close que ya tienes
+        except Exception as e_close_old:
+            logger.warning(f"RECONEXIÓN DG: Error cerrando instancia anterior de Deepgram (puede ser normal): {e_close_old}")
+        
+        # Creamos la nueva instancia
+        self.stt_streamer = DeepgramSTTStreamer(
+            callback=self._stt_callback,
+            on_disconnect_callback=self._reconnect_deepgram_if_needed # ¡Importante!
+        )
+
+        await self.stt_streamer.start_streaming() # Intenta iniciar la nueva conexión
+
+        if self.stt_streamer._started:
+            logger.info("RECONEXIÓN DG: ✅ Reconexión a Deepgram exitosa.")
+            # Si tienes audio bufferizado mientras estaba desconectado, aquí es donde lo enviarías.
+            # La IA de Deepgram sugirió 'self.audio_buffer_twilio', vamos a usarlo.
+            if self.audio_buffer_twilio:
+                logger.info(f"RECONEXIÓN DG: Enviando {len(self.audio_buffer_twilio)} chunks de audio bufferizado...")
+                # Hacemos una copia para iterar y limpiamos el original
+                buffered_audio = list(self.audio_buffer_twilio)
+                self.audio_buffer_twilio.clear()
+                for chunk in buffered_audio:
+                    if self.stt_streamer and self.stt_streamer._started: # Re-chequear antes de cada envío
+                        await self.stt_streamer.send_audio(chunk)
+                    else:
+                        logger.warning("RECONEXIÓN DG: Deepgram se desconectó mientras se enviaba el buffer. Re-bufferizando audio restante.")
+                        # Si la conexión se cae de nuevo MIENTRAS enviamos el buffer,
+                        # volvemos a poner en el buffer los chunks que faltaron.
+                        current_index = buffered_audio.index(chunk)
+                        self.audio_buffer_twilio.extend(buffered_audio[current_index:])
+                        break
+                logger.info("RECONEXIÓN DG: Buffer de audio enviado.")
+            
+            # Después de una reconexión exitosa, si `ignorar_stt` estaba activo porque la IA estaba "hablando"
+            # o procesando, y ya no lo está, debemos reactivar la escucha normal.
+            # Sin embargo, este método `_reconnect_deepgram_if_needed` se llama por una desconexión
+            # de bajo nivel. La lógica de `ignorar_stt` y `is_speaking` se maneja más arriba.
+            # Lo importante aquí es que `_started` esté `True`.
+            
+        else:
+            logger.error("RECONEXIÓN DG: ❌ Falló la reconexión a Deepgram.")
+            # Aquí podrías decidir si reintentar N veces o si dar la conexión STT por perdida
+            # y quizás terminar la llamada si el STT es crítico. Por ahora, solo logueamos.
+            # Si falla la reconexión, la próxima vez que _on_error/_on_close ocurra, se reintentará.
+
+
 
 
 
