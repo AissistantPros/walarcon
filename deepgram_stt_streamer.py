@@ -173,6 +173,11 @@ class DeepgramSTTStreamer:
         # Aquí podrías añadir más lógica si supieras qué tipo de eventos no manejados esperar
         # Por ahora, solo lo registramos.
 
+    async def _on_metadata(self, _connection, metadata, *args, **kwargs):
+        logger.debug(f"ℹ️ Metadatos de Deepgram recibidos: {json.dumps(metadata)}")
+        # Los metadatos pueden incluir información como la duración del audio procesado,
+        # request_id, etc. Por ahora, solo los registramos en modo DEBUG.
+
     async def _on_transcript(self, _connection, result, *args, **kwargs):
         if not result or not hasattr(result, 'channel') or not result.channel.alternatives or not result.channel.alternatives[0].transcript:
             # logger.debug("Recibido resultado de transcripción vacío o malformado.")
