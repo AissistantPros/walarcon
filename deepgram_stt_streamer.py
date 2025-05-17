@@ -168,6 +168,10 @@ class DeepgramSTTStreamer:
         self._started = True
         self._is_closing = False
 
+    async def _on_unhandled(self, _connection, event_data, *args, **kwargs):
+        logger.warning(f"🤷 Evento Deepgram NO MANEJADO (Unhandled) recibido: {json.dumps(event_data)}")
+        # Aquí podrías añadir más lógica si supieras qué tipo de eventos no manejados esperar
+        # Por ahora, solo lo registramos.
 
     async def _on_transcript(self, _connection, result, *args, **kwargs):
         if not result or not hasattr(result, 'channel') or not result.channel.alternatives or not result.channel.alternatives[0].transcript:
