@@ -382,6 +382,11 @@ def process_appointment_request(
     days_until_saturday = (5 - today.weekday()) % 7  # 0=Lun … 5=Sáb
     is_today_request = target_date == today and "hoy" in user_query_for_date_time.lower()
 
+    is_tomorrow_request = (
+    target_date == today + timedelta(days=1)
+    and any(kw in user_query_for_date_time.lower() for kw in SINONIMOS_MANANA)
+    )
+    is_sunday_request = target_date.weekday() == 6  # domingo
     for day_offset in range(0, 120):
         chk_date = target_date + timedelta(days=day_offset)
         if chk_date.weekday() == 6:       # domingo
@@ -436,8 +441,9 @@ def process_appointment_request(
                 "available_slots": available,
                 "available_pretty": pretty_list,
             }
-        # ─ Si la consulta era “hoy” y el hueco cae otro día, avisa ─────────
-        if is_today_request and day_offset > 0:
+        # ─ Si la consulta era “hoy” o "mañana" y el hueco cae otro día, avisa ─────────
+        if (is_today_request or is_tomorrow_request or is_sunday_request) and day_offset > 0:
+
             available = free_slots[:4]
             pretty_list = [_pretty_hhmm(h) for h in available]
             return {
