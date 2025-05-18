@@ -276,7 +276,7 @@ class TwilioWebSocketManager:
                         # No necesitamos chequear _is_closing aquí porque si está _is_closing, _started debería ser False.
                         if buffer_audio:
                             self.audio_buffer_twilio.append(decoded_payload)
-                        elif self.stt_streamer: # Implica que está _started, no _is_reconnecting, no ignorar_stt, y la IA no habla
+                        elif self.stt_streamer: 
                             try:
                                 # logger.debug(f"Enviando audio directo a Deepgram ({len(decoded_payload)} bytes).")
                                 await self.stt_streamer.send_audio(decoded_payload)
@@ -651,7 +651,7 @@ class TwilioWebSocketManager:
             # Verificar estado de Deepgram y reintentar conexión si es necesario
             streamer_is_operational = False
             if self.stt_streamer:
-                if self.stt_streamer._started and not self.stt_streamer._is_closing and not self.stt_streamer._is_reconnecting:
+                if self.stt_streamer._started and not self.stt_streamer._is_closing:
                     streamer_is_operational = True
                 
                 # Este es el nuevo bloque que reemplaza al anterior
@@ -675,7 +675,7 @@ class TwilioWebSocketManager:
                     for i, chunk_data in enumerate(buffered_chunks_to_send):
                         # Re-chequear estado del streamer antes de cada envío del buffer, por si acaso
                         if self.stt_streamer and self.stt_streamer._started and \
-                        not self.stt_streamer._is_closing and not self.stt_streamer._is_reconnecting:
+                        not self.stt_streamer._is_closing:
                             try:
                                 # logger.debug(f"[{log_prefix}] Enviando chunk {i+1} del buffer a Deepgram.")
                                 await self.stt_streamer.send_audio(chunk_data)
