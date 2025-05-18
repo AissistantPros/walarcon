@@ -343,7 +343,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
 
         # Pase 1 ──────────────────────────────────────────────────────
         t1_start = perf_counter()
-        logger.debug("OpenAI Main Flow - Pase 1: Enviando a %s", model)
+        #logger.debug("OpenAI Main Flow - Pase 1: Enviando a %s", model)
         
         if not client: # Chequeo por si falló la inicialización del cliente OpenAI
             logger.error("Cliente OpenAI no inicializado. Abortando generate_openai_response_main.")
@@ -354,16 +354,16 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=MAIN_TOOLS,
             tool_choice="auto", # Permitir a la IA decidir si llama a una herramienta
-            # max_tokens=250, # Ajustar según necesidad
-            # temperature=0.3, # Ajustar para creatividad vs. determinismo
-            # timeout=15, # Timeout para la llamada a OpenAI
+            max_tokens=150, # Ajustar según necesidad
+            temperature=0.3, # Ajustar para creatividad vs. determinismo
+            timeout=15, # Timeout para la llamada a OpenAI
         ).choices[0].message
         
         logger.debug("🕒 OpenAI Main Flow - Pase 1 completado en %s", _t(t1_start))
 
         # Si la IA responde directamente sin llamar a herramienta
         if not response_pase1.tool_calls:
-            logger.debug("OpenAI Main Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
+            #logger.debug("OpenAI Main Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
         # Si la IA decide llamar a herramientas

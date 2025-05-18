@@ -265,13 +265,13 @@ class TwilioWebSocketManager:
                             # logger.debug("Audio de Twilio IGNORADO (IA está hablando).")
                             pass # No hacer nada con el audio
                         elif self.ignorar_stt:
-                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque ignorar_stt es True.")
+                            #logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque ignorar_stt es True.")
                             buffer_audio = True
                         elif not self.stt_streamer:
-                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no existe.")
+                            #logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no existe.")
                             buffer_audio = True
                         elif not self.stt_streamer._started:
-                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no está _started.")
+                            #logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no está _started.")
                             buffer_audio = True
                         # No necesitamos chequear _is_closing aquí porque si está _is_closing, _started debería ser False.
                         if buffer_audio:
@@ -750,7 +750,7 @@ class TwilioWebSocketManager:
             # --- Llamada a OpenAI ---
             start_gpt_call = self._now()
             ts_gpt_call_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"⏱️ TS:[{ts_gpt_call_start}] PROCESS_GPT Calling generate_openai_response_main...")
+            #logger.debug(f"⏱️ TS:[{ts_gpt_call_start}] PROCESS_GPT Calling generate_openai_response_main...")
 
             model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini") # Usar config con fallback
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
