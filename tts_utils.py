@@ -63,7 +63,7 @@ def text_to_speech(text: str) -> bytes:
         # --- INICIO: Amplificar el audio PCM con NumPy y limitar picos ---
         audio_data_to_convert = audio_data_pcm_16bit  # por defecto, audio original
         try:
-            volume_factor = 3.0     # ⬅️ Ajusta aquí (prueba 2.5–3.0)
+            volume_factor = 5.0     # ⬅️ Ajusta aquí (prueba 2.5–3.0)
 
             # 1) bytes → ndarray int16  (PCM 16-bit little-endian)
             pcm_array = np.frombuffer(audio_data_pcm_16bit, dtype=np.int16)
