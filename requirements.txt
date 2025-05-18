@@ -90,4 +90,5 @@ yarl==1.18.3
 deepgram-sdk==3.10.1
 langdetect==1.0.9
 dateparser>=1.2,<2
+numpy>=1.26
 

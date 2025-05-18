@@ -7,6 +7,8 @@ import os
 import audioop  # type: ignore # <-- Asegúrate de importar audioop
 from decouple import config
 from elevenlabs import ElevenLabs, VoiceSettings
+import numpy as np
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO) # Cambia a DEBUG para ver más detalles si es necesario
@@ -58,22 +60,26 @@ def text_to_speech(text: str) -> bytes:
             logger.warning("[TTS] Stream de ElevenLabs no devolvió datos de audio.")
             return b""
 
-        # --- INICIO: Amplificar el audio PCM ---
-        audio_data_to_convert = audio_data_pcm_16bit # Por defecto, usar el original
+        # --- INICIO: Amplificar el audio PCM con NumPy y limitar picos ---
+        audio_data_to_convert = audio_data_pcm_16bit  # por defecto, audio original
         try:
-            # Factor para aumentar volumen (1.0 = sin cambios, 1.5 = 50% más amplitud)
-            # ¡PRUEBA CON CUIDADO! Comienza con 1.2 o 1.3 si 1.5 distorsiona.
-            volume_factor = 2.0 
+            volume_factor = 3.0     # ⬅️ Ajusta aquí (prueba 2.5–3.0)
 
-            # El '2' indica que el audio PCM es de 16 bits (2 bytes por muestra)
-            amplified_audio_data = audioop.mul(audio_data_pcm_16bit, 2, volume_factor)
-            
-            ##logger.info(f"[TTS] Audio PCM amplificado con factor: {volume_factor}")
-            audio_data_to_convert = amplified_audio_data
-        except audioop.error as amp_audio_err:
-            logger.warning(f"[TTS] Error de audioop al amplificar: {amp_audio_err}. Usando audio original.")
+            # 1) bytes → ndarray int16  (PCM 16-bit little-endian)
+            pcm_array = np.frombuffer(audio_data_pcm_16bit, dtype=np.int16)
+
+            # 2) Aplica ganancia
+            amplified = pcm_array.astype(np.float32) * volume_factor
+
+            # 3) Limita al rango permitido ±32768
+            limited = np.clip(amplified, -32768, 32767).astype(np.int16)
+
+            # 4) ndarray → bytes
+            audio_data_to_convert = limited.tobytes()
+
+            # logger.info(f"[TTS] Audio PCM amplificado x{volume_factor} con limitador")
         except Exception as amp_err:
-            logger.warning(f"[TTS] Error general al amplificar: {amp_err}. Usando audio original.")
+            logger.warning(f"[TTS] Error al amplificar con NumPy: {amp_err}. Usando audio original.")
         # --- FIN: Amplificar el audio PCM ---
         
         # Convertir el audio PCM (posiblemente amplificado) a mu-law (8 bits)
@@ -86,18 +92,7 @@ def text_to_speech(text: str) -> bytes:
             logger.error(f"[TTS] Error general al convertir a mu-law: {conv_err}")
             return b""
         
-        # Opcional: guardar archivo para depuración de mu-law
-        # Descomenta si necesitas verificar el archivo .ulaw final
-        # try:
-        #     debug_path = os.path.join("audio_debug", "tts_output_final.ulaw") # Asegúrate que la carpeta audio_debug exista
-        #     os.makedirs(os.path.dirname(debug_path), exist_ok=True)
-        #     with open(debug_path, "wb") as f:
-        #         f.write(mulaw_data)
-        #     #logger.info(f"[TTS] Archivo de depuración mu-law guardado en: {debug_path}")
-        # except Exception as dbg_err:
-        #     logger.warning(f"[TTS] No se pudo guardar el archivo de depuración mu-law: {dbg_err}")
-
-        ##logger.info(f"[TTS] Audio mu-law generado. Tiempo total: {(time.perf_counter() - start_total)*1000:.2f} ms")
+       
         return mulaw_data
 
     except Exception as e:
