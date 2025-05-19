@@ -272,9 +272,9 @@ def ensure_cache_is_fresh() -> None:
 def _slots_for_franja(slots_del_dia: list[str], franja: str) -> list[str]:
     """Devuelve los slots del día que caen en la franja (‘mañana’ / ‘tarde’)."""
     if franja == "mañana":
-        return [s for s in slots_del_dia if s < "11:45"]
+        return [s for s in slots_del_dia if s <= "11:45"]
     if franja == "tarde":
-        return [s for s in slots_del_dia if s >= "11:45"]
+        return [s for s in slots_del_dia if s >= "12:30"]
     return slots_del_dia                     # fallback “cualquiera”
 
 def _pretty_hhmm(hhmm: str) -> str:
@@ -367,9 +367,9 @@ def process_appointment_request(
 
     def _filter_by_kw(slots: List[str]) -> List[str]:
         if time_kw == "mañana":
-            return [s for s in slots if datetime.strptime(s, "%H:%M").time() < dt_time(11, 45)]
+            return [s for s in slots if datetime.strptime(s, "%H:%M").time() <= dt_time(11, 45)]
         if time_kw == "tarde":
-            return [s for s in slots if datetime.strptime(s, "%H:%M").time() >= dt_time(11, 45)]
+            return [s for s in slots if datetime.strptime(s, "%H:%M").time() >= dt_time(12, 30)]
         if time_kw == "mediodia":
             return [s for s in slots if dt_time(11, 0) <= datetime.strptime(s, "%H:%M").time() <= dt_time(13, 15)]
         return slots

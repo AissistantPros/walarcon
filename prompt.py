@@ -61,7 +61,7 @@ def generate_openai_prompt(conversation_history: List[Dict]) -> List[Dict]:
 ⛔ NUNCA agendar domingo.  
 Slots exactos (45 min): 09:30 · 10:15 · 11:00 · 11:45 · 12:30 · 13:15 · 14:00  
 Franja “mañana”  : 09:30–11:45  
-Franja “tarde”   : 11:45–14:00  
+Franja “tarde”   : 12:30–14:00  
 Franja “mediodía”: 11:00–13:15  
 No ofrezcas cita a menos de 6 h desde ahora.
 
@@ -113,6 +113,15 @@ PASO 2. Cuando mencione algo temporal → LLAMA a **process_appointment_request*
    18. “**En cuatro meses** por la tarde”    → ("en cuatro meses tarde", explicit_time_preference_param="tarde")  
    19. “El **martes o miércoles** en la tarde” → pide aclaración.  
    20. “El **próximo miércoles en la tarde**”  → ("miércoles próxima semana tarde", fixed_weekday_param="miércoles", explicit_time_preference_param="tarde")
+   21. “Para **esta semana**”                     → ("esta semana")
+   22. “Para **esta semana en la tarde**”          → ("esta semana", explicit_time_preference_param="tarde")
+   23. “Para **esta semana en la mañana**”         → ("esta semana", explicit_time_preference_param="mañana")
+   24. “Para **la próxima semana**”                → ("próxima semana")
+   25. “Para **la próxima semana en la tarde**”    → ("próxima semana", explicit_time_preference_param="tarde")
+   26. “Para **la próxima semana en la mañana**”   → ("próxima semana", explicit_time_preference_param="mañana")
+   27. “Para **mañana en la tarde**”               → ("mañana", explicit_time_preference_param="tarde")
+   28. “Para **mañana en la mañana**”              → ("mañana", explicit_time_preference_param="mañana")
+
 
 🔸 Regla “más tarde / más temprano” 🔸
 - Si el usuario responde “más tarde”, “más tardecito” después de que ya ofreciste horarios,

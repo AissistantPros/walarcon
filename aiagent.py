@@ -266,14 +266,14 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             tools=TOOLS, 
             tool_choice="auto",
             max_tokens=150, 
-            temperature=0.2, # <- Este es el valor que usa tu última versión
+            temperature=0.2, 
             timeout=15, 
         ).choices[0].message
 
-        logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
+        #logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
 
         if not response_pase1.tool_calls:
-            logger.debug("OpenAI Unified Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
+            #logger.debug("OpenAI Unified Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
         full_conversation_history.append(response_pase1.model_dump()) 
@@ -304,12 +304,12 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=TOOLS, 
             tool_choice="auto",
-            # max_tokens=250, # Puedes descomentar y ajustar si necesitas respuestas más largas aquí
-            # temperature=0.2, # Ya está definido en el Pase 1, usualmente no se repite aquí a menos que quieras un comportamiento distinto para el Pase 2
+            #max_tokens=150, 
+            #temperature=0.2,
         ).choices[0].message
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
 
-        logger.debug("OpenAI Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
+        #logger.debug("OpenAI Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
         return response_pase2.content or "No tengo una respuesta en este momento."
 
     except Exception as e:
