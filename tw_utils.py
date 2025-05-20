@@ -56,6 +56,7 @@ CALL_MAX_DURATION = 600
 CALL_SILENCE_TIMEOUT = 30 
 GOODBYE_PHRASE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
 TEST_MODE_NO_GPT = False # <--- Poner en True para pruebas sin GPT
+CALL_FINISHED_FLAG = False   # indica que la llamada ya terminó
 
 
 
@@ -626,6 +627,11 @@ class TwilioWebSocketManager:
             Se llama después de que la IA ha hablado.
             Verifica/restablece la conexión de Deepgram, procesa el buffer de audio y reactiva el STT.
             """
+                        # Salida inmediata si la llamada ya terminó
+            if CALL_FINISHED_FLAG:
+                logger.info("ReactivarSTT: llamada finalizada → no se reactiva STT.")
+                return
+            
             ts_reactivar_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             log_prefix = f"ReactivarSTT_{self.call_sid or str(id(self))[-6:]}"
             ##logger.info(f"[{log_prefix}] ⏱️ Iniciando proceso de reactivación de STT Post-TTS.")
@@ -1043,7 +1049,7 @@ class TwilioWebSocketManager:
             # Solo loguear "Iniciando" si no es un shutdown múltiple o si la razón es nueva y significativa
             if not self.call_ended or (self.call_ended and self.shutdown_reason == "N/A"):
                  logger.info(f"🔻 TS:[{ts_shutdown_start}] SHUTDOWN Iniciando... Razón: {reason}")
-            
+                 CALL_FINISHED_FLAG = True     
             self.call_ended = True 
             if self.shutdown_reason == "N/A": 
                 self.shutdown_reason = reason

@@ -304,6 +304,23 @@ def process_appointment_request(
     now = get_cancun_time()
     today = now.date()
 
+    # --- NORMALIZACIÓN / VALIDACIÓN BÁSICA ------------------------------
+    if fixed_weekday_param:
+        fixed_weekday_param = fixed_weekday_param.strip().lower()
+        if fixed_weekday_param not in WEEKDAYS_ES_TO_NUM:
+            logger.warning(f"[APPT] fixed_weekday_param inválido: {fixed_weekday_param!r} → lo ignoro")
+            fixed_weekday_param = None
+
+    if explicit_time_preference_param:
+        explicit_time_preference_param = explicit_time_preference_param.strip().lower()
+        if explicit_time_preference_param not in ("mañana", "tarde", "mediodia"):
+            logger.warning(f"[APPT] explicit_time_preference_param inválido: {explicit_time_preference_param!r} → lo ignoro")
+            explicit_time_preference_param = None
+
+
+
+
+
     # —— urgencia implícita ——
     if not is_urgent_param and any(k in user_query_for_date_time.lower() for k in URGENCIA_KWS):
         is_urgent_param = True
@@ -325,8 +342,17 @@ def process_appointment_request(
     elif fixed_weekday_param:
         wd = WEEKDAYS_ES_TO_NUM.get(fixed_weekday_param.lower())
         if wd is not None:
-            offset = (wd - today.weekday()) % 7 or 7
-            target_date = today + timedelta(days=offset)
+            # — si el usuario dijo “próxima semana / la semana que viene”,
+            #   desplazamos SIEMPRE 7 días extra —
+            extra_week = 0
+            if any(p in user_query_for_date_time.lower() for p in [
+                "próxima semana", "la semana que viene", "la semana que entra",
+                "para la otra semana", "la siguiente semana"
+            ]):
+                extra_week = 7
+
+            offset = (wd - today.weekday()) % 7 or 7     # siguiente martes, etc.
+            target_date = today + timedelta(days=offset + extra_week)
     else:
         target_date = parse_relative_date(user_query_for_date_time, today)
 

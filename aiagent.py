@@ -208,24 +208,23 @@ TOOLS = [
             }
         }
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "end_call",
-            "description": "Finaliza la llamada telefónica. Usar solo cuando la conversación ha concluido natural o infructuosamente, o si el usuario lo pide.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string",
-                        "enum": ["user_request", "task_completed", "task_failed", "silence", "spam", "time_limit", "error", "no_slot_accepted"],
-                        "description": "Razón por la que se finaliza la llamada."
-                    }
-                },
-                "required": ["reason"]
-            }
+   {
+    "type": "function",
+    "function": {
+        "name": "end_call",
+        "description": "Cierra la llamada de manera definitiva. Úsala cuando ya se haya despedido al paciente.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Motivo del cierre. Ej: 'user_request', 'task_completed', 'assistant_farewell'."
+                }
+            },
+            "required": ["reason"]
         }
     }
+}
 ]
 
 # ══════════════════ TOOL EXECUTOR ═════════════════════════════════
