@@ -10,7 +10,8 @@ import logging
 import pytz # Para manejo de zonas horarias si es necesario internamente
 import re # Para parsear la descripción
 from datetime import datetime, timedelta # timedelta podría no ser necesario si new_end_time_iso siempre se provee
-from tw_utils import session_state
+from state_store import session_state
+
 
 
 

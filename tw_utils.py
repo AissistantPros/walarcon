@@ -19,6 +19,8 @@ from typing import Optional, List
 from decouple import config
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
+from state_store import session_state
+
 
 # Tus importaciones de módulos locales
 try:
@@ -56,11 +58,7 @@ GOODBYE_PHRASE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta 
 TEST_MODE_NO_GPT = False # <--- Poner en True para pruebas sin GPT
 
 
-# ─── Memoria de la llamada ─────────────────────────────────────────────
-session_state = {
-    "events_found": [],          # lista completa de citas halladas
-    "current_event_id": None     # la que el usuario confirmó
-}
+
 
 # --------------------------------------------------------------------------
 

@@ -9,7 +9,8 @@ mediante search_calendar_event_by_phone.
 import logging
 import pytz # Para _validate_iso_datetime si se mantiene para alguna validación
 from datetime import datetime
-from tw_utils import session_state
+from state_store import session_state
+
 
 
 from utils import (
@@ -47,7 +48,7 @@ def delete_calendar_event(event_id: str, original_start_time_iso: str | None = N
         if real_id:
             event_id = real_id
 
-            
+
     logger.info(f"Intentando eliminar evento ID: {event_id}"
                 f"{f' (hora original confirmada: {original_start_time_iso})' if original_start_time_iso else ''}")
 
