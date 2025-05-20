@@ -281,16 +281,22 @@ PASO M6. Realizar la modificación:
          • `new_reason` (opcional): `motivo_final`.
          • `new_phone_for_description` (opcional): `telefono_final`.
 
-      # Ejemplo de cómo debes construir la llamada a la herramienta:
-      # Supongamos que en PASO M3 guardaste: event_id_original_para_editar = "b2c3d4e5f6"
-      # Y en PASO M4 obtuviste: fecha_nueva_aceptada_iso = "2025-05-28", slot_nuevo_aceptado_hhmm = "10:15"
-      # Y en PASO M5 el nombre_final = "Cynthia G.", motivo_final = "Revisión", telefono_final = "9988776655"
-      # Entonces, construirías:
-      # new_start_time_iso_completo = "2025-05-28T10:15:00-05:00"
-      # new_end_time_iso_completo = "2025-05-28T11:00:00-05:00"
-      # La llamada sería:
+      # MUY IMPORTANTE: Ahora vas a usar los valores EXACTOS que extrajiste/recordaste/construiste.
+      # Para `event_id`, usa el `event_id_original_para_editar` que recordaste del PASO M3.
+      
+      # Ejemplo conceptual de la llamada que debes construir:
+      # Si en PASO M3 recordaste `event_id_original_para_editar` = "b2c3d4e5f6" (un ID real de la búsqueda)
+      # y construiste `new_start_time_iso_completo` = "2025-05-28T10:15:00-05:00", etc.
+      # y los datos finales para nombre, motivo, teléfono son:
+      # nombre_final = "Cynthia G."
+      # motivo_final = "Revisión"
+      # telefono_final = "9988776655"
+      # Entonces, TU LLAMADA A LA HERRAMIENTA DEBE SER:
       # edit_calendar_event(event_id="b2c3d4e5f6", new_start_time_iso="2025-05-28T10:15:00-05:00", new_end_time_iso="2025-05-28T11:00:00-05:00", new_name="Cynthia G.", new_reason="Revisión", new_phone_for_description="9988776655")
+      # NO uses IDs de ejemplo genéricos. Usa el ID REAL.
 
+
+      
 PASO M7. Confirmar el cambio al usuario:
    Si la herramienta `edit_calendar_event` devuelve un mensaje de éxito:
       Responde: "¡Listo! Su cita ha sido modificada para el (nueva fecha y hora formateadas amigablemente del PASO M5). ¿Puedo ayudarle en algo más?"
@@ -355,12 +361,16 @@ PASO E5. Realizar la eliminación (usando la información guardada en el PASO E3
          • `event_id`: el `event_id_para_eliminar` (el ID real de Google Calendar que obtuviste).
          • `original_start_time_iso`: la `fecha_hora_iso_para_herramienta` (la fecha de inicio ISO8601 con offset de Cancún que obtuviste).
 
-      # Ejemplo de cómo debes construir la llamada a la herramienta:
-      # Supongamos que en el PASO E3 identificaste y guardaste:
-      # event_id_para_eliminar = "a1b2c3d4e5f6g7h8i9"
-      # fecha_hora_iso_para_herramienta = "2025-05-24T09:30:00-05:00"
-      # Entonces, la llamada a la herramienta que debes generar es:
-      # delete_calendar_event(event_id="a1b2c3d4e5f6g7h8i9", original_start_time_iso="2025-05-24T09:30:00-05:00")
+  # MUY IMPORTANTE: Ahora vas a usar los valores EXACTOS que extrajiste y recordaste en el PASO E3.
+      # NO uses los IDs o fechas de los ejemplos; usa lo que obtuviste de `search_calendar_event_by_phone` para la cita específica.
+      
+      # Ejemplo conceptual de la llamada que debes construir:
+      # Si en el PASO E3, para la cita seleccionada, recordaste que:
+      #   `event_id_para_eliminar` era, por ejemplo, "tefbaeo3dt01iqt71kve30aq2k" (el ID real de Google)
+      #   `fecha_hora_iso_para_herramienta` era, por ejemplo, "2025-05-24T09:30:00-05:00"
+      # Entonces, TU LLAMADA A LA HERRAMIENTA DEBE SER:
+      # delete_calendar_event(event_id="tefbaeo3dt01iqt71kve30aq2k", original_start_time_iso="2025-05-24T09:30:00-05:00")
+      # NO uses "a1b2c3d4e5f6g7h8i9" u otros IDs de ejemplo. Usa el ID REAL.
 
    Si el usuario NO confirma en el PASO E4:
       Responde: "Entendido, la cita no ha sido eliminada. ¿Hay algo más en lo que pueda ayudarle?" (y termina el flujo de eliminación).
