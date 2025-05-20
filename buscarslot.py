@@ -9,7 +9,7 @@ import logging
 import re
 from datetime import datetime, timedelta, time as dt_time, date
 from typing import Dict, Optional, Tuple, Union, List
-
+from dateutil.relativedelta import relativedelta as rd
 import pytz
 
 from utils import (
@@ -18,21 +18,12 @@ from utils import (
     cache_lock,
     convert_utc_to_cancun,
     GOOGLE_CALENDAR_ID,
+    convertir_hora_a_palabras,
 )
 
 logger = logging.getLogger(__name__)
 
 # ──────────── CONSTANTES DE IDIOMA ─────────────────────────────────────────
-DAYS_EN_TO_ES = {
-    "Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miércoles",
-    "Thursday": "Jueves", "Friday": "Viernes", "Saturday": "Sábado",
-    "Sunday": "Domingo",
-}
-MONTHS_EN_TO_ES = {
-    "January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
-    "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
-    "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre",
-}
 MESES_ES_A_NUM = {
     "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
     "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12,
@@ -65,17 +56,6 @@ for i, w in enumerate([
         "veintiocho", "veintinueve", "treinta"], start=1):
     PALABRA_A_NUM[w] = i
 
-NUMEROS_A_PALABRAS = {
-    0: "en punto", 1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco",
-    6: "seis", 7: "siete", 8: "ocho", 9: "nueve", 10: "diez",
-    11: "once", 12: "doce", 13: "trece", 14: "catorce", 15: "quince",
-    20: "veinte", 21: "veintiuno", 22: "veintidós", 23: "veintitrés", 24: "veinticuatro", 25: "veinticinco",
-    26: "veintiséis", 27: "veintisiete", 28: "veintiocho", 29: "veintinueve",
-    30: "treinta", 31: "treinta y uno", # ... y así sucesivamente hasta 59 si quieres ser exhaustivo
-    35: "treinta y cinco", 40: "cuarenta", 45: "cuarenta y cinco", 50: "cincuenta", 55: "cincuenta y cinco",
-    # Puedes expandir esto. Para los minutos comunes como 15, 30, 45 es útil.
-    # Para otros, podrías leerlos como "y diez", "y veinte", etc.
-}
 
 # ──────────── CONFIGURACIÓN DE SLOTS ───────────────────────────────────────
 VALID_SLOT_START_TIMES = {
@@ -107,22 +87,6 @@ def _word_to_int(token: str) -> int:
     return PALABRA_A_NUM.get(token, 0)
 
 
-def format_date_nicely(target_date_obj: date, time_keyword: Optional[str] = None,
-                       weekday_override: Optional[str] = None,
-                       specific_time_hhmm: Optional[str] = None) -> str:
-    day_name_es = DAYS_EN_TO_ES.get(target_date_obj.strftime("%A"), "")
-    if weekday_override:
-        day_name_es = weekday_override.capitalize()
-    month_es = MONTHS_EN_TO_ES.get(target_date_obj.strftime("%B"), "")
-    text = f"{day_name_es} {target_date_obj.day} de {month_es}"
-    if specific_time_hhmm:
-        hhmm = datetime.strptime(specific_time_hhmm, "%H:%M").time()
-        text += f" a las {hhmm.strftime('%I:%M %p').lower().lstrip('0')}"
-    elif time_keyword == "mañana":
-        text += ", por la mañana"
-    elif time_keyword == "tarde":
-        text += ", por la tarde"
-    return text
 
 # ──────────── PARSERS ─────────────────────────────────────────────────────
 
@@ -140,71 +104,6 @@ def parse_time_of_day(q: str) -> Optional[str]:
     if re.search(r"\bnoche\b|\bmadrugada\b", q_l):
         return "fuera_horario"
     return None
-
-
-def convertir_hora_a_palabras(hhmm_str: str) -> str:
-    try:
-        h, m = map(int, hhmm_str.split(':'))
-        
-        hora_palabra = ""
-        minuto_palabra = ""
-        sufijo_horario = "de la mañana" if h < 12 else "de la tarde"
-
-        # Corregir hora para formato 12h
-        display_h = h
-        if h == 0: # Medianoche
-            display_h = 12
-            sufijo_horario = "de la noche" # O "de la madrugada"
-        elif h == 12: # Mediodía
-            sufijo_horario = "del mediodía" # O "de la tarde"
-        elif h > 12:
-            display_h = h - 12
-            sufijo_horario = "de la tarde"
-            if h >= 18: # A partir de las 6 PM
-                 sufijo_horario = "de la tarde" # O "de la noche" si prefieres
-
-        hora_palabra = NUMEROS_A_PALABRAS.get(display_h, str(display_h))
-
-        if m == 0:
-            minuto_palabra = "en punto"
-        elif m == 15:
-            minuto_palabra = "quince"
-        elif m == 30:
-            minuto_palabra = "treinta" # O "y media"
-        elif m == 45:
-            minuto_palabra = "cuarenta y cinco"
-        else:
-            # Para otros minutos, podrías simplemente usar el número
-            # o construirlo si tienes un diccionario más completo
-            # Por ahora, para simplificar, si no está en el dict, usamos el número
-            minuto_palabra = NUMEROS_A_PALABRAS.get(m, str(m))
-            if isinstance(minuto_palabra, str) and minuto_palabra.isdigit() and m > 0 : # si es un número y no "en punto"
-                 minuto_palabra = f"con {minuto_palabra} minutos" if m < 10 else f"{minuto_palabra}"
-
-
-        # Casos especiales para minutos
-        if m == 30 and hora_palabra != "doce": # ej. "diez y media" pero "doce y treinta"
-            return f"{hora_palabra} y media {sufijo_horario}"
-        
-        if minuto_palabra == "en punto":
-             return f"{hora_palabra} {minuto_palabra} {sufijo_horario}"
-        
-        # Si el minuto es un número directo (ej. "diez treinta y siete")
-        # o si es una palabra clave como "quince"
-        if not (isinstance(minuto_palabra, str) and "con" in minuto_palabra): # Si no es "con X minutos"
-            return f"{hora_palabra} {minuto_palabra} {sufijo_horario}"
-        else: # Para "con X minutos"
-            return f"{hora_palabra} {minuto_palabra} {sufijo_horario}"
-
-
-    except Exception as e:
-        logger.error(f"Error convirtiendo hora '{hhmm_str}' a palabras: {e}")
-        # Fallback a la representación numérica si falla la conversión a palabras
-        t_obj = datetime.strptime(hhmm_str, "%H:%M")
-        suf = "de la mañana" if t_obj.hour < 12 else "de la tarde"
-        return t_obj.strftime("%I:%M").lstrip("0") + f" {suf}"
-
-
 
 
 def parse_relative_date(q: str, today: date) -> Optional[date]:
@@ -346,13 +245,16 @@ def ensure_cache_is_fresh() -> None:
 
 
 
-def _slots_for_franja(slots_del_dia: list[str], franja: str) -> list[str]:
-    """Devuelve los slots del día que caen en la franja (‘mañana’ / ‘tarde’)."""
+def _slots_for_franja(slots_del_dia: list[str], franja: str) -> list[str]: # (Se queda, con tu lógica preferida)
     if franja == "mañana":
-        return [s for s in slots_del_dia if s <= "11:45"]
+        return [s for s in slots_del_dia if datetime.strptime(s, "%H:%M").time() <= dt_time(11, 45)]
     if franja == "tarde":
-        return [s for s in slots_del_dia if s >= "12:30"]
-    return slots_del_dia                     # fallback “cualquiera”
+        return [s for s in slots_del_dia if datetime.strptime(s, "%H:%M").time() >= dt_time(12, 30)]
+    if franja == "mediodia": # Añadido por consistencia
+        return [s for s in slots_del_dia if dt_time(11, 0) <= datetime.strptime(s, "%H:%M").time() <= dt_time(13, 15)]
+    return slots_del_dia
+
+
 
 def _pretty_hhmm(hhmm: str) -> str:
     """Formatea '11:45' ➜ 'once cuarenta y cinco de la mañana/tarde'."""

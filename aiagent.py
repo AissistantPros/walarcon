@@ -132,22 +132,25 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "edit_calendar_event",
-            "description": "Modificar una cita existente en el calendario. Requiere el ID del evento, la hora de inicio original, y los nuevos detalles de fecha/hora. Opcionalmente puede actualizar nombre, motivo o teléfono en la descripción.",
+            "description": "Modificar una cita existente en el calendario. Requiere el ID del evento y los nuevos detalles de fecha/hora. Opcionalmente puede actualizar nombre, motivo o teléfono en la descripción.", # Descripción ligeramente ajustada
             "parameters": {
                 "type": "object",
                 "properties": {
                     "event_id": {"type": "string", "description": "El ID del evento de calendario a modificar. Obtenido de 'search_calendar_event_by_phone'."},
-                    "original_start_time": {"type": "string", "format": "date-time", "description": "Hora de inicio original de la cita a modificar (ISO8601)."},
-                    "new_start_time": {"type": "string", "format": "date-time", "description": "Nueva hora de inicio para la cita (ISO8601). Obtenida de 'process_appointment_request'."},
-                    "new_end_time": {"type": "string", "format": "date-time", "description": "Nueva hora de fin para la cita (ISO8601). Obtenida de 'process_appointment_request'."},
+                    # "original_start_time" SE ELIMINA COMO PARÁMETRO DE ESTA HERRAMIENTA
+                    "new_start_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de inicio para la cita en formato ISO8601 con offset (ej. 2025-MM-DDTHH:MM:SS-05:00). Obtenida de 'process_appointment_request'."}, # CAMBIADO a _iso
+                    "new_end_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de fin para la cita en formato ISO8601 con offset. Obtenida de 'process_appointment_request'."}, # CAMBIADO a _iso
                     "new_name": {"type": "string", "description": "Opcional. Nuevo nombre del paciente si el usuario desea cambiarlo."},
                     "new_reason": {"type": "string", "description": "Opcional. Nuevo motivo de la consulta si el usuario desea cambiarlo."},
                     "new_phone_for_description": {"type": "string", "description": "Opcional. Nuevo teléfono para la descripción de la cita si el usuario desea cambiarlo."}
                 },
-                "required": ["event_id", "original_start_time", "new_start_time", "new_end_time"]
+                
+                "required": ["event_id", "new_start_time_iso", "new_end_time_iso"] # CAMBIADO a _iso
             }
         }
     },
+
+    
     {
         "type": "function",
         "function": {
@@ -157,9 +160,9 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "event_id": {"type": "string", "description": "El ID del evento de calendario a eliminar. Obtenido de 'search_calendar_event_by_phone'."},
-                    "original_start_time": {"type": "string", "format": "date-time", "description": "Hora de inicio original de la cita a eliminar (ISO8601), para confirmación."}
+                    "original_start_time_iso": {"type": "string", "format": "date-time", "description": "Hora de inicio original de la cita a eliminar en formato ISO8601 con offset (ej. 2025-MM-DDTHH:MM:SS-05:00), para confirmación."} # CAMBIADO a _iso
                 },
-                "required": ["event_id", "original_start_time"]
+                "required": ["event_id", "original_start_time_iso"]
             }
         }
     },

@@ -46,10 +46,9 @@ def edit_calendar_event(
     event_id: str,
     new_start_time_iso: str,
     new_end_time_iso: str,
-    # Los siguientes son opcionales, si la IA los provee para actualizar
     new_name: str | None = None,
     new_reason: str | None = None,
-    new_phone_for_description: str | None = None # Nuevo teléfono para actualizar en la descripción
+    new_phone_for_description: str | None = None 
 ):
     """
     Edita una cita existente utilizando su event_id.
