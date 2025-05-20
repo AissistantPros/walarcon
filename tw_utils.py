@@ -45,7 +45,7 @@ LOG_TS_FORMAT = "%H:%M:%S.%f"
 # --- Constantes Configurables para Tiempos (en segundos) ---
 PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
-LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 4.5 # Umbral para mensaje de espera
+LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 10 # Umbral para mensaje de espera
 HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
 SILENCE_FRAME = b'\x00' * 160          # 20 ms de μ-law @ 8 kHz
 SILENCE_PERIOD = 5.0                  # cada 5 seg envía un paquete

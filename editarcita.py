@@ -72,10 +72,9 @@ def edit_calendar_event(
     """
 
     # ─── Parche: si la IA mandó un ID vacío o de ejemplo, usamos el seleccionado ───
-    if event_id in ("", "a1b2c3d4e5f6g7h8"):
-        real_id = session_state.get("current_event_id")
-        if real_id:
-            event_id = real_id
+    current_id = session_state.get("current_event_id")
+    if current_id:
+        event_id = current_id
 
 
     logger.info(f"Intentando editar evento ID: {event_id} para nuevo horario: {new_start_time_iso}")

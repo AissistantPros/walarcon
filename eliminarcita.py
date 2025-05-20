@@ -43,10 +43,9 @@ def delete_calendar_event(event_id: str, original_start_time_iso: str | None = N
         Un diccionario con un mensaje de éxito o un diccionario con una clave "error".
     """
   # ─── Parche: si la IA mandó un ID vacío o de ejemplo, usamos el seleccionado ───
-    if event_id in ("", "a1b2c3d4e5f6g7h8"):
-        real_id = session_state.get("current_event_id")
-        if real_id:
-            event_id = real_id
+    current_id = session_state.get("current_event_id")
+    if current_id:
+        event_id = current_id
 
 
     logger.info(f"Intentando eliminar evento ID: {event_id}"
