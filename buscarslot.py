@@ -342,17 +342,19 @@ def process_appointment_request(
     elif fixed_weekday_param:
         wd = WEEKDAYS_ES_TO_NUM.get(fixed_weekday_param.lower())
         if wd is not None:
-            # — si el usuario dijo “próxima semana / la semana que viene”,
-            #   desplazamos SIEMPRE 7 días extra —
-            extra_week = 0
+            # distancia hasta el próximo <lunes-domingo>
+            offset = (wd - today.weekday()) % 7 or 7
+
+            # ¿el usuario dijo “próxima semana / la semana que viene / …”?
             if any(p in user_query_for_date_time.lower() for p in [
                 "próxima semana", "la semana que viene", "la semana que entra",
                 "para la otra semana", "la siguiente semana"
             ]):
-                extra_week = 7
+                # Si aún caeríamos esta semana (< 7 días), empuja una semana más
+                if offset < 7:
+                    offset += 7
 
-            offset = (wd - today.weekday()) % 7 or 7     # siguiente martes, etc.
-            target_date = today + timedelta(days=offset + extra_week)
+            target_date = today + timedelta(days=offset)
     else:
         target_date = parse_relative_date(user_query_for_date_time, today)
 
