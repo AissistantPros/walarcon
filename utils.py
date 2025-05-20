@@ -18,6 +18,10 @@ from google.oauth2.service_account import Credentials
 import locale # No se usa directamente en este archivo ahora
 import re
 from typing import Dict, Optional, List, Any # Añadido Any y List
+from tw_utils import session_state  
+
+      
+
 
 # Cargar variables de entorno
 load_dotenv()
@@ -351,8 +355,19 @@ def search_calendar_event_by_phone(phone: str) -> List[Dict[str, Any]]:
                 "appointment_reason": motive if motive else "No especificado", # Motivo extraído
                 "phone_in_description": phone_in_desc # Teléfono de la descripción
             }
+            # Guarda el ID real para que la tool de borrado lo use si GPT manda un placeholder
+            session_state["last_event_found"] = cita_parseada["event_id"]
+
+
             parsed_events.append(cita_parseada)
             logger.debug(f"Evento parseado y añadido: {cita_parseada}")
+
+            
+            # Guardar la lista completa y un ID por defecto en la memoria de la llamada
+            session_state["events_found"] = parsed_events
+            if parsed_events:
+                session_state["current_event_id"] = parsed_events[0]["event_id"]  # la primera por defecto
+           
 
         if not parsed_events:
             logger.info(f"No se encontraron citas parseables para el teléfono {phone} que cumplan los criterios.")

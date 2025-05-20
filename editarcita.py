@@ -10,6 +10,9 @@ import logging
 import pytz # Para manejo de zonas horarias si es necesario internamente
 import re # Para parsear la descripción
 from datetime import datetime, timedelta # timedelta podría no ser necesario si new_end_time_iso siempre se provee
+from tw_utils import session_state
+
+
 
 
 # Importaciones de utils deben ser correctas
@@ -66,6 +69,14 @@ def edit_calendar_event(
     Retorna:
         Un diccionario con los detalles del evento actualizado o un diccionario con una clave "error".
     """
+
+    # ─── Parche: si la IA mandó un ID vacío o de ejemplo, usamos el seleccionado ───
+    if event_id in ("", "a1b2c3d4e5f6g7h8"):
+        real_id = session_state.get("current_event_id")
+        if real_id:
+            event_id = real_id
+
+
     logger.info(f"Intentando editar evento ID: {event_id} para nuevo horario: {new_start_time_iso}")
     try:
         service = initialize_google_calendar()

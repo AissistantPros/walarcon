@@ -55,6 +55,13 @@ CALL_SILENCE_TIMEOUT = 30
 GOODBYE_PHRASE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
 TEST_MODE_NO_GPT = False # <--- Poner en True para pruebas sin GPT
 
+
+# ─── Memoria de la llamada ─────────────────────────────────────────────
+session_state = {
+    "events_found": [],          # lista completa de citas halladas
+    "current_event_id": None     # la que el usuario confirmó
+}
+
 # --------------------------------------------------------------------------
 
 class TwilioWebSocketManager:

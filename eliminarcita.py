@@ -9,7 +9,8 @@ mediante search_calendar_event_by_phone.
 import logging
 import pytz # Para _validate_iso_datetime si se mantiene para alguna validación
 from datetime import datetime
-# from fastapi import HTTPException # No necesario si no hay endpoint
+from tw_utils import session_state
+
 
 from utils import (
     initialize_google_calendar,
@@ -40,6 +41,13 @@ def delete_calendar_event(event_id: str, original_start_time_iso: str | None = N
     Retorna:
         Un diccionario con un mensaje de éxito o un diccionario con una clave "error".
     """
+  # ─── Parche: si la IA mandó un ID vacío o de ejemplo, usamos el seleccionado ───
+    if event_id in ("", "a1b2c3d4e5f6g7h8"):
+        real_id = session_state.get("current_event_id")
+        if real_id:
+            event_id = real_id
+
+            
     logger.info(f"Intentando eliminar evento ID: {event_id}"
                 f"{f' (hora original confirmada: {original_start_time_iso})' if original_start_time_iso else ''}")
 

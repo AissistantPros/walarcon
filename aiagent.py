@@ -18,6 +18,8 @@ from time import perf_counter
 from typing import Dict, List, Any # Añadido Any para el tipado de retorno de handle_tool_execution
 from decouple import config
 from openai import OpenAI
+from selectevent import select_calendar_event_by_index
+
 
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
@@ -128,6 +130,28 @@ TOOLS = [
             }
         }
     },
+    {
+    "type": "function",
+    "function": {
+        "name": "select_calendar_event_by_index",
+        "description": (
+            "Marca cuál de las citas encontradas (events_found) "
+            "es la que el paciente quiere modificar o cancelar. "
+            "Úsalo después de enumerar las citas y recibir la confirmación "
+            "del paciente. selected_index = 0 para la primera cita listada."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "selected_index": {
+                    "type": "integer",
+                    "description": "Índice de la cita (0, 1, 2…)."
+                }
+            },
+            "required": ["selected_index"]
+        }
+    }
+},
     {
         "type": "function",
         "function": {
