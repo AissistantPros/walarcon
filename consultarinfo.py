@@ -95,19 +95,30 @@ def get_consultorio_data_from_cache(sheet_range="Generales!A:B"):
 # =========================================
 # ENDPOINT PARA CONSULTAR INFORMACIÓN DEL CONSULTORIO
 # =========================================
-@router.get("/consultorio-info")
-async def get_consultorio_info():
+@router.get("/consultorio-info") # La URL puede ser esta o "/n8n/consultorio-info" si prefieres
+async def n8n_get_consultorio_info(): # Cambié el nombre de la función para claridad
     """
-    Endpoint para obtener información del consultorio desde Google Sheets.
-    Utiliza la caché para mejorar tiempos de respuesta.
+    Endpoint para que n8n (u otros) obtengan información del consultorio.
+    Utiliza la caché para mejorar tiempos de respuesta y devuelve un JSON específico.
     """
+    logger.info("ℹ️ Solicitud para /consultorio-info")
     try:
+        # Asegurarnos que la caché esté cargada al menos una vez al inicio o si está vacía
+        # global consultorio_data_cache # Necesario si vas a reasignar, pero aquí solo leemos
+        if not consultorio_data_cache: # consultorio_data_cache se define globalmente en este archivo
+            logger.info("Caché de datos del consultorio vacía en endpoint, cargando ahora...")
+            load_consultorio_data_to_cache()
+
         data = get_consultorio_data_from_cache()
+
         if not data:
-            raise HTTPException(status_code=404, detail="No se encontraron datos en la hoja de cálculo.")
-        return data
-    except HTTPException as e:
-        raise e
+            logger.warning("⚠️ No se encontraron datos en la hoja de cálculo para /consultorio-info.")
+            # Devolvemos un JSON con error, adecuado para una API que consume n8n
+            return {"error": "No se encontraron datos del consultorio."}
+
+        # Devolvemos directamente el diccionario de datos envuelto como lo espera la IA/n8n
+        return {"data_consultorio": data}
     except Exception as e:
-        logger.error(f"❌ Error en el endpoint de información del consultorio: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error interno del servidor")
+        logger.error(f"❌ Error en endpoint /consultorio-info: {str(e)}")
+        # Devolvemos un JSON con error
+        return {"error": f"Error interno del servidor al obtener datos del consultorio: {str(e)}"}

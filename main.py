@@ -2,12 +2,18 @@
 import os
 import logging
 from fastapi import FastAPI, Response, WebSocket
-from tw_utils import TwilioWebSocketManager, set_debug   # ⬅️ nuevo import
+from tw_utils import TwilioWebSocketManager, set_debug   
+from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache # Añadido load_consultorio_data_to_cache
+from consultarinfo import router as consultorio_router # Importamos el router
+
+
 
 # ───────── CONFIGURACIÓN DE LOGGING ────────────────────────────
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)s | %(name)s: %(message)s",
                     datefmt="%H:%M:%S")
+
+
 logger = logging.getLogger(__name__)
 
 # Silenciamos verbosidad de librerías externas
@@ -34,6 +40,12 @@ for noisy in (
 
 # ───────── FASTAPI ─────────────────────────────────────────────
 app = FastAPI()
+
+
+app.include_router(consultorio_router, prefix="/api_v1") # Puedes elegir un prefijo o no
+
+
+
 
 
 @app.on_event("startup")
