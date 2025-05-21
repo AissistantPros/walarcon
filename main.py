@@ -5,7 +5,9 @@ from fastapi import FastAPI, Response, WebSocket
 from tw_utils import TwilioWebSocketManager, set_debug   
 from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache # Añadido load_consultorio_data_to_cache
 from consultarinfo import router as consultorio_router # Importamos el router
-
+from fastapi import Body # Esta línea la necesitas para que FastAPI reciba datos
+import buscarslot       # Para poder usar tu lógica de buscarslot.py
+from typing import Optional, Union # Esto es para definir tipos de datos, ayuda a que el código sea más claro
 
 
 # ───────── CONFIGURACIÓN DE LOGGING ────────────────────────────
@@ -46,7 +48,43 @@ app.include_router(consultorio_router, prefix="/api_v1") # Puedes elegir un pref
 
 
 
+@app.post("/n8n/process-appointment-request") # Usamos POST porque enviaremos datos
+async def n8n_process_appointment_request(
+    user_query_for_date_time: str = Body(...),
+    day_param: Optional[int] = Body(None),
+    month_param: Optional[Union[str, int]] = Body(None),
+    year_param: Optional[int] = Body(None),
+    fixed_weekday_param: Optional[str] = Body(None),
+    explicit_time_preference_param: Optional[str] = Body(None),
+    is_urgent_param: Optional[bool] = Body(False),
+    more_late_param: Optional[bool] = Body(False),
+    more_early_param: Optional[bool] = Body(False)
+):
+    logger.info(f"ℹ️ Solicitud de n8n para /n8n/process-appointment-request con query: {user_query_for_date_time}")
+    try:
+        # Llamamos directamente a la función de buscarslot con los parámetros recibidos
+        result = buscarslot.process_appointment_request(
+            user_query_for_date_time=user_query_for_date_time,
+            day_param=day_param,
+            month_param=month_param,
+            year_param=year_param,
+            fixed_weekday_param=fixed_weekday_param,
+            explicit_time_preference_param=explicit_time_preference_param,
+            is_urgent_param=is_urgent_param,
+            more_late_param=more_late_param,
+            more_early_param=more_early_param
+        )
+        return result # La función ya devuelve un diccionario JSON
+    except Exception as e:
+        logger.error(f"❌ Error en endpoint /n8n/process-appointment-request: {str(e)}", exc_info=True)
+        return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
+    
 
+
+
+
+
+    
 
 @app.on_event("startup")
 def startup_event() -> None:
