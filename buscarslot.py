@@ -384,61 +384,116 @@ def process_appointment_request(
 
 
     # —— búsqueda de slot —— (máx 120 días) ────────────────────────────────
+    # —— búsqueda de slot —— (máx 120 días) ────────────────────────────────
     is_this_week = any(p in user_query_for_date_time.lower() for p in SINONIMOS_SEMANA)
     days_until_saturday = (5 - today.weekday()) % 7  # 0=Lun … 5=Sáb
     is_today_request = target_date == today and "hoy" in user_query_for_date_time.lower()
 
     is_tomorrow_request = (
-    target_date == today + timedelta(days=1)
-    and any(kw in user_query_for_date_time.lower() for kw in SINONIMOS_MANANA)
+        target_date == today + timedelta(days=1)
+        and any(kw in user_query_for_date_time.lower() for kw in SINONIMOS_MANANA)
     )
     is_sunday_request = target_date.weekday() == 6  # domingo
+    
+    # Guardar la preferencia original de la franja del usuario
+    original_time_preference = explicit_time_preference_param
+
     for day_offset in range(0, 120):
         chk_date = target_date + timedelta(days=day_offset)
-        if chk_date.weekday() == 6:       # domingo
+        if chk_date.weekday() == 6:  # domingo
             continue
 
         day_key = chk_date.strftime("%Y-%m-%d")
-        free_slots = free_slots_cache.get(day_key, []).copy()
+        free_slots_for_day = free_slots_cache.get(day_key, []).copy()
 
-        # franja pedida (mañana / tarde / mediodía, etc.)
-        free_slots = _filter_by_kw(free_slots)
+        # Reiniciar la franja de búsqueda para cada nuevo día al inicio de la iteración
+        # Esto asegura que siempre se intente la preferencia original primero en un nuevo día.
+        current_time_preference_for_search = original_time_preference
+        
+        # Lista para guardar los slots encontrados en el día actual
+        current_day_available_slots: List[str] = []
 
-        # ── regla “6 h antes” + cierre diario ──────────────────────────────
-        if chk_date == today:
-            future_dt = now + timedelta(hours=MIN_ADVANCE_BOOKING_HOURS)
-            if future_dt.date() != today or now.time() >= dt_time(14, 0):
-                free_slots = []
-            else:
-                limit = future_dt.time()
-                free_slots = [
-                    s for s in free_slots
-                    if datetime.strptime(s, "%H:%M").time() >= limit
-                ]
+        # --- Intento 1: Buscar en la franja original del usuario (si la hay) ---
+        if current_time_preference_for_search:
+            slots_in_preferred_franja = _slots_for_franja(free_slots_for_day, current_time_preference_for_search)
+            
+            # Aplicar regla de "6 h antes" y cierre diario
+            if chk_date == today:
+                future_dt = now + timedelta(hours=MIN_ADVANCE_BOOKING_HOURS)
+                if future_dt.date() != today or now.time() >= dt_time(14, 0):
+                    slots_in_preferred_franja = []
+                else:
+                    limit = future_dt.time()
+                    slots_in_preferred_franja = [
+                        s for s in slots_in_preferred_franja
+                        if datetime.strptime(s, "%H:%M").time() >= limit
+                    ]
+            
+            current_day_available_slots = slots_in_preferred_franja
+            
+            # Regla “más tarde / más temprano” solo para la primera franja intentada
+            if current_day_available_slots and (more_late_param or more_early_param):
+                if more_late_param:
+                    current_day_available_slots = current_day_available_slots[1:5] # siguientes 4
+                if more_early_param:
+                    current_day_available_slots = current_day_available_slots[-5:-1] # anteriores 4
+                if not current_day_available_slots:
+                    # Si no hay más slots en la dirección pedida en la franja preferida,
+                    # y el usuario pidió 'más tarde'/'más temprano', no intentamos otras franjas para ESE día.
+                    # Pasamos directamente al siguiente día.
+                    continue # Continúa al siguiente día en el bucle principal.
 
-        # ─ regla “más tarde / más temprano” ───────────────────────────────
-        if free_slots and (more_late_param or more_early_param):
-            if more_late_param:
-                free_slots = free_slots[1:5]       # siguientes 4
-            if more_early_param:
-                free_slots = free_slots[-5:-1]     # anteriores 4
-            if not free_slots:
-                return {
-                    "status": "NO_MORE_LATE" if more_late_param else "NO_MORE_EARLY",
-                    "message": "sin_disponibilidad",
-                }
+        else: # Si no hay preferencia de franja original, todos los slots libres del día son el primer intento
+            current_day_available_slots = free_slots_for_day.copy()
+            # Aplicar regla de "6 h antes" y cierre diario (replicado para este caso)
+            if chk_date == today:
+                future_dt = now + timedelta(hours=MIN_ADVANCE_BOOKING_HOURS)
+                if future_dt.date() != today or now.time() >= dt_time(14, 0):
+                    current_day_available_slots = []
+                else:
+                    limit = future_dt.time()
+                    current_day_available_slots = [
+                        s for s in current_day_available_slots
+                        if datetime.strptime(s, "%H:%M").time() >= limit
+                    ]
 
-        # ─ Filtrar por franja explícita (“tarde”, “mañana”…) —─────────────
-        if explicit_time_preference_param:
-            free_slots = _slots_for_franja(free_slots, explicit_time_preference_param)
 
-        # ─ Si tras todos los filtros no quedó nada, seguimos con el día ↓──
-        if not free_slots:
-            continue   # ⬅️  ANTES devolvía NO_SLOT_FRANJA
+        # --- Intento 2: Si no hay slots en la franja preferida, buscar en las otras del mismo día ---
+        found_alternative_franja = False
+        if not current_day_available_slots and original_time_preference: # Solo si hubo una preferencia original y no se encontró
+            logger.info(f"No hay slots en la franja original '{original_time_preference}' para {day_key}. Buscando en otras franjas del mismo día.")
+            all_franjas = ["mañana", "mediodia", "tarde"]
+            alternative_franjas = [f for f in all_franjas if f != original_time_preference]
+
+            for alt_franja in alternative_franjas:
+                slots_in_alt_franja = _slots_for_franja(free_slots_for_day, alt_franja)
+                
+                # Aplicar regla de "6 h antes" y cierre diario (necesario replicar aquí)
+                if chk_date == today:
+                    future_dt = now + timedelta(hours=MIN_ADVANCE_BOOKING_HOURS)
+                    if future_dt.date() != today or now.time() >= dt_time(14, 0):
+                        slots_in_alt_franja = []
+                    else:
+                        limit = future_dt.time()
+                        slots_in_alt_franja = [
+                            s for s in slots_in_alt_franja
+                            if datetime.strptime(s, "%H:%M").time() >= limit
+                        ]
+
+                if slots_in_alt_franja:
+                    current_day_available_slots = slots_in_alt_franja # Encontramos slots en una franja alternativa
+                    current_time_preference_for_search = alt_franja # Actualizamos la franja para el mensaje
+                    found_alternative_franja = True
+                    break # Salimos del bucle de franjas alternativas
+
+        # Si aún después de todos los intentos para el día actual no hay slots,
+        # o si la preferencia 'más tarde/temprano' agotó los slots, pasamos al siguiente día.
+        if not current_day_available_slots:
+            continue
 
         # ─ Si la consulta era “esta semana” y el hueco es > sábado, avisa ──
         if is_this_week and day_offset > days_until_saturday:
-            available = free_slots[:4]
+            available = current_day_available_slots[:4]
             pretty_list = [_pretty_hhmm(h) for h in available]
             return {
                 "status": "SLOT_FOUND_LATER",
@@ -446,11 +501,12 @@ def process_appointment_request(
                 "suggested_date_iso": chk_date.isoformat(),
                 "available_slots": available,
                 "available_pretty": pretty_list,
+                "requested_time_kw": current_time_preference_for_search # La franja que se terminó encontrando
             }
         # ─ Si la consulta era “hoy” o "mañana" y el hueco cae otro día, avisa ─────────
+        # Y si se encontró un slot en el día actual pero no el día original de la consulta
         if (is_today_request or is_tomorrow_request or is_sunday_request) and day_offset > 0:
-
-            available = free_slots[:4]
+            available = current_day_available_slots[:4]
             pretty_list = [_pretty_hhmm(h) for h in available]
             return {
                 "status": "SLOT_FOUND_LATER",
@@ -458,16 +514,18 @@ def process_appointment_request(
                 "suggested_date_iso": chk_date.isoformat(),
                 "available_slots": available,
                 "available_pretty": pretty_list,
+                "requested_time_kw": current_time_preference_for_search # La franja que se terminó encontrando
             }
 
         # ─ Devolver los horarios del día hallado ──────────────────────────
-        available = free_slots[:4]
+        available = current_day_available_slots[:4]
         pretty_list = [_pretty_hhmm(h) for h in available]
         return {
             "status": "SLOT_LIST",
             "date_iso": chk_date.isoformat(),
             "available_slots": available,
             "available_pretty": pretty_list,
+            "requested_time_kw": current_time_preference_for_search # La franja que se terminó encontrando
         }
 
     # ─ Si no se encontró nada en 120 días ─────────────────────────────────
