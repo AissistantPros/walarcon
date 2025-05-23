@@ -8,7 +8,11 @@ from consultarinfo import router as consultorio_router # Importamos el router
 from fastapi import Body # Esta línea la necesitas para que FastAPI reciba datos
 import buscarslot       # Para poder usar tu lógica de buscarslot.py
 from typing import Optional, Union # Esto es para definir tipos de datos, ayuda a que el código sea más claro
-
+from crearcita import create_calendar_event # Para crear citas
+from editarcita import edit_calendar_event   # Para editar citas
+from eliminarcita import delete_calendar_event # Para eliminar citas
+from selectevent import select_calendar_event_by_index
+from utils import search_calendar_event_by_phone # Para seleccionar evento por índice
 
 # ───────── CONFIGURACIÓN DE LOGGING ────────────────────────────
 logging.basicConfig(level=logging.INFO,
@@ -79,6 +83,124 @@ async def n8n_process_appointment_request(
         logger.error(f"❌ Error en endpoint /n8n/process-appointment-request: {str(e)}", exc_info=True)
         return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
     
+
+
+
+
+
+@app.post("/n8n/create-calendar-event")
+async def n8n_create_calendar_event(
+    name: str = Body(...),
+    phone: str = Body(...),
+    reason: str = Body(...),
+    start_time: str = Body(...),
+    end_time: str = Body(...)
+):
+    logger.info(f"ℹ️ Solicitud de n8n para /n8n/create-calendar-event para {name}")
+    try:
+        result = create_calendar_event(
+            name=name,
+            phone=phone,
+            reason=reason,
+            start_time=start_time,
+            end_time=end_time
+        )
+        if "error" in result:
+            logger.error(f"❌ Error al crear evento: {result['error']}")
+            return {"status": "ERROR", "message": result["error"]}
+        return {"status": "SUCCESS", "event_id": result.get("id"), "message": "Evento creado exitosamente"}
+    except Exception as e:
+        logger.error(f"❌ Error en endpoint /n8n/create-calendar-event: {str(e)}", exc_info=True)
+        return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
+
+@app.post("/n8n/edit-calendar-event")
+async def n8n_edit_calendar_event(
+    event_id: str = Body(...),
+    new_start_time_iso: str = Body(...),
+    new_end_time_iso: str = Body(...),
+    new_name: Optional[str] = Body(None),
+    new_reason: Optional[str] = Body(None),
+    new_phone_for_description: Optional[str] = Body(None)
+):
+    logger.info(f"ℹ️ Solicitud de n8n para /n8n/edit-calendar-event para ID: {event_id}")
+    try:
+        result = edit_calendar_event(
+            event_id=event_id,
+            new_start_time_iso=new_start_time_iso,
+            new_end_time_iso=new_end_time_iso,
+            new_name=new_name,
+            new_reason=new_reason,
+            new_phone_for_description=new_phone_for_description
+        )
+        if "error" in result:
+            logger.error(f"❌ Error al editar evento: {result['error']}")
+            return {"status": "ERROR", "message": result["error"]}
+        return {"status": "SUCCESS", "event_id": result.get("id"), "message": "Evento editado exitosamente"}
+    except Exception as e:
+        logger.error(f"❌ Error en endpoint /n8n/edit-calendar-event: {str(e)}", exc_info=True)
+        return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
+
+@app.post("/n8n/delete-calendar-event")
+async def n8n_delete_calendar_event(
+    event_id: str = Body(...),
+    original_start_time_iso: str = Body(...) # Aunque no es estrictamente necesario para la función, FastAPI lo espera por la definición de la tool
+):
+    logger.info(f"ℹ️ Solicitud de n8n para /n8n/delete-calendar-event para ID: {event_id}")
+    try:
+        result = delete_calendar_event(
+            event_id=event_id,
+            original_start_time_iso=original_start_time_iso # Se pasa aunque la función no lo use para la operación principal
+        )
+        if "error" in result:
+            logger.error(f"❌ Error al eliminar evento: {result['error']}")
+            return {"status": "ERROR", "message": result["error"]}
+        return {"status": "SUCCESS", "deleted_event_id": result.get("deleted_event_id"), "message": "Evento eliminado exitosamente"}
+    except Exception as e:
+        logger.error(f"❌ Error en endpoint /n8n/delete-calendar-event: {str(e)}", exc_info=True)
+        return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
+
+
+@app.post("/n8n/search-calendar-event-by-phone")
+async def n8n_search_calendar_event_by_phone(
+    phone: str = Body(...)
+):
+    logger.info(f"ℹ️ Solicitud de n8n para /n8n/search-calendar-event-by-phone para teléfono: {phone}")
+    try:
+        # La función search_calendar_event_by_phone ya devuelve una lista de diccionarios
+        search_results = search_calendar_event_by_phone(phone=phone)
+        return {"search_results": search_results} # Envolvemos la lista en un diccionario
+    except Exception as e:
+        logger.error(f"❌ Error en endpoint /n8n/search-calendar-event-by-phone: {str(e)}", exc_info=True)
+        return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
+
+@app.post("/n8n/select-calendar-event-by-index")
+async def n8n_select_calendar_event_by_index(
+    selected_index: int = Body(...)
+):
+    logger.info(f"ℹ️ Solicitud de n8n para /n8n/select-calendar-event-by-index con índice: {selected_index}")
+    try:
+        result = select_calendar_event_by_index(selected_index=selected_index)
+        if "error" in result:
+            logger.error(f"❌ Error al seleccionar evento por índice: {result['error']}")
+            return {"status": "ERROR", "message": result["error"]}
+        return {"status": "SUCCESS", "message": result["message"], "event_id": result.get("event_id")}
+    except Exception as e:
+        logger.error(f"❌ Error en endpoint /n8n/select-calendar-event-by-index: {str(e)}", exc_info=True)
+        return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
