@@ -7,12 +7,16 @@ from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data
 from consultarinfo import router as consultorio_router # Importamos el router
 from fastapi import Body # Esta línea la necesitas para que FastAPI reciba datos
 import buscarslot       # Para poder usar tu lógica de buscarslot.py
-from typing import Optional, Union # Esto es para definir tipos de datos, ayuda a que el código sea más claro
+from typing import Optional, Union, List # Esto es para definir tipos de datos, ayuda a que el código sea más claro
 from crearcita import create_calendar_event # Para crear citas
 from editarcita import edit_calendar_event   # Para editar citas
 from eliminarcita import delete_calendar_event # Para eliminar citas
 from selectevent import select_calendar_event_by_index
 from utils import search_calendar_event_by_phone # Para seleccionar evento por índice
+from pydantic import BaseModel, Field
+from aiagent_text import process_text_message
+
+
 
 # ───────── CONFIGURACIÓN DE LOGGING ────────────────────────────
 logging.basicConfig(level=logging.INFO,
@@ -46,7 +50,7 @@ for noisy in (
 
 # ───────── FASTAPI ─────────────────────────────────────────────
 app = FastAPI()
-
+conversation_histories = {} # Diccionario para almacenar historiales de conversación por usuario
 
 app.include_router(consultorio_router, prefix="/api_v1") # Puedes elegir un prefijo o no
 
@@ -189,7 +193,68 @@ async def n8n_select_calendar_event_by_index(
         return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
 
 
+class N8NMessage(BaseModel):
+    user_id: str = Field(..., description="Identificador único del usuario en la plataforma de mensajería.")
+    message_text: str = Field(..., description="El texto del mensaje enviado por el usuario.")
+    conversation_id: Optional[str] = Field(None, description="Identificador opcional de la conversación para mantener contexto.")
+    metadata: Optional[dict] = Field(None, description="Metadatos adicionales de n8n o la plataforma.")
 
+@app.post("/webhook/n8n_message")
+async def receive_n8n_message(message_data: N8NMessage): # N8NMessage es el Pydantic model que definimos antes
+    print(f" main.py webhook: Mensaje recibido de n8n para el usuario {message_data.user_id}: '{message_data.message_text}'")
+
+    user_id = message_data.user_id
+    conversation_id = message_data.conversation_id or user_id # Usar conversation_id si existe, sino user_id
+    current_user_message_text = message_data.message_text
+
+    # 1. Recuperar o inicializar el historial de esta conversación
+    if conversation_id not in conversation_histories:
+        conversation_histories[conversation_id] = []
+    
+    current_conversation_history = conversation_histories[conversation_id]
+
+    # 2. Añadir el mensaje actual del usuario al historial
+    current_conversation_history.append({"role": "user", "content": current_user_message_text})
+
+    # (Opcional) Limitar la longitud del historial para no exceder límites de tokens o memoria
+    # Por ejemplo, mantener solo los últimos N intercambios.
+    # MAX_HISTORY_TURNS = 10 # Un "turn" son dos mensajes: user y assistant
+    # if len(current_conversation_history) > MAX_HISTORY_TURNS * 2:
+    #     current_conversation_history = current_conversation_history[-(MAX_HISTORY_TURNS * 2):]
+
+    print(f" main.py webhook: Historial para {conversation_id} antes de llamar a IA: {current_conversation_history}")
+
+    # 3. Llamar a nuestro agente de IA para procesar el mensaje
+    try:
+        agent_response_data = process_text_message(
+            user_id=user_id, # O podrías pasar conversation_id si es más relevante para el agente
+            current_user_message=current_user_message_text, # El agente podría no necesitarlo si ya está en el historial
+            conversation_history=current_conversation_history # Pasamos la copia local del historial
+        )
+        
+        ai_reply_text = agent_response_data.get("reply_text", "No pude obtener una respuesta.")
+        # Podrías usar agent_response_data.get("status") para logging o decisiones adicionales
+
+    except Exception as e:
+        print(f" main.py webhook: Error al llamar a process_text_message: {str(e)}")
+        # Considera loggear el traceback: import traceback; traceback.print_exc()
+        ai_reply_text = "Hubo un error interno al procesar tu mensaje. Por favor, intenta de nuevo más tarde."
+        # Aquí podrías devolver un error HTTP 500 si n8n lo maneja bien.
+        # return JSONResponse(status_code=500, content={"reply_text": ai_reply_text, "status": "error_calling_agent"})
+
+
+    # 4. Añadir la respuesta de la IA al historial (si hubo una respuesta válida)
+    if ai_reply_text: # O podrías basarte en el status devuelto por el agente
+        current_conversation_history.append({"role": "assistant", "content": ai_reply_text})
+    
+    # Actualizar el historial global (si no lo modificamos directamente antes)
+    conversation_histories[conversation_id] = current_conversation_history 
+
+    print(f" main.py webhook: Respuesta de la IA para {conversation_id}: '{ai_reply_text}'")
+
+    # 5. Devolver la respuesta de la IA a n8n
+    # El formato debe coincidir con lo que n8n espera para enviar al usuario
+    return {"reply_text": ai_reply_text, "status": agent_response_data.get("status", "error_unknown")}
 
 
 
