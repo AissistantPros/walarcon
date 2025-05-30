@@ -176,6 +176,24 @@ TOOLS = [
                 "required": ["event_id", "original_start_time_iso"]
             }
         }
+    },
+     {
+        "type": "function",
+        "function": {
+            "name": "detect_intent",
+            "description": "Detecta la intención principal del usuario cuando no está claro si quiere agendar una nueva cita, o si cambia de opinión hacia modificar o cancelar una cita existente, o si pide 'más tarde' o 'más temprano' un horario.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "intention": {
+                        "type": "string",
+                        "enum": ["create", "edit", "delete", "informational", "unknown", "more_late", "more_early"],
+                        "description": "La intención detectada del usuario."
+                    }
+                },
+                "required": ["intention"]
+            }
+        }
     }
 ]
 
