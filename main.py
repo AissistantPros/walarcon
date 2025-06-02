@@ -199,6 +199,8 @@ class N8NMessage(BaseModel):
     conversation_id: Optional[str] = Field(None, description="Identificador opcional de la conversación para mantener contexto.")
     metadata: Optional[dict] = Field(None, description="Metadatos adicionales de n8n o la plataforma.")
 
+
+print("➡️ Registrando endpoint /webhook/n8n_message")
 @app.post("/webhook/n8n_message")
 async def receive_n8n_message(message_data: N8NMessage): # N8NMessage es el Pydantic model que definimos antes
     print(f" main.py webhook: Mensaje recibido de n8n para el usuario {message_data.user_id}: '{message_data.message_text}'")
