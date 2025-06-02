@@ -1,60 +1,59 @@
 import os
 import json
 from typing import List, Dict, Optional
-
+from decouple import config
 from openai import OpenAI
 
 # 1. Importamos la función para generar el prompt desde tu archivo prompt_text.py
 from prompt_text import generate_openai_prompt # Asegúrate que el nombre del archivo sea exacto
 
 # ----- Configuración del Cliente OpenAI y Modelo -----
-# Esto asume que tienes la variable de entorno OPENAI_API_KEY configurada.
-client = OpenAI()
-# Puedes cambiar el modelo si lo deseas. Este es el que usas en tu prompt_text.py.
-MODEL_TO_USE = "gpt-4.1-mini" 
+try:
+    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+except Exception as e:
+    print(f"CRITICAL: No se pudo inicializar el cliente OpenAI en aiagent_text.py. Verifica CHATGPT_SECRET_KEY: {e}")
+    client = None
 
-# ----- Placeholder para Herramientas (las importaremos después) -----
+MODEL_TO_USE = "gpt-4.1-mini"
+
+# ----- Herramientas y Funciones de Mapeo -----
 from buscarslot import process_appointment_request
 from crearcita import create_calendar_event
 from editarcita import edit_calendar_event
 from eliminarcita import delete_calendar_event
 from utils import search_calendar_event_by_phone
 from selectevent import select_calendar_event_by_index
-from consultarinfo import read_sheet_data # Si esta herramienta se usa en texto también
+# MODIFICADO: Importar también get_consultorio_data_from_cache
+from consultarinfo import read_sheet_data, get_consultorio_data_from_cache
 
-
-
-
+# NUEVO: Función para manejar 'detect_intent'
+def handle_detect_intent(**kwargs) -> Dict:
+    """
+    Simplemente devuelve la intención detectada por la IA.
+    El system_prompt guiará al modelo sobre cómo actuar con esta información.
+    """
+    return {"intent_detected": kwargs.get("intention")}
 
 tool_functions_map = {
-    "read_sheet_data": read_sheet_data,
+    # MODIFICADO: Usar la caché para consistencia y eficiencia
+    "read_sheet_data": get_consultorio_data_from_cache,
     "process_appointment_request": process_appointment_request,
     "create_calendar_event": create_calendar_event,
     "search_calendar_event_by_phone": search_calendar_event_by_phone,
     "select_calendar_event_by_index": select_calendar_event_by_index,
     "edit_calendar_event": edit_calendar_event,
     "delete_calendar_event": delete_calendar_event,
+    # NUEVO: Añadir el mapeo para detect_intent
+    "detect_intent": handle_detect_intent,
 }
 
-
-
-
-
-
-
-
-
 # ══════════════════ UNIFIED TOOLS DEFINITION ══════════════════════
-# Esta es la ÚNICA lista de herramientas que necesitarás.
-# Contiene TODAS las herramientas que la IA podría usar,
-# guiada por el system_prompt de prompt.py.
 TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "read_sheet_data",
             "description": "Obtener información general del consultorio como dirección, horarios de atención general, servicios principales, o políticas de cancelación. No usar para verificar disponibilidad de citas."
-            # No necesita parámetros explícitos aquí si la función Python usa defaults
         }
     },
     {
@@ -98,7 +97,7 @@ TOOLS = [
                     "name": {"type": "string", "description": "Nombre completo del paciente."},
                     "phone": {"type": "string", "description": "Número de teléfono del paciente (10 dígitos)."},
                     "reason": {"type": "string", "description": "Motivo de la consulta."},
-                    "start_time": {"type": "string", "format": "date-time", "description": "Hora de inicio de la cita en formato ISO8601 con offset (ej. YYYY-MM-DDTHH:MM:SS-05:00). Obtenido de 'process_appointment_request'."},
+                    "start_time": {"type": "string", "format": "date-time", "description": "Hora de inicio de la cita en formato ISO8601 con offset (ej. markup-MM-DDTHH:MM:SS-05:00). Obtenido de 'process_appointment_request'."},
                     "end_time": {"type": "string", "format": "date-time", "description": "Hora de fin de la cita en formato ISO8601 con offset. Obtenido de 'process_appointment_request'."}
                 },
                 "required": ["name", "phone", "start_time", "end_time"]
@@ -118,50 +117,46 @@ TOOLS = [
         }
     },
     {
-    "type": "function",
-    "function": {
-        "name": "select_calendar_event_by_index",
-        "description": (
-            "Marca cuál de las citas encontradas (events_found) "
-            "es la que el paciente quiere modificar o cancelar. "
-            "Úsalo después de enumerar las citas y recibir la confirmación "
-            "del paciente. selected_index = 0 para la primera cita listada."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "selected_index": {
-                    "type": "integer",
-                    "description": "Índice de la cita (0, 1, 2…)."
-                }
-            },
-            "required": ["selected_index"]
+        "type": "function",
+        "function": {
+            "name": "select_calendar_event_by_index",
+            "description": (
+                "Marca cuál de las citas encontradas (events_found) "
+                "es la que el paciente quiere modificar o cancelar. "
+                "Úsalo después de enumerar las citas y recibir la confirmación "
+                "del paciente. selected_index = 0 para la primera cita listada."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selected_index": {
+                        "type": "integer",
+                        "description": "Índice de la cita (0, 1, 2…)."
+                    }
+                },
+                "required": ["selected_index"]
+            }
         }
-    }
-},
+    },
     {
         "type": "function",
         "function": {
             "name": "edit_calendar_event",
-            "description": "Modificar una cita existente en el calendario. Requiere el ID del evento y los nuevos detalles de fecha/hora. Opcionalmente puede actualizar nombre, motivo o teléfono en la descripción.", # Descripción ligeramente ajustada
+            "description": "Modificar una cita existente en el calendario. Requiere el ID del evento y los nuevos detalles de fecha/hora. Opcionalmente puede actualizar nombre, motivo o teléfono en la descripción.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "event_id": {"type": "string", "description": "El ID del evento de calendario a modificar. Obtenido de 'search_calendar_event_by_phone'."},
-                    # "original_start_time" SE ELIMINA COMO PARÁMETRO DE ESTA HERRAMIENTA
-                    "new_start_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de inicio para la cita en formato ISO8601 con offset (ej. 2025-MM-DDTHH:MM:SS-05:00). Obtenida de 'process_appointment_request'."}, # CAMBIADO a _iso
-                    "new_end_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de fin para la cita en formato ISO8601 con offset. Obtenida de 'process_appointment_request'."}, # CAMBIADO a _iso
+                    "new_start_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de inicio para la cita en formato ISO8601 con offset (ej. 2025-MM-DDTHH:MM:SS-05:00). Obtenida de 'process_appointment_request'."},
+                    "new_end_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de fin para la cita en formato ISO8601 con offset. Obtenida de 'process_appointment_request'."},
                     "new_name": {"type": "string", "description": "Opcional. Nuevo nombre del paciente si el usuario desea cambiarlo."},
                     "new_reason": {"type": "string", "description": "Opcional. Nuevo motivo de la consulta si el usuario desea cambiarlo."},
                     "new_phone_for_description": {"type": "string", "description": "Opcional. Nuevo teléfono para la descripción de la cita si el usuario desea cambiarlo."}
                 },
-                
-                "required": ["event_id", "new_start_time_iso", "new_end_time_iso"] # CAMBIADO a _iso
+                "required": ["event_id", "new_start_time_iso", "new_end_time_iso"]
             }
         }
     },
-
-    
     {
         "type": "function",
         "function": {
@@ -171,13 +166,13 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "event_id": {"type": "string", "description": "El ID del evento de calendario a eliminar. Obtenido de 'search_calendar_event_by_phone'."},
-                    "original_start_time_iso": {"type": "string", "format": "date-time", "description": "Hora de inicio original de la cita a eliminar en formato ISO8601 con offset (ej. 2025-MM-DDTHH:MM:SS-05:00), para confirmación."} # CAMBIADO a _iso
+                    "original_start_time_iso": {"type": "string", "format": "date-time", "description": "Hora de inicio original de la cita a eliminar en formato ISO8601 con offset (ej. 2025-MM-DDTHH:MM:SS-05:00), para confirmación."}
                 },
                 "required": ["event_id", "original_start_time_iso"]
             }
         }
     },
-     {
+    {
         "type": "function",
         "function": {
             "name": "detect_intent",
@@ -197,22 +192,20 @@ TOOLS = [
     }
 ]
 
-
-
-
-
-
-
 def process_text_message(user_id: str, current_user_message: str, conversation_history: List[Dict]) -> Dict:
     """
     Procesa un mensaje de texto entrante, llama a la IA, maneja herramientas y devuelve la respuesta final.
     """
     print(f" módulo aiagent_text.py: Recibido mensaje de {user_id}: '{current_user_message}'")
 
-    # El historial (conversation_history) debe ser gestionado por main.py
-    # y debe incluir el current_user_message ANTES de llamar a esta función.
-    # La función generate_openai_prompt tomará ese historial completo.
-    messages_for_api = generate_openai_prompt(conversation_history) #
+    messages_for_api = generate_openai_prompt(conversation_history)
+
+    if not client:
+        print(f" módulo aiagent_text.py: Error - Cliente OpenAI no inicializado. Abortando.")
+        return {
+            "reply_text": "Lo siento, estoy teniendo problemas técnicos para conectarme en este momento. Por favor, intenta más tarde.",
+            "status": "error_openai_client_not_initialized"
+        }
 
     try:
         print(f" módulo aiagent_text.py: 1ª Llamada a OpenAI con modelo {MODEL_TO_USE} y herramientas...")
@@ -230,10 +223,8 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
         if tool_calls:
             print(f" módulo aiagent_text.py: La IA solicitó llamadas a herramientas: {tool_calls}")
             
-            # Añadimos el mensaje original de la IA (que contiene las tool_calls) al historial
-            messages_for_api.append(response_message) # Guardamos toda la respuesta de la IA, incluidas las tool_calls
+            messages_for_api.append(response_message) 
 
-            # Ejecutar herramientas y recolectar resultados
             for tool_call in tool_calls:
                 function_name = tool_call.function.name
                 function_args_json = tool_call.function.arguments
@@ -245,11 +236,8 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
                         function_to_call = tool_functions_map[function_name]
                         function_args_dict = json.loads(function_args_json)
                         
-                        # Llamada a la función de la herramienta
                         tool_result = function_to_call(**function_args_dict)
                         
-                        # El resultado de la herramienta debe ser un string (usualmente JSON stringificado)
-                        # para la API de OpenAI. Si tu función devuelve un dict, conviértelo.
                         if not isinstance(tool_result, str):
                             tool_result_str = json.dumps(tool_result)
                         else:
@@ -257,7 +245,6 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
 
                         print(f" módulo aiagent_text.py: Resultado de {function_name}: {tool_result_str}")
                         
-                        # Añadimos el resultado de la herramienta al historial
                         messages_for_api.append({
                             "tool_call_id": tool_call.id,
                             "role": "tool",
@@ -281,20 +268,17 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
                         "content": json.dumps({"error": f"Herramienta '{function_name}' no encontrada."}),
                     })
 
-            # 2ª Llamada a OpenAI con los resultados de las herramientas
             print(f" módulo aiagent_text.py: 2ª Llamada a OpenAI con resultados de herramientas...")
             
             second_chat_completion = client.chat.completions.create(
                 model=MODEL_TO_USE,
                 messages=messages_for_api 
-                # Ya no pasamos 'tools' ni 'tool_choice' aquí, queremos una respuesta final.
             )
             
             ai_final_response_content = second_chat_completion.choices[0].message.content
             status_message = "success_with_tool_execution"
 
         else:
-            # Si no hay llamadas a herramientas, la respuesta de la IA es la final.
             ai_final_response_content = response_message.content
             status_message = "success_text_only"
             if not ai_final_response_content:
@@ -309,7 +293,6 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
 
     except Exception as e:
         print(f" módulo aiagent_text.py: Error general en process_text_message: {str(e)}")
-        # Considera loggear el traceback completo aquí: import traceback; traceback.print_exc()
         return {
             "reply_text": "¡Caramba! 😅 Algo inesperado ocurrió al procesar tu mensaje. ¿Podrías intentarlo de nuevo?",
             "status": "error_processing_message"
