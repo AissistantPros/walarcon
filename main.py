@@ -202,61 +202,48 @@ class N8NMessage(BaseModel):
 
 print("➡️ Registrando endpoint /webhook/n8n_message")
 @app.post("/webhook/n8n_message")
-async def receive_n8n_message(message_data: N8NMessage): # N8NMessage es el Pydantic model que definimos antes
+async def receive_n8n_message(message_data: N8NMessage):
     print(f" main.py webhook: Mensaje recibido de n8n para el usuario {message_data.user_id}: '{message_data.message_text}'")
 
     user_id = message_data.user_id
-    conversation_id = message_data.conversation_id or user_id # Usar conversation_id si existe, sino user_id
+    conversation_id = message_data.conversation_id or user_id
     current_user_message_text = message_data.message_text
 
-    # 1. Recuperar o inicializar el historial de esta conversación
     if conversation_id not in conversation_histories:
         conversation_histories[conversation_id] = []
     
     current_conversation_history = conversation_histories[conversation_id]
-
-    # 2. Añadir el mensaje actual del usuario al historial
     current_conversation_history.append({"role": "user", "content": current_user_message_text})
-
-    # (Opcional) Limitar la longitud del historial para no exceder límites de tokens o memoria
-    # Por ejemplo, mantener solo los últimos N intercambios.
-    # MAX_HISTORY_TURNS = 10 # Un "turn" son dos mensajes: user y assistant
-    # if len(current_conversation_history) > MAX_HISTORY_TURNS * 2:
-    #     current_conversation_history = current_conversation_history[-(MAX_HISTORY_TURNS * 2):]
 
     print(f" main.py webhook: Historial para {conversation_id} antes de llamar a IA: {current_conversation_history}")
 
-    # 3. Llamar a nuestro agente de IA para procesar el mensaje
+    status_to_return = "error_unknown" # Valor por defecto
+
     try:
         agent_response_data = process_text_message(
-            user_id=user_id, # O podrías pasar conversation_id si es más relevante para el agente
-            current_user_message=current_user_message_text, # El agente podría no necesitarlo si ya está en el historial
-            conversation_history=current_conversation_history # Pasamos la copia local del historial
+            user_id=user_id,
+            current_user_message=current_user_message_text,
+            conversation_history=current_conversation_history
         )
         
         ai_reply_text = agent_response_data.get("reply_text", "No pude obtener una respuesta.")
-        # Podrías usar agent_response_data.get("status") para logging o decisiones adicionales
+        status_to_return = agent_response_data.get("status", "success_unknown_status") # Obtener status de la respuesta exitosa
 
     except Exception as e:
         print(f" main.py webhook: Error al llamar a process_text_message: {str(e)}")
-        # Considera loggear el traceback: import traceback; traceback.print_exc()
+        # import traceback # Descomenta para logs más detallados si es necesario
+        # traceback.print_exc() # Descomenta para logs más detallados si es necesario
         ai_reply_text = "Hubo un error interno al procesar tu mensaje. Por favor, intenta de nuevo más tarde."
-        # Aquí podrías devolver un error HTTP 500 si n8n lo maneja bien.
-        # return JSONResponse(status_code=500, content={"reply_text": ai_reply_text, "status": "error_calling_agent"})
+        status_to_return = "error_calling_agent" # Status específico para este error
 
-
-    # 4. Añadir la respuesta de la IA al historial (si hubo una respuesta válida)
-    if ai_reply_text: # O podrías basarte en el status devuelto por el agente
+    if ai_reply_text:
         current_conversation_history.append({"role": "assistant", "content": ai_reply_text})
     
-    # Actualizar el historial global (si no lo modificamos directamente antes)
     conversation_histories[conversation_id] = current_conversation_history 
 
     print(f" main.py webhook: Respuesta de la IA para {conversation_id}: '{ai_reply_text}'")
 
-    # 5. Devolver la respuesta de la IA a n8n
-    # El formato debe coincidir con lo que n8n espera para enviar al usuario
-    return {"reply_text": ai_reply_text, "status": agent_response_data.get("status", "error_unknown")}
+    return {"reply_text": ai_reply_text, "status": status_to_return}
 
 
 
