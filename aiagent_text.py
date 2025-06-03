@@ -5,14 +5,19 @@ from decouple import config
 from openai import OpenAI
 
 # 1. Importamos la función para generar el prompt desde tu archivo prompt_text.py
-from prompt_text import generate_openai_prompt # Asegúrate que el nombre del archivo sea exacto
+from prompt_text import generate_openai_prompt
 
 # ----- Configuración del Cliente OpenAI y Modelo -----
+CLIENT_INIT_ERROR = None
+client = None
 try:
+    print("[aiagent_text.py] Intentando inicializar cliente OpenAI...")
     client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    print("[aiagent_text.py] Cliente OpenAI inicializado aparentemente con éxito.")
 except Exception as e:
-    print(f"CRITICAL: No se pudo inicializar el cliente OpenAI en aiagent_text.py. Verifica CHATGPT_SECRET_KEY: {e}")
-    client = None
+    CLIENT_INIT_ERROR = str(e)
+    print(f"[aiagent_text.py] CRITICAL: No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
+    # client permanece None
 
 MODEL_TO_USE = "gpt-4.1-mini"
 
@@ -23,19 +28,12 @@ from editarcita import edit_calendar_event
 from eliminarcita import delete_calendar_event
 from utils import search_calendar_event_by_phone
 from selectevent import select_calendar_event_by_index
-# MODIFICADO: Importar también get_consultorio_data_from_cache
-from consultarinfo import read_sheet_data, get_consultorio_data_from_cache
+from consultarinfo import get_consultorio_data_from_cache # Usaremos la versión con caché
 
-# NUEVO: Función para manejar 'detect_intent'
 def handle_detect_intent(**kwargs) -> Dict:
-    """
-    Simplemente devuelve la intención detectada por la IA.
-    El system_prompt guiará al modelo sobre cómo actuar con esta información.
-    """
     return {"intent_detected": kwargs.get("intention")}
 
 tool_functions_map = {
-    # MODIFICADO: Usar la caché para consistencia y eficiencia
     "read_sheet_data": get_consultorio_data_from_cache,
     "process_appointment_request": process_appointment_request,
     "create_calendar_event": create_calendar_event,
@@ -43,12 +41,12 @@ tool_functions_map = {
     "select_calendar_event_by_index": select_calendar_event_by_index,
     "edit_calendar_event": edit_calendar_event,
     "delete_calendar_event": delete_calendar_event,
-    # NUEVO: Añadir el mapeo para detect_intent
     "detect_intent": handle_detect_intent,
 }
 
 # ══════════════════ UNIFIED TOOLS DEFINITION ══════════════════════
 TOOLS = [
+    # ... (Tu lista TOOLS completa va aquí, no la modifico para brevedad)
     {
         "type": "function",
         "function": {
@@ -196,19 +194,47 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
     """
     Procesa un mensaje de texto entrante, llama a la IA, maneja herramientas y devuelve la respuesta final.
     """
-    print(f" módulo aiagent_text.py: Recibido mensaje de {user_id}: '{current_user_message}'")
+    # Extraer conversation_id del historial si está disponible, o usar user_id
+    # Esto es para que los logs sean más fáciles de seguir si tienes múltiples usuarios/conversaciones
+    conv_id_for_logs = user_id # Valor por defecto
+    if conversation_history and isinstance(conversation_history[0], dict) and "conversation_id_for_logs" in conversation_history[0]:
+        conv_id_for_logs = conversation_history[0].get("conversation_id_for_logs")
 
-    messages_for_api = generate_openai_prompt(conversation_history)
 
-    if not client:
-        print(f" módulo aiagent_text.py: Error - Cliente OpenAI no inicializado. Abortando.")
+    print(f"[{conv_id_for_logs}][aiagent_text.py] INICIO process_text_message. User: {user_id}, Mensaje: '{current_user_message}'")
+    print(f"[{conv_id_for_logs}][aiagent_text.py] Historial de conversación recibido (longitud {len(conversation_history)}): {json.dumps(conversation_history, indent=2)}")
+
+    if CLIENT_INIT_ERROR: # Si hubo un error al inicializar el cliente globalmente
+        print(f"[{conv_id_for_logs}][aiagent_text.py] Error PREVIO en inicialización de cliente OpenAI: {CLIENT_INIT_ERROR}")
         return {
-            "reply_text": "Lo siento, estoy teniendo problemas técnicos para conectarme en este momento. Por favor, intenta más tarde.",
-            "status": "error_openai_client_not_initialized"
+            "reply_text": "Lo siento, estoy teniendo problemas técnicos (configuración del asistente). Por favor, intenta más tarde.",
+            "status": "error_openai_client_initialization_failed"
+        }
+
+    if not client: # Chequeo por si client es None después del try-except de inicialización
+        print(f"[{conv_id_for_logs}][aiagent_text.py] Error CRÍTICO - Cliente OpenAI es None. No se puede proceder.")
+        return {
+            "reply_text": "Lo siento, estoy teniendo problemas técnicos graves (asistente no disponible). Por favor, intenta más tarde.",
+            "status": "error_openai_client_is_none"
+        }
+
+    messages_for_api = []
+    try:
+        print(f"[{conv_id_for_logs}][aiagent_text.py] Generando prompt completo con generate_openai_prompt...")
+        # Pasamos una copia del historial para no modificar el original accidentalmente si generate_openai_prompt lo hiciera
+        messages_for_api = generate_openai_prompt(list(conversation_history))
+        # print(f"[{conv_id_for_logs}][aiagent_text.py] Prompt completo para API (últimos 2 mensajes): {json.dumps(messages_for_api[-2:], indent=2)}")
+    except Exception as e_prompt:
+        print(f"[{conv_id_for_logs}][aiagent_text.py] ERROR generando prompt con generate_openai_prompt: {str(e_prompt)}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "reply_text": "¡Ups! Tuve un problema preparando mi respuesta. ¿Podrías intentarlo de nuevo?",
+            "status": "error_generating_prompt"
         }
 
     try:
-        print(f" módulo aiagent_text.py: 1ª Llamada a OpenAI con modelo {MODEL_TO_USE} y herramientas...")
+        print(f"[{conv_id_for_logs}][aiagent_text.py] 1ª Llamada a OpenAI con modelo {MODEL_TO_USE}. Mensajes: {len(messages_for_api)}")
         
         chat_completion = client.chat.completions.create(
             model=MODEL_TO_USE,
@@ -216,21 +242,26 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
             tools=TOOLS,
             tool_choice="auto" 
         )
+        print(f"[{conv_id_for_logs}][aiagent_text.py] 1ª Llamada a OpenAI completada.")
 
         response_message = chat_completion.choices[0].message
         tool_calls = response_message.tool_calls
 
         if tool_calls:
-            print(f" módulo aiagent_text.py: La IA solicitó llamadas a herramientas: {tool_calls}")
+            print(f"[{conv_id_for_logs}][aiagent_text.py] La IA solicitó {len(tool_calls)} llamada(s) a herramientas: {tool_calls}")
             
-            messages_for_api.append(response_message) 
+            # Añadimos el mensaje original de la IA (que contiene las tool_calls) al historial
+            # messages_for_api.append(response_message) # Esto añade un objeto Pydantic, mejor el dict
+            messages_for_api.append(response_message.model_dump())
+
 
             for tool_call in tool_calls:
                 function_name = tool_call.function.name
                 function_args_json = tool_call.function.arguments
                 
-                print(f" módulo aiagent_text.py: Ejecutando herramienta: {function_name} con args: {function_args_json}")
+                print(f"[{conv_id_for_logs}][aiagent_text.py] Ejecutando herramienta: {function_name} con args: {function_args_json}")
                 
+                tool_result_str = "" # Inicializar
                 if function_name in tool_functions_map:
                     try:
                         function_to_call = tool_functions_map[function_name]
@@ -243,7 +274,7 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
                         else:
                             tool_result_str = tool_result
 
-                        print(f" módulo aiagent_text.py: Resultado de {function_name}: {tool_result_str}")
+                        print(f"[{conv_id_for_logs}][aiagent_text.py] Resultado de {function_name}: {tool_result_str[:500]}...") # Loguear solo una parte si es muy largo
                         
                         messages_for_api.append({
                             "tool_call_id": tool_call.id,
@@ -251,48 +282,55 @@ def process_text_message(user_id: str, current_user_message: str, conversation_h
                             "name": function_name,
                             "content": tool_result_str,
                         })
-                    except Exception as e:
-                        print(f" módulo aiagent_text.py: Error ejecutando la herramienta {function_name}: {str(e)}")
+                    except Exception as e_tool:
+                        print(f"[{conv_id_for_logs}][aiagent_text.py] ERROR ejecutando la herramienta {function_name}: {str(e_tool)}")
+                        import traceback
+                        traceback.print_exc()
                         messages_for_api.append({
                             "tool_call_id": tool_call.id,
                             "role": "tool",
                             "name": function_name,
-                            "content": json.dumps({"error": f"Error al ejecutar la herramienta: {str(e)}"}),
+                            "content": json.dumps({"error": f"Error al ejecutar la herramienta {function_name}: {str(e_tool)}"}),
                         })
                 else:
-                    print(f" módulo aiagent_text.py: Error: Herramienta desconocida '{function_name}'")
+                    print(f"[{conv_id_for_logs}][aiagent_text.py] Error: Herramienta desconocida '{function_name}' solicitada por la IA.")
                     messages_for_api.append({
                         "tool_call_id": tool_call.id,
                         "role": "tool",
                         "name": function_name,
-                        "content": json.dumps({"error": f"Herramienta '{function_name}' no encontrada."}),
+                        "content": json.dumps({"error": f"Herramienta '{function_name}' no encontrada/mapeada."}),
                     })
 
-            print(f" módulo aiagent_text.py: 2ª Llamada a OpenAI con resultados de herramientas...")
+            print(f"[{conv_id_for_logs}][aiagent_text.py] 2ª Llamada a OpenAI con resultados de herramientas. Mensajes: {len(messages_for_api)}")
             
             second_chat_completion = client.chat.completions.create(
                 model=MODEL_TO_USE,
                 messages=messages_for_api 
             )
+            print(f"[{conv_id_for_logs}][aiagent_text.py] 2ª Llamada a OpenAI completada.")
             
             ai_final_response_content = second_chat_completion.choices[0].message.content
             status_message = "success_with_tool_execution"
 
-        else:
+        else: # No tool_calls
+            print(f"[{conv_id_for_logs}][aiagent_text.py] No se solicitaron herramientas. Respuesta directa de la IA.")
             ai_final_response_content = response_message.content
             status_message = "success_text_only"
             if not ai_final_response_content:
+                 print(f"[{conv_id_for_logs}][aiagent_text.py] Respuesta directa de la IA fue vacía. Usando fallback.")
                  ai_final_response_content = "No he podido generar una respuesta en este momento. 🤔"
 
-        print(f" módulo aiagent_text.py: Respuesta final para el usuario: '{ai_final_response_content}'")
+        print(f"[{conv_id_for_logs}][aiagent_text.py] Respuesta final para el usuario: '{ai_final_response_content}'")
         
         return {
             "reply_text": ai_final_response_content,
             "status": status_message 
         }
 
-    except Exception as e:
-        print(f" módulo aiagent_text.py: Error general en process_text_message: {str(e)}")
+    except Exception as e_main_process:
+        print(f"[{conv_id_for_logs}][aiagent_text.py] ERROR general en process_text_message: {str(e_main_process)}")
+        import traceback
+        traceback.print_exc() # Esto es crucial para ver el error exacto en los logs de Render
         return {
             "reply_text": "¡Caramba! 😅 Algo inesperado ocurrió al procesar tu mensaje. ¿Podrías intentarlo de nuevo?",
             "status": "error_processing_message"

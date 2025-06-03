@@ -3,18 +3,20 @@ import os
 import logging
 from fastapi import FastAPI, Response, WebSocket
 from tw_utils import TwilioWebSocketManager, set_debug   
-from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache # Añadido load_consultorio_data_to_cache
-from consultarinfo import router as consultorio_router # Importamos el router
-from fastapi import Body # Esta línea la necesitas para que FastAPI reciba datos
-import buscarslot       # Para poder usar tu lógica de buscarslot.py
-from typing import Optional, Union, List # Esto es para definir tipos de datos, ayuda a que el código sea más claro
-from crearcita import create_calendar_event # Para crear citas
-from editarcita import edit_calendar_event   # Para editar citas
-from eliminarcita import delete_calendar_event # Para eliminar citas
+from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache 
+from consultarinfo import router as consultorio_router 
+from fastapi import Body 
+import buscarslot       
+from typing import Optional, Union, List 
+from crearcita import create_calendar_event 
+from editarcita import edit_calendar_event   
+from eliminarcita import delete_calendar_event 
 from selectevent import select_calendar_event_by_index
-from utils import search_calendar_event_by_phone # Para seleccionar evento por índice
+from utils import search_calendar_event_by_phone 
 from pydantic import BaseModel, Field
 from aiagent_text import process_text_message
+import traceback
+import json
 
 
 
@@ -206,43 +208,59 @@ async def receive_n8n_message(message_data: N8NMessage):
     print(f" main.py webhook: Mensaje recibido de n8n para el usuario {message_data.user_id}: '{message_data.message_text}'")
 
     user_id = message_data.user_id
-    conversation_id = message_data.conversation_id or user_id
+    # Usar conversation_id si existe, sino user_id.
+    # Este conversation_id también se usará para los logs en aiagent_text.py
+    conversation_id = message_data.conversation_id or user_id 
     current_user_message_text = message_data.message_text
 
+    # 1. Recuperar o inicializar el historial de esta conversación
     if conversation_id not in conversation_histories:
-        conversation_histories[conversation_id] = []
+        # MODIFICADO: Añadir 'conversation_id_for_logs' al inicio del historial
+        # para que aiagent_text.py pueda usarlo en sus logs.
+        conversation_histories[conversation_id] = [{"conversation_id_for_logs": conversation_id}]
     
     current_conversation_history = conversation_histories[conversation_id]
+
+    # 2. Añadir el mensaje actual del usuario al historial
     current_conversation_history.append({"role": "user", "content": current_user_message_text})
 
-    print(f" main.py webhook: Historial para {conversation_id} antes de llamar a IA: {current_conversation_history}")
+    print(f" main.py webhook (conversation: {conversation_id}): Historial ANTES de llamar a IA (longitud {len(current_conversation_history)}): {json.dumps(current_conversation_history, indent=2)}")
 
-    status_to_return = "error_unknown" # Valor por defecto
+    # 3. Llamar a nuestro agente de IA para procesar el mensaje
+    status_to_return = "error_unknown_default" # Valor por defecto
 
     try:
+        # Pasar el conversation_id también a process_text_message si lo adaptaste para usarlo en logs
+        # Si no, user_id es suficiente como primer parámetro para la lógica interna de process_text_message
         agent_response_data = process_text_message(
-            user_id=user_id,
+            user_id=user_id, 
             current_user_message=current_user_message_text,
             conversation_history=current_conversation_history
         )
         
         ai_reply_text = agent_response_data.get("reply_text", "No pude obtener una respuesta.")
-        status_to_return = agent_response_data.get("status", "success_unknown_status") # Obtener status de la respuesta exitosa
+        status_to_return = agent_response_data.get("status", "success_unknown_status_from_agent")
 
     except Exception as e:
-        print(f" main.py webhook: Error al llamar a process_text_message: {str(e)}")
-        # import traceback # Descomenta para logs más detallados si es necesario
-        # traceback.print_exc() # Descomenta para logs más detallados si es necesario
+        print(f" main.py webhook (conversation: {conversation_id}): ERROR al llamar a process_text_message: {str(e)}")
+        # MODIFICADO: Añadir traceback.print_exc() para logs detallados del error original
+        traceback.print_exc() 
         ai_reply_text = "Hubo un error interno al procesar tu mensaje. Por favor, intenta de nuevo más tarde."
-        status_to_return = "error_calling_agent" # Status específico para este error
+        status_to_return = "error_calling_agent_exception_in_main"
 
-    if ai_reply_text:
+
+    # 4. Añadir la respuesta de la IA al historial (si hubo una respuesta válida)
+    if ai_reply_text: 
         current_conversation_history.append({"role": "assistant", "content": ai_reply_text})
     
+    # Actualizar el historial global
     conversation_histories[conversation_id] = current_conversation_history 
 
-    print(f" main.py webhook: Respuesta de la IA para {conversation_id}: '{ai_reply_text}'")
+    print(f" main.py webhook (conversation: {conversation_id}): Respuesta de la IA para el usuario: '{ai_reply_text}'")
+    print(f" main.py webhook (conversation: {conversation_id}): Historial DESPUÉS de respuesta IA (longitud {len(current_conversation_history)}): {json.dumps(current_conversation_history, indent=2)}")
 
+
+    # 5. Devolver la respuesta de la IA a n8n
     return {"reply_text": ai_reply_text, "status": status_to_return}
 
 
