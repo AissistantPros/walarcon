@@ -196,10 +196,16 @@ async def n8n_select_calendar_event_by_index(
 
 
 class N8NMessage(BaseModel):
-    user_id: str = Field(..., description="Identificador único del usuario en la plataforma de mensajería.")
-    message_text: str = Field(..., description="El texto del mensaje enviado por el usuario.")
-    conversation_id: Optional[str] = Field(None, description="Identificador opcional de la conversación para mantener contexto.")
-    metadata: Optional[dict] = Field(None, description="Metadatos adicionales de n8n o la plataforma.")
+    platform: Optional[str] = None
+    user_id: str
+    conversation_id: Optional[str]
+    user_name: Optional[str] = None
+    phone: Optional[str] = None
+    message_text: str
+    
+    
+    
+    
 
 
 print("➡️ Registrando endpoint /webhook/n8n_message")
