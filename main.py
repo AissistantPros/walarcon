@@ -197,12 +197,12 @@ async def n8n_select_calendar_event_by_index(
 
 class N8NMessage(BaseModel):
     platform: Optional[str] = None
-    user_id: str
-    conversation_id: Optional[str]
+    user_id: Optional[str] = None
+    conversation_id: Optional[str] = None
     user_name: Optional[str] = None
     phone: Optional[str] = None
-    message_text: str
-    
+    message_text: Optional[str] = None
+
     
     
     
