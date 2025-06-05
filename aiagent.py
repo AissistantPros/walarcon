@@ -19,7 +19,7 @@ from typing import Dict, List, Any # Añadido Any para el tipado de retorno de h
 from decouple import config
 from openai import OpenAI
 from selectevent import select_calendar_event_by_index
-
+from weather_utils import get_cancun_weather # <--- AÑADE ESTA LÍNEA
 
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
@@ -68,6 +68,14 @@ TOOLS = [
             "name": "read_sheet_data",
             "description": "Obtener información general del consultorio como dirección, horarios de atención general, servicios principales, o políticas de cancelación. No usar para verificar disponibilidad de citas."
             # No necesita parámetros explícitos aquí si la función Python usa defaults
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cancun_weather",
+            "description": "Obtener el estado del tiempo actual en Cancún, como temperatura, descripción (soleado, nublado, lluvia), y sensación térmica. Útil si el usuario pregunta específicamente por el clima."
+            # No necesita parámetros ya que la ciudad está fija en la función.
         }
     },
     {
@@ -243,6 +251,8 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
     try:
         if fn_name == "read_sheet_data":
             return {"data_consultorio": get_consultorio_data_from_cache()}
+        elif fn_name == "get_cancun_weather": # <--- AÑADE ESTA LÍNEA Y LA DE ABAJO
+            return get_cancun_weather()
         elif fn_name == "process_appointment_request":
             return buscarslot.process_appointment_request(**args) #
         elif fn_name == "create_calendar_event":

@@ -4,6 +4,7 @@ from typing import List, Dict, Optional
 from decouple import config
 from openai import OpenAI
 
+
 # 1. Importamos la función para generar el prompt desde tu archivo prompt_text.py
 from prompt_text import generate_openai_prompt
 
@@ -29,6 +30,7 @@ from eliminarcita import delete_calendar_event
 from utils import search_calendar_event_by_phone
 from selectevent import select_calendar_event_by_index
 from consultarinfo import get_consultorio_data_from_cache # Usaremos la versión con caché
+from weather_utils import get_cancun_weather 
 
 def handle_detect_intent(**kwargs) -> Dict:
     return {"intent_detected": kwargs.get("intention")}
@@ -42,6 +44,7 @@ tool_functions_map = {
     "edit_calendar_event": edit_calendar_event,
     "delete_calendar_event": delete_calendar_event,
     "detect_intent": handle_detect_intent,
+    "get_cancun_weather": get_cancun_weather,
 }
 
 # ══════════════════ UNIFIED TOOLS DEFINITION ══════════════════════
@@ -52,6 +55,14 @@ TOOLS = [
         "function": {
             "name": "read_sheet_data",
             "description": "Obtener información general del consultorio como dirección, horarios de atención general, servicios principales, o políticas de cancelación. No usar para verificar disponibilidad de citas."
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_cancun_weather",
+            "description": "Obtener el estado del tiempo actual en Cancún, como temperatura, descripción (soleado, nublado, lluvia), y sensación térmica. Útil si el usuario pregunta específicamente por el clima."
+            # No necesita parámetros ya que la ciudad está fija en la función.
         }
     },
     {

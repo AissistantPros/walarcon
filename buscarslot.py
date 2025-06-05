@@ -262,7 +262,21 @@ def _pretty_hhmm(hhmm: str) -> str:
     return convertir_hora_a_palabras(hhmm)
 
 
-
+def _format_time_for_text(hhmm_str: str) -> str:
+    """
+    Convierte una cadena de hora "HH:MM" a formato "H:MMam/pm" para texto.
+    Ej: "09:30" -> "9:30am"
+        "14:00" -> "2:00pm"
+    """
+    try:
+        # Crear un objeto datetime solo para formatear la hora
+        time_obj = datetime.strptime(hhmm_str, "%H:%M")
+        # %-I para hora sin cero inicial (ej. 9 en lugar de 09)
+        # %p para AM/PM en minúsculas
+        return time_obj.strftime("%-I:%M%p").lower()
+    except ValueError:
+        logger.warning(f"Error al formatear la hora '{hhmm_str}' para texto. Se devuelve original.")
+        return hhmm_str # Fallback al formato original si hay error
 
 
 
@@ -384,7 +398,6 @@ def process_appointment_request(
 
 
     # —— búsqueda de slot —— (máx 120 días) ────────────────────────────────
-    # —— búsqueda de slot —— (máx 120 días) ────────────────────────────────
     is_this_week = any(p in user_query_for_date_time.lower() for p in SINONIMOS_SEMANA)
     days_until_saturday = (5 - today.weekday()) % 7  # 0=Lun … 5=Sáb
     is_today_request = target_date == today and "hoy" in user_query_for_date_time.lower()
@@ -494,38 +507,47 @@ def process_appointment_request(
         # ─ Si la consulta era “esta semana” y el hueco es > sábado, avisa ──
         if is_this_week and day_offset > days_until_saturday:
             available = current_day_available_slots[:4]
-            pretty_list = [_pretty_hhmm(h) for h in available]
+            # Generamos las dos listas de formatos
+            available_slots_for_voice = [_pretty_hhmm(h) for h in available]
+            available_slots_for_text = [_format_time_for_text(h) for h in available]
             return {
                 "status": "SLOT_FOUND_LATER",
                 "requested_date_iso": requested_date_iso,
                 "suggested_date_iso": chk_date.isoformat(),
                 "available_slots": available,
-                "available_pretty": pretty_list,
-                "requested_time_kw": current_time_preference_for_search # La franja que se terminó encontrando
+                "available_pretty": available_slots_for_voice,      # Para la voz
+                "available_text_format": available_slots_for_text,  # NUEVO: para el texto
+                "requested_time_kw": current_time_preference_for_search
             }
         # ─ Si la consulta era “hoy” o "mañana" y el hueco cae otro día, avisa ─────────
         # Y si se encontró un slot en el día actual pero no el día original de la consulta
         if (is_today_request or is_tomorrow_request or is_sunday_request) and day_offset > 0:
             available = current_day_available_slots[:4]
-            pretty_list = [_pretty_hhmm(h) for h in available]
+            # Generamos las dos listas de formatos
+            available_slots_for_voice = [_pretty_hhmm(h) for h in available]
+            available_slots_for_text = [_format_time_for_text(h) for h in available]
             return {
                 "status": "SLOT_FOUND_LATER",
                 "requested_date_iso": requested_date_iso,
                 "suggested_date_iso": chk_date.isoformat(),
                 "available_slots": available,
-                "available_pretty": pretty_list,
-                "requested_time_kw": current_time_preference_for_search # La franja que se terminó encontrando
+                "available_pretty": available_slots_for_voice,      # Para la voz
+                "available_text_format": available_slots_for_text,  # NUEVO: para el texto
+                "requested_time_kw": current_time_preference_for_search
             }
 
         # ─ Devolver los horarios del día hallado ──────────────────────────
         available = current_day_available_slots[:4]
-        pretty_list = [_pretty_hhmm(h) for h in available]
+        # Generamos las dos listas de formatos
+        available_slots_for_voice = [_pretty_hhmm(h) for h in available]
+        available_slots_for_text = [_format_time_for_text(h) for h in available]
         return {
             "status": "SLOT_LIST",
             "date_iso": chk_date.isoformat(),
             "available_slots": available,
-            "available_pretty": pretty_list,
-            "requested_time_kw": current_time_preference_for_search # La franja que se terminó encontrando
+            "available_pretty": available_slots_for_voice,      # Para la voz
+            "available_text_format": available_slots_for_text,  # NUEVO: para el texto
+            "requested_time_kw": current_time_preference_for_search
         }
 
     # ─ Si no se encontró nada en 120 días ─────────────────────────────────
