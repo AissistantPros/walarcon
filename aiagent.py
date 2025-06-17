@@ -355,7 +355,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
 
 async def generate_openai_response_ultravox(payload: dict):
     try:
-        history = payload.get("history", [])
+        history = payload.get("history") or [ { "role": "user", "content": payload.get("user_query_for_date_time", "") } ]
         resultado = await generate_openai_response_main(history)
         return {
             "status": "RAW_MESSAGE",
