@@ -268,7 +268,7 @@ class TwilioWebSocketManager:
                         buffer_audio = False
                         if self.is_speaking:
                             # Si la IA está hablando, descartamos el audio (no lo bufferizamos ni lo enviamos)
-                            logger.debug("Audio de Twilio IGNORADO (IA está hablando).")
+                            #logger.debug("Audio de Twilio IGNORADO (IA está hablando).")
                             pass # No hacer nada con el audio
                         elif self.ignorar_stt:
                             logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque ignorar_stt es True.")
@@ -284,7 +284,7 @@ class TwilioWebSocketManager:
                             self.audio_buffer_twilio.append(decoded_payload)
                         elif self.stt_streamer: 
                             try:
-                                logger.debug(f"Enviando audio directo a Deepgram ({len(decoded_payload)} bytes).")
+                                #logger.debug(f"Enviando audio directo a Deepgram ({len(decoded_payload)} bytes).")
                                 await self.stt_streamer.send_audio(decoded_payload)
                             except Exception as e_send_audio:
                                 logger.error(f"Error enviando audio directo a Deepgram: {e_send_audio}")
@@ -957,7 +957,7 @@ class TwilioWebSocketManager:
                     chunk = pcm_ulaw_bytes[i:i + CHUNK]
 
                     # LOG opcional (ayuda a depurar si vuelve a salir 31951)
-                    logger.debug("➡️ SEND → %s bytes", len(chunk))
+                    #logger.debug("➡️ SEND → %s bytes", len(chunk))
 
                     await self.websocket.send_json({
                         "streamSid": self.stream_sid,          # 👈 OBLIGATORIO
