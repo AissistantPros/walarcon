@@ -268,7 +268,7 @@ class TwilioWebSocketManager:
                         buffer_audio = False
                         if self.is_speaking:
                             # Si la IA está hablando, descartamos el audio (no lo bufferizamos ni lo enviamos)
-                            # logger.debug("Audio de Twilio IGNORADO (IA está hablando).")
+                            logger.debug("Audio de Twilio IGNORADO (IA está hablando).")
                             pass # No hacer nada con el audio
                         elif self.ignorar_stt:
                             logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque ignorar_stt es True.")
@@ -284,7 +284,7 @@ class TwilioWebSocketManager:
                             self.audio_buffer_twilio.append(decoded_payload)
                         elif self.stt_streamer: 
                             try:
-                                # logger.debug(f"Enviando audio directo a Deepgram ({len(decoded_payload)} bytes).")
+                                logger.debug(f"Enviando audio directo a Deepgram ({len(decoded_payload)} bytes).")
                                 await self.stt_streamer.send_audio(decoded_payload)
                             except Exception as e_send_audio:
                                 logger.error(f"Error enviando audio directo a Deepgram: {e_send_audio}")
@@ -413,7 +413,7 @@ class TwilioWebSocketManager:
     def _stt_callback(self, transcript: str, is_final: bool):
         """Callback de Deepgram con Timestamps y Lógica Mejorada."""
         ts_callback_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        # logger.debug(f"⏱️ TS:[{ts_callback_start}] STT_CALLBACK START (final={is_final})")
+        logger.debug(f"⏱️ TS:[{ts_callback_start}] STT_CALLBACK START (final={is_final})")
 
         if self.ignorar_stt:
             logger.warning(f"🚫 STT Ignorado (ignorar_stt=True): final={is_final}, text='{transcript[:60]}...' (TS:{ts_callback_start})")
@@ -436,12 +436,12 @@ class TwilioWebSocketManager:
                 self.finales_acumulados.append(transcript.strip())
             else:
                  # Loguear parciales solo si el nivel de log es TRACE o similar (si lo implementas)
-                 # logger.trace(f"📊 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Parcial: '{log_text_brief}'")
+                 logger.trace(f"📊 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Parcial: '{log_text_brief}'")
                  pass
 
             # Reiniciar el temporizador principal
             if self.temporizador_pausa and not self.temporizador_pausa.done():
-                # logger.debug(f"   STT_CALLBACK Cancelling existing pause timer...") # Log de cancelación está en la tarea
+                logger.debug(f"   STT_CALLBACK Cancelling existing pause timer...") # Log de cancelación está en la tarea
                 self.temporizador_pausa.cancel()
                 
             logger.debug(f"⏱️ TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Reiniciando timer de pausa ({PAUSA_SIN_ACTIVIDAD_TIMEOUT}s).")
@@ -458,7 +458,7 @@ class TwilioWebSocketManager:
     async def _intentar_enviar_si_pausa(self):
         """Tarea que espera pausa y decide si enviar, con Timestamps."""
         ts_intento_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        # logger.debug(f"⏱️ TS:[{ts_intento_start}] INTENTAR_ENVIAR START")
+        logger.debug(f"⏱️ TS:[{ts_intento_start}] INTENTAR_ENVIAR START")
         
         tiempo_espera = PAUSA_SIN_ACTIVIDAD_TIMEOUT 
         timeout_maximo = MAX_TIMEOUT_SIN_ACTIVIDAD
@@ -655,8 +655,8 @@ class TwilioWebSocketManager:
                         logger.warning(f"[{log_prefix}] Timeout esperando la tarea de cierre de Deepgram (close_dg_task).")
                     except Exception as e_wait_close:
                         logger.warning(f"[{log_prefix}] Error esperando tarea de cierre de Deepgram (close_dg_task): {e_wait_close}")
-                # else:
-                    # logger.debug(f"[{log_prefix}] Tarea de cierre de Deepgram (close_dg_task) ya había completado.")
+                else:
+                    logger.debug(f"[{log_prefix}] Tarea de cierre de Deepgram (close_dg_task) ya había completado.")
                 self.close_dg_task = None # Limpiar la referencia a la tarea
 
             # Verificar estado de Deepgram y reintentar conexión si es necesario
@@ -688,7 +688,7 @@ class TwilioWebSocketManager:
                         if self.stt_streamer and self.stt_streamer._started and \
                         not self.stt_streamer._is_closing:
                             try:
-                                # logger.debug(f"[{log_prefix}] Enviando chunk {i+1} del buffer a Deepgram.")
+                                logger.debug(f"[{log_prefix}] Enviando chunk {i+1} del buffer a Deepgram.")
                                 await self.stt_streamer.send_audio(chunk_data)
                             except Exception as e_send_buffer:
                                 logger.error(f"[{log_prefix}] Error enviando chunk {i+1} del buffer a Deepgram: {e_send_buffer}")
@@ -892,8 +892,12 @@ class TwilioWebSocketManager:
                     logger.warning(f"🔊 Procediendo a reproducir audio de ERROR ({len(audio_para_reproducir)} bytes)...")
                 else:
                     logger.info(f"🔊 Procediendo a reproducir audio principal ({len(audio_para_reproducir)} bytes)...")
-
+                
+                t0_envio_audio = time.time()
                 await self._play_audio_bytes(audio_para_reproducir)
+                t1_envio_audio = time.time()
+                logger.debug(f"📡 Audio enviado a Twilio. ⏱️ DUR:[{(t1_envio_audio - t0_envio_audio)*1000:.1f} ms]")
+
 
                 # --- Corte inmediato si la frase ya es una despedida (después de reproducir) ---
                 if not self.call_ended: # Verificar de nuevo por si _play_audio_bytes fue interrumpido
@@ -953,7 +957,7 @@ class TwilioWebSocketManager:
                     chunk = pcm_ulaw_bytes[i:i + CHUNK]
 
                     # LOG opcional (ayuda a depurar si vuelve a salir 31951)
-                    # logger.debug("➡️ SEND → %s bytes", len(chunk))
+                    logger.debug("➡️ SEND → %s bytes", len(chunk))
 
                     await self.websocket.send_json({
                         "streamSid": self.stream_sid,          # 👈 OBLIGATORIO
@@ -1005,7 +1009,7 @@ class TwilioWebSocketManager:
 
             now_pc = self._now()
             now_dt_str = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            # logger.debug(f"⏱️ TS:[{now_dt_str}] MONITOR Check...")
+            logger.debug(f"⏱️ TS:[{now_dt_str}] MONITOR Check...")
             
             # Timeout por duración máxima
             call_duration = now_pc - self.stream_start_time
