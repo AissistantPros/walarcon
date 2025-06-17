@@ -1,11 +1,11 @@
 # main.py
 import os
 import logging
-from fastapi import FastAPI, Response, WebSocket
+from fastapi import FastAPI, Response, WebSocket, Body, Request
+from aiagent import generate_openai_response_main
 from tw_utils import TwilioWebSocketManager, set_debug   
 from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache 
 from consultarinfo import router as consultorio_router 
-from fastapi import Body 
 import buscarslot       
 from typing import Optional, Union, List 
 from crearcita import create_calendar_event 
@@ -88,10 +88,6 @@ async def n8n_process_appointment_request(
     except Exception as e:
         logger.error(f"❌ Error en endpoint /n8n/process-appointment-request: {str(e)}", exc_info=True)
         return {"status": "ERROR_BACKEND", "message": f"Error interno del servidor: {str(e)}"}
-    
-
-
-
 
 
 @app.post("/n8n/create-calendar-event")
@@ -272,20 +268,6 @@ async def receive_n8n_message(message_data: N8NMessage):
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
 @app.on_event("startup")
 def startup_event() -> None:
     """Crea carpetas de depuración y habilita modo DEBUG de nuestros módulos."""
@@ -328,3 +310,18 @@ async def twilio_websocket(websocket: WebSocket):
     """
     manager = TwilioWebSocketManager()
     await manager.handle_twilio_websocket(websocket)
+
+
+
+
+
+
+
+@app.post("/process_appointment_request")
+async def process_appointment_request(request: Request):
+    payload = await request.json()
+    try:
+        respuesta = await generate_openai_response_main(payload)
+        return respuesta
+    except Exception as e:
+        return {"error": str(e)}

@@ -1104,6 +1104,9 @@ class TwilioWebSocketManager:
             ts_shutdown_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.info(f"🏁 TS:[{ts_shutdown_end}] SHUTDOWN Completado (Razón: {self.shutdown_reason}).")
 
+
+
+
     async def _safe_close_websocket(self, code: int = 1000, reason: str = "Closing"):
         """Cierra el WebSocket de forma segura."""
         ts_ws_close_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
