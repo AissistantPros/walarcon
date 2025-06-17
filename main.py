@@ -320,6 +320,8 @@ async def twilio_websocket(websocket: WebSocket):
 @app.post("/process_appointment_request")
 async def process_appointment_request(request: Request):
     payload = await request.json()
+    logger.info(f"📦 Payload recibido desde Ultravox: {payload}")
+
     try:
         respuesta = await generate_openai_response_ultravox(payload)
         return respuesta
