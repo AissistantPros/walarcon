@@ -351,3 +351,18 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
     except Exception as e:
         logger.exception("generate_openai_response_main falló gravemente")
         return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
+
+
+async def generate_openai_response_ultravox(payload: dict):
+    try:
+        history = payload.get("history", [])
+        resultado = await generate_openai_response_main(history)
+        return {
+            "status": "RAW_MESSAGE",
+            "message": resultado
+        }
+    except Exception as e:
+        return {
+            "status": "ERROR",
+            "message": "Error interno al procesar la solicitud desde Ultravox."
+        }
