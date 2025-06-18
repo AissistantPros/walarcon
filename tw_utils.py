@@ -689,7 +689,7 @@ class TwilioWebSocketManager:
                         if self.stt_streamer and self.stt_streamer._started and \
                         not self.stt_streamer._is_closing:
                             try:
-                                logger.debug(f"[{log_prefix}] Enviando chunk {i+1} del buffer a Deepgram.")
+                                #logger.debug(f"[{log_prefix}] Enviando chunk {i+1} del buffer a Deepgram.")
                                 await self.stt_streamer.send_audio(chunk_data)
                             except Exception as e_send_buffer:
                                 logger.error(f"[{log_prefix}] Error enviando chunk {i+1} del buffer a Deepgram: {e_send_buffer}")
