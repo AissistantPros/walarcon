@@ -20,7 +20,7 @@ from decouple import config
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from state_store import session_state
-from tts_utils import elevenlabs_ulaw_fragments
+from tts_utils import elevenlabs_ulaw_fragments, text_to_speech_sin_numpy
 
 
 # Tus importaciones de módulos locales
@@ -819,7 +819,7 @@ class TwilioWebSocketManager:
             start_tts_gen = self._now()
             ts_tts_gen_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.debug(f"⏱️ TS:[{ts_tts_gen_start}] PROCESS_GPT Calling TTS...")
-            audio_para_reproducir = text_to_speech(reply_cleaned) # Guardar en variable local
+            audio_para_reproducir = text_to_speech_sin_numpy(reply_cleaned) # Guardar en variable local
             tts_gen_duration_ms = (self._now() - start_tts_gen) * 1000
             ts_tts_gen_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
 
@@ -827,7 +827,7 @@ class TwilioWebSocketManager:
                  logger.error(f"🔇 TS:[{ts_tts_gen_end}] Fallo al generar audio TTS principal.")
                  # Intentar generar TTS de error como fallback
                  error_tts_msg = "Hubo un problema generando la respuesta de audio."
-                 audio_para_reproducir = text_to_speech(error_tts_msg)
+                 audio_para_reproducir = text_to_speech_sin_numpy(error_tts_msg)
                  if not audio_para_reproducir:
                      logger.error("❌ Falló también la generación de TTS para el mensaje de error TTS.")
 

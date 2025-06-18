@@ -144,3 +144,41 @@ async def elevenlabs_ulaw_fragments(text: str,
                 for i in range(0, len(ulaw), frag_size):
                     yield ulaw[i:i + frag_size]
                 await asyncio.sleep(ms_per_chunk / 1000)
+
+
+
+
+def text_to_speech_sin_numpy(text: str) -> bytes:
+    """
+    Genera audio TTS desde ElevenLabs sin modificar el volumen ni usar NumPy.
+    Solo convierte PCM 16-bit a μ-law y lo devuelve.
+    """
+    if not elevenlabs_client:
+        return b""
+
+    try:
+        audio_stream = elevenlabs_client.text_to_speech.convert(
+            text=text,
+            voice_id=ELEVEN_LABS_VOICE_ID,
+            model_id="eleven_multilingual_v2",
+            voice_settings=VoiceSettings(
+                stability=0.75,
+                style=0.45,
+                use_speaker_boost=False,
+                speed=1.2
+            ),
+            output_format="pcm_8000"
+        )
+        pcm_bytes = b"".join(audio_stream)
+
+        if not pcm_bytes:
+            logger.error("❌ ElevenLabs no devolvió audio PCM.")
+            return b""
+
+        # Solo conversión a μ-law
+        mulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
+        return mulaw_bytes
+
+    except Exception as e:
+        logger.error(f"❌ Error en text_to_speech_sin_numpy: {e}", exc_info=True)
+        return b""
