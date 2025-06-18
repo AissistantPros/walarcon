@@ -135,6 +135,12 @@ async def elevenlabs_ulaw_fragments(text: str,
             buffer_pcm = b""
 
             async for pcm_chunk in resp.aiter_bytes():
+                if not hasattr(elevenlabs_ulaw_fragments, "_debug_crudo_guardado"):
+                    with open("debug_raw_first_chunk.bin", "wb") as f:
+                        f.write(pcm_chunk[:1000])
+                    elevenlabs_ulaw_fragments._debug_crudo_guardado = True
+                    logger.warning("🧪 Guardado debug_raw_first_chunk.bin (primer fragmento crudo).")
+
                 if not pcm_chunk:
                     continue
 
