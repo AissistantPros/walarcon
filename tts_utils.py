@@ -140,6 +140,7 @@ async def elevenlabs_ulaw_fragments(text: str,
 
                 buffer_pcm += pcm_chunk
 
+                # Asegura múltiplos de 2 para 16-bit
                 safe_len = len(buffer_pcm) - (len(buffer_pcm) % 2)
                 if safe_len == 0:
                     continue
@@ -147,8 +148,15 @@ async def elevenlabs_ulaw_fragments(text: str,
                 safe_pcm = buffer_pcm[:safe_len]
                 buffer_pcm = buffer_pcm[safe_len:]
 
-                ulaw = audioop.lin2ulaw(safe_pcm, 2)
+                # 🔊 Amplificación segura con NumPy
+                pcm_array = np.frombuffer(safe_pcm, dtype=np.int16)
+                amplified = pcm_array.astype(np.float32) * 2.4  # 2.0–2.5 es razonable
+                limited = np.clip(amplified, -32768, 32767).astype(np.int16)
+                amplified_bytes = limited.tobytes()
 
+                ulaw = audioop.lin2ulaw(amplified_bytes, 2)
+
+                # 🧪 Guardar para debug (solo 1 vez)
                 if not hasattr(elevenlabs_ulaw_fragments, "_debug_guardado"):
                     with open("debug_pcm.raw", "wb") as f_pcm:
                         f_pcm.write(safe_pcm[:1000])
@@ -157,12 +165,12 @@ async def elevenlabs_ulaw_fragments(text: str,
                     elevenlabs_ulaw_fragments._debug_guardado = True
                     logger.warning("🧪 Guardado debug_pcm.raw y debug_ulaw.raw para inspección.")
 
-
-
+                # Fragmentar y enviar
                 for i in range(0, len(ulaw), frag_size):
                     yield ulaw[i:i + frag_size]
 
                 await asyncio.sleep(ms_per_chunk / 1000)
+
 
 
 
