@@ -149,6 +149,16 @@ async def elevenlabs_ulaw_fragments(text: str,
 
                 ulaw = audioop.lin2ulaw(safe_pcm, 2)
 
+                if not hasattr(elevenlabs_ulaw_fragments, "_debug_guardado"):
+                    with open("debug_pcm.raw", "wb") as f_pcm:
+                        f_pcm.write(safe_pcm[:1000])
+                    with open("debug_ulaw.raw", "wb") as f_ulaw:
+                        f_ulaw.write(ulaw[:1000])
+                    elevenlabs_ulaw_fragments._debug_guardado = True
+                    logger.warning("🧪 Guardado debug_pcm.raw y debug_ulaw.raw para inspección.")
+
+
+
                 for i in range(0, len(ulaw), frag_size):
                     yield ulaw[i:i + frag_size]
 
