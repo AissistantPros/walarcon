@@ -1000,6 +1000,7 @@ class TwilioWebSocketManager:
                 "streamSid": stream_sid,
                 "media": {"payload": payload_b64}
             }))
+            logger.debug(f"[TTS→TWILIO] Chunk enviado: {len(ulaw_chunk)} bytes (text='{text[:40]}...')")
 
 
 

@@ -107,10 +107,6 @@ async def elevenlabs_ulaw_fragments(text: str,
                                     voice_id: str = ELEVEN_LABS_VOICE_ID,
                                     frag_size: int = 160,
                                     ms_per_chunk: int = 20):
-    """
-    Generador asíncrono que produce fragmentos µ-law (8 kHz, 8-bit) listos
-    para Twilio Media Streams, ~20 ms cada uno.
-    """
     if not ELEVEN_LABS_API_KEY:
         logger.error("[TTS-STREAM] Falta ELEVEN_LABS_API_KEY.")
         return
@@ -118,7 +114,7 @@ async def elevenlabs_ulaw_fragments(text: str,
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     headers = {
         "xi-api-key": ELEVEN_LABS_API_KEY,
-        "accept": "audio/pcm",  # RAW PCM 16-bit, 8kHz mono
+        "accept": "audio/wav",  # recibimos WAV
         "Content-Type": "application/json"
     }
     payload = {
@@ -132,74 +128,51 @@ async def elevenlabs_ulaw_fragments(text: str,
         }
     }
 
-# ───────────────── STREAMING ELEVENLABS → µ-LAW ──────────────────
-import io
-import wave
-
-async def elevenlabs_ulaw_fragments(text: str,
-                                    voice_id: str = ELEVEN_LABS_VOICE_ID,
-                                    frag_size: int = 160,
-                                    ms_per_chunk: int = 20):
-    """
-    Generador asíncrono que produce fragmentos µ-law (8 kHz, 8-bit) listos
-    para Twilio Media Streams (~20 ms cada uno).
-    """
-    if not ELEVEN_LABS_API_KEY:
-        logger.error("[TTS-STREAM] Falta ELEVEN_LABS_API_KEY.")
-        return
-
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
-    headers = {
-        "xi-api-key": ELEVEN_LABS_API_KEY,
-        "accept": "audio/pcm",  # ⚠️ ElevenLabs devuelve WAV, no PCM crudo
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "voice_settings": {
-            "stability": 0.75,
-            "style": 0.45,
-            "use_speaker_boost": False,
-            "speed": 1.2
-        }
-    }
+    buffer_wav = b""
+    logger.info("[STREAM] Iniciando petición TTS ElevenLabs...")
 
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            buffer_wav = b""
-
             async for chunk in resp.aiter_bytes():
-                if not chunk:
+                logger.debug(f"[STREAM] Chunk recibido: {len(chunk)} bytes")
+                buffer_wav += chunk
+                logger.debug(f"[STREAM] Buffer WAV acumulado: {len(buffer_wav)} bytes")
+
+                # Solo intentamos decodificar si hay mínimo ~44 bytes (header WAV)
+                if len(buffer_wav) < 44:
+                    logger.debug("[STREAM] Esperando más bytes para tener cabecera WAV completa...")
                     continue
 
-                buffer_wav += chunk
+                try:
+                    with wave.open(io.BytesIO(buffer_wav), "rb") as wav_file:
+                        logger.debug(f"[STREAM] Formato WAV: {wav_file.getnchannels()} canales, {wav_file.getsampwidth()*8} bits, {wav_file.getframerate()} Hz")
+                        raw_pcm = wav_file.readframes(wav_file.getnframes())
+                        logger.debug(f"[STREAM] Frames PCM leídos: {len(raw_pcm)} bytes")
+                except wave.Error as e:
+                    logger.warning(f"[STREAM] Aún no se pudo procesar WAV: {e}")
+                    continue
 
-                # Guardar para depuración si es la primera vez
+                if not raw_pcm:
+                    logger.warning("[STREAM] raw_pcm vacío. No se generará μ-law.")
+                    continue
+
+                # Guardar archivo para inspección
                 if not hasattr(elevenlabs_ulaw_fragments, "_debug_guardado"):
                     with open("debug_full_wav.raw", "wb") as f:
                         f.write(buffer_wav[:3000])
                     elevenlabs_ulaw_fragments._debug_guardado = True
                     logger.warning("🧪 Guardado debug_full_wav.raw (WAV original) para inspección.")
 
-                try:
-                    with wave.open(io.BytesIO(buffer_wav), "rb") as wav_file:
-                        raw_pcm = wav_file.readframes(wav_file.getnframes())
-                except wave.Error:
-                    continue  # aún no se ha recibido toda la cabecera WAV
-
-                if not raw_pcm:
-                    continue
-
                 ulaw = audioop.lin2ulaw(raw_pcm, 2)
                 logger.debug(f"[STREAM] Chunk μ-law generado: {len(ulaw)} bytes")
-
 
                 for i in range(0, len(ulaw), frag_size):
                     yield ulaw[i:i + frag_size]
 
                 await asyncio.sleep(ms_per_chunk / 1000)
-                return  # ⚠️ Se corta después del primer audio completo
+                logger.info("[STREAM] Finalizó generación y envío de audio μ-law.")
+                return  # solo el primer fragmento TTS por ahora
+
 
 
 
