@@ -272,13 +272,13 @@ class TwilioWebSocketManager:
                             #logger.debug("Audio de Twilio IGNORADO (IA está hablando).")
                             pass # No hacer nada con el audio
                         elif self.ignorar_stt:
-                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque ignorar_stt es True.")
+                            #logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque ignorar_stt es True.")
                             buffer_audio = True
                         elif not self.stt_streamer:
-                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no existe.")
+                            #logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no existe.")
                             buffer_audio = True
                         elif not self.stt_streamer._started:
-                            logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no está _started.")
+                            #logger.debug(f"Bufferizando audio de Twilio ({len(decoded_payload)} bytes) porque stt_streamer no está _started.")
                             buffer_audio = True
                         # No necesitamos chequear _is_closing aquí porque si está _is_closing, _started debería ser False.
                         if buffer_audio:
