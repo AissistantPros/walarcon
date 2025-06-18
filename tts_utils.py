@@ -101,7 +101,6 @@ def text_to_speech(text: str) -> bytes:
         return b""
     
 
-# ───────────────── STREAMING ELEVENLABS → µ-LAW ──────────────────
 async def elevenlabs_ulaw_fragments(text: str,
                                     voice_id: str = ELEVEN_LABS_VOICE_ID,
                                     frag_size: int = 160,
@@ -109,9 +108,6 @@ async def elevenlabs_ulaw_fragments(text: str,
     """
     Generador asíncrono que produce fragmentos µ-law (8 kHz, 8-bit) listos
     para Twilio Media Streams, ~20 ms cada uno.
-
-    Yields:
-        bytes: fragmento µ-law de tamaño `frag_size` (160 B = 20 ms).
     """
     if not ELEVEN_LABS_API_KEY:
         logger.error("[TTS-STREAM] Falta ELEVEN_LABS_API_KEY.")
@@ -120,7 +116,7 @@ async def elevenlabs_ulaw_fragments(text: str,
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
     headers = {
         "xi-api-key": ELEVEN_LABS_API_KEY,
-        "accept": "audio/pcm",          # PCM 16-bit, 8 kHz mono
+        "accept": "audio/pcm",  # RAW PCM 16-bit, 8kHz mono
         "Content-Type": "application/json"
     }
     payload = {
@@ -136,15 +132,27 @@ async def elevenlabs_ulaw_fragments(text: str,
 
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            async for pcm_chunk in resp.aiter_bytes(chunk_size=320):  # 320 B = 20 ms PCM
+            buffer_pcm = b""
+
+            async for pcm_chunk in resp.aiter_bytes():
                 if not pcm_chunk:
                     continue
-                ulaw = audioop.lin2ulaw(pcm_chunk, 2)                # 2 bytes/sample
-                # fragmenta si ElevenLabs entregó >320 B
+
+                buffer_pcm += pcm_chunk
+
+                safe_len = len(buffer_pcm) - (len(buffer_pcm) % 2)
+                if safe_len == 0:
+                    continue
+
+                safe_pcm = buffer_pcm[:safe_len]
+                buffer_pcm = buffer_pcm[safe_len:]
+
+                ulaw = audioop.lin2ulaw(safe_pcm, 2)
+
                 for i in range(0, len(ulaw), frag_size):
                     yield ulaw[i:i + frag_size]
-                await asyncio.sleep(ms_per_chunk / 1000)
 
+                await asyncio.sleep(ms_per_chunk / 1000)
 
 
 
