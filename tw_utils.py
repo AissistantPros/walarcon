@@ -4,7 +4,7 @@ WebSocket manager para Twilio <-> Deepgram <-> GPT
 ----------------------------------------------------------------
 Maneja la lógica de acumulación de transcripciones, interacción con GPT,
 TTS, y el control del flujo de la llamada, incluyendo la gestión de timeouts
-y la prevención de procesamiento de STT obsoleto.ƒ
+y la prevención de procesamiento de STT obsoleto.
 CON LOGGING DETALLADO DE TIEMPOS.
 """
 
