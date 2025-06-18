@@ -192,6 +192,8 @@ async def elevenlabs_ulaw_fragments(text: str,
                     continue
 
                 ulaw = audioop.lin2ulaw(raw_pcm, 2)
+                logger.debug(f"[STREAM] Chunk μ-law generado: {len(ulaw)} bytes")
+
 
                 for i in range(0, len(ulaw), frag_size):
                     yield ulaw[i:i + frag_size]
