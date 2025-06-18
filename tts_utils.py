@@ -8,6 +8,8 @@ import httpx, asyncio
 from decouple import config
 from elevenlabs import ElevenLabs, VoiceSettings
 import numpy as np
+import io
+import wave
 
 
 logger = logging.getLogger(__name__)
@@ -130,52 +132,73 @@ async def elevenlabs_ulaw_fragments(text: str,
         }
     }
 
+# ───────────────── STREAMING ELEVENLABS → µ-LAW ──────────────────
+import io
+import wave
+
+async def elevenlabs_ulaw_fragments(text: str,
+                                    voice_id: str = ELEVEN_LABS_VOICE_ID,
+                                    frag_size: int = 160,
+                                    ms_per_chunk: int = 20):
+    """
+    Generador asíncrono que produce fragmentos µ-law (8 kHz, 8-bit) listos
+    para Twilio Media Streams (~20 ms cada uno).
+    """
+    if not ELEVEN_LABS_API_KEY:
+        logger.error("[TTS-STREAM] Falta ELEVEN_LABS_API_KEY.")
+        return
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
+    headers = {
+        "xi-api-key": ELEVEN_LABS_API_KEY,
+        "accept": "audio/pcm",  # ⚠️ ElevenLabs devuelve WAV, no PCM crudo
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": 0.75,
+            "style": 0.45,
+            "use_speaker_boost": False,
+            "speed": 1.2
+        }
+    }
+
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", url, headers=headers, json=payload) as resp:
-            buffer_pcm = b""
+            buffer_wav = b""
 
-            async for pcm_chunk in resp.aiter_bytes():
-                if not hasattr(elevenlabs_ulaw_fragments, "_debug_crudo_guardado"):
-                    with open("debug_raw_first_chunk.bin", "wb") as f:
-                        f.write(pcm_chunk[:1000])
-                    elevenlabs_ulaw_fragments._debug_crudo_guardado = True
-                    logger.warning("🧪 Guardado debug_raw_first_chunk.bin (primer fragmento crudo).")
-
-                if not pcm_chunk:
+            async for chunk in resp.aiter_bytes():
+                if not chunk:
                     continue
 
-                buffer_pcm += pcm_chunk
+                buffer_wav += chunk
 
-                # Asegura múltiplos de 2 para 16-bit
-                safe_len = len(buffer_pcm) - (len(buffer_pcm) % 2)
-                if safe_len == 0:
-                    continue
-
-                safe_pcm = buffer_pcm[:safe_len]
-                buffer_pcm = buffer_pcm[safe_len:]
-
-                # 🔊 Amplificación segura con NumPy
-                pcm_array = np.frombuffer(safe_pcm, dtype=np.int16)
-                amplified = pcm_array.astype(np.float32) * 2.4  # 2.0–2.5 es razonable
-                limited = np.clip(amplified, -32768, 32767).astype(np.int16)
-                amplified_bytes = limited.tobytes()
-
-                ulaw = audioop.lin2ulaw(amplified_bytes, 2)
-
-                # 🧪 Guardar para debug (solo 1 vez)
+                # Guardar para depuración si es la primera vez
                 if not hasattr(elevenlabs_ulaw_fragments, "_debug_guardado"):
-                    with open("debug_pcm.raw", "wb") as f_pcm:
-                        f_pcm.write(safe_pcm[:1000])
-                    with open("debug_ulaw.raw", "wb") as f_ulaw:
-                        f_ulaw.write(ulaw[:1000])
+                    with open("debug_full_wav.raw", "wb") as f:
+                        f.write(buffer_wav[:3000])
                     elevenlabs_ulaw_fragments._debug_guardado = True
-                    logger.warning("🧪 Guardado debug_pcm.raw y debug_ulaw.raw para inspección.")
+                    logger.warning("🧪 Guardado debug_full_wav.raw (WAV original) para inspección.")
 
-                # Fragmentar y enviar
+                try:
+                    with wave.open(io.BytesIO(buffer_wav), "rb") as wav_file:
+                        raw_pcm = wav_file.readframes(wav_file.getnframes())
+                except wave.Error:
+                    continue  # aún no se ha recibido toda la cabecera WAV
+
+                if not raw_pcm:
+                    continue
+
+                ulaw = audioop.lin2ulaw(raw_pcm, 2)
+
                 for i in range(0, len(ulaw), frag_size):
                     yield ulaw[i:i + frag_size]
 
                 await asyncio.sleep(ms_per_chunk / 1000)
+                return  # ⚠️ Se corta después del primer audio completo
+
 
 
 
