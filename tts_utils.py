@@ -2,9 +2,9 @@
 import time
 # import wave # Puedes descomentar wave si necesitas la depuración de archivos WAV
 import logging
-# import io # io no se estaba usando directamente, puedes omitirlo o mantenerlo si planeas usarlo
 import os
 import audioop  # type: ignore # <-- Asegúrate de importar audioop
+import httpx, asyncio
 from decouple import config
 from elevenlabs import ElevenLabs, VoiceSettings
 import numpy as np
@@ -99,3 +99,48 @@ def text_to_speech(text: str) -> bytes:
         # Este try-except captura errores de la llamada a ElevenLabs o problemas muy generales
         logger.error(f"[TTS] Error mayor en text_to_speech (ej. ElevenLabs API): {str(e)}")
         return b""
+    
+
+# ───────────────── STREAMING ELEVENLABS → µ-LAW ──────────────────
+async def elevenlabs_ulaw_fragments(text: str,
+                                    voice_id: str = ELEVEN_LABS_VOICE_ID,
+                                    frag_size: int = 160,
+                                    ms_per_chunk: int = 20):
+    """
+    Generador asíncrono que produce fragmentos µ-law (8 kHz, 8-bit) listos
+    para Twilio Media Streams, ~20 ms cada uno.
+
+    Yields:
+        bytes: fragmento µ-law de tamaño `frag_size` (160 B = 20 ms).
+    """
+    if not ELEVEN_LABS_API_KEY:
+        logger.error("[TTS-STREAM] Falta ELEVEN_LABS_API_KEY.")
+        return
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
+    headers = {
+        "xi-api-key": ELEVEN_LABS_API_KEY,
+        "accept": "audio/pcm",          # PCM 16-bit, 8 kHz mono
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": 0.75,
+            "style": 0.45,
+            "use_speaker_boost": False,
+            "speed": 1.2
+        }
+    }
+
+    async with httpx.AsyncClient(timeout=None) as client:
+        async with client.stream("POST", url, headers=headers, json=payload) as resp:
+            async for pcm_chunk in resp.aiter_bytes(chunk_size=320):  # 320 B = 20 ms PCM
+                if not pcm_chunk:
+                    continue
+                ulaw = audioop.lin2ulaw(pcm_chunk, 2)                # 2 bytes/sample
+                # fragmenta si ElevenLabs entregó >320 B
+                for i in range(0, len(ulaw), frag_size):
+                    yield ulaw[i:i + frag_size]
+                await asyncio.sleep(ms_per_chunk / 1000)

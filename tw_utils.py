@@ -20,6 +20,7 @@ from decouple import config
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from state_store import session_state
+from tts_utils import elevenlabs_ulaw_fragments
 
 
 # Tus importaciones de módulos locales
@@ -885,32 +886,21 @@ class TwilioWebSocketManager:
                 logger.debug(f"⏱️ TS:[{ts_hold_play_end}] PROCESS_GPT Hold audio finished.")
             # ### FIN Reproducción Espera ###
 
-            # Reproducir la respuesta principal (o el audio de error si se generó) si la llamada sigue activa
-            if audio_para_reproducir and not self.call_ended:
-                # Loguear qué se va a reproducir (respuesta normal o de error)
-                if "[ERROR]" in self.conversation_history[-1].get("content", ""):
-                    logger.warning(f"🔊 Procediendo a reproducir audio de ERROR ({len(audio_para_reproducir)} bytes)...")
-                else:
-                    logger.info(f"🔊 Procediendo a reproducir audio principal ({len(audio_para_reproducir)} bytes)...")
-                
-                t0_envio_audio = time.time()
-                await self._play_audio_bytes(audio_para_reproducir)
-                t1_envio_audio = time.time()
-                logger.debug(f"📡 Audio enviado a Twilio. ⏱️ DUR:[{(t1_envio_audio - t0_envio_audio)*1000:.1f} ms]")
+            
+            # ────────── STREAMING DE AUDIO A TWILIO ──────────
+            if not self.call_ended:
+                logger.info("🔊 Iniciando streaming de la respuesta TTS...")
+                await self._stream_tts_to_twilio(reply_cleaned)
 
+                # Corte inmediato si la frase ya es una despedida
+                despedidas = ("hasta luego", "placer atenderle", "gracias por comunicarse")
+                if any(p in reply_cleaned.lower() for p in despedidas):
+                    logger.info("👋 Detectada despedida de la IA después de reproducir.")
+                    await asyncio.sleep(0.2)  # deja salir el último fragmento
+                    await self._shutdown(reason="Assistant farewell")
+            else:
+                logger.error("🔇 Streaming omitido: llamada terminada.")
 
-                # --- Corte inmediato si la frase ya es una despedida (después de reproducir) ---
-                if not self.call_ended: # Verificar de nuevo por si _play_audio_bytes fue interrumpido
-                    despedidas = ("hasta luego", "placer atenderle", "gracias por comunicarse")
-                    # Usamos 'respuesta_gpt' porque 'audio_para_reproducir' podría ser de error
-                    if isinstance(respuesta_gpt, str) and any(p in respuesta_gpt.lower() for p in despedidas):
-                        logger.info("👋 Detectada despedida de la IA después de reproducir.")
-                        await asyncio.sleep(0.2) # Deja salir el último chunk de audio
-                        await self._shutdown(reason="Assistant farewell")
-                        # No necesitamos return aquí, el wrapper se encargará
-            elif not self.call_ended:
-                # Esto sólo ocurriría si GPT/TTS fallaron Y el TTS de error también falló
-                logger.error("🔇 No se generó audio principal ni de error para reproducir.")
 
         except asyncio.CancelledError:
              # Si la tarea se cancela mientras se reproduce el audio (ej. shutdown)
@@ -976,6 +966,40 @@ class TwilioWebSocketManager:
                 self.is_speaking = False
                 self.last_activity_ts = self._now()
 
+
+
+
+
+
+
+
+
+
+
+    # ─────────────►  NUEVO MÉTODO: streaming TTS → Twilio  ◄─────────────
+    async def _stream_tts_to_twilio(self, text: str):
+        """
+        Usa elevenlabs_ulaw_fragments() para enviar audio en tiempo real
+        a Twilio Media Streams (ya conectado en self.websocket).
+        """
+        if not self.websocket or self.call_ended:
+            logger.warning("🔇 No hay WebSocket activo o la llamada terminó.")
+            return
+
+        # Obtenemos el streamSid de la conexión abierta (llega en el evento 'start')
+        stream_sid = self.stream_sid
+        if not stream_sid:
+            logger.error("⛔ streamSid no inicializado todavía.")
+            return
+
+        async for ulaw_chunk in elevenlabs_ulaw_fragments(text):
+            # Codifica y envía cada fragmento
+            payload_b64 = base64.b64encode(ulaw_chunk).decode()
+            await self.websocket.send_text(json.dumps({
+                "event": "media",
+                "streamSid": stream_sid,
+                "media": {"payload": payload_b64}
+            }))
 
 
 
