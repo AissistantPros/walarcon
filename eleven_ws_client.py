@@ -44,11 +44,12 @@ class ElevenLabsWSClient:
         self.url = (
             f"wss://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}/stream-input?model_id={MODEL_ID}"
         )
-        self.headers = {"xi-api-key": ELEVEN_LABS_API_KEY}
+       
 
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self._recv_task: Optional[asyncio.Task] = None
         self._last_text: str = ""  # Para fallback en caso de corte
+        self._authenticated: bool = False
 
     # ------------------------------------------------------------------
     # 1) Conexión
@@ -57,7 +58,8 @@ class ElevenLabsWSClient:
         """Abre la conexión WebSocket si no existe o está cerrada."""
         if self.ws and self.ws.open:
             return
-        self.ws = await websockets.connect(self.url, extra_headers=self.headers)
+        self.ws = await websockets.connect(self.url)  # sin extra_headers
+
         logger.info("[EL‑WS] Conexión WebSocket abierta.")
 
     # ------------------------------------------------------------------
@@ -77,8 +79,18 @@ class ElevenLabsWSClient:
             await self.connect()
 
         # Enviar texto en JSON
-        await self.ws.send(json.dumps({"text": cleaned}))
-        logger.debug("[EL‑WS] Texto enviado a ElevenLabs.")
+        # Si es la primera vez, autenticamos en el mismo mensaje
+        if not self._authenticated:
+            payload = {
+                "xi_api_key": ELEVEN_LABS_API_KEY,
+                "text": cleaned
+            }
+            self._authenticated = True
+        else:
+            payload = {"text": cleaned}
+
+        await self.ws.send(json.dumps(payload))
+        logger.debug("[EL-WS] Texto enviado a ElevenLabs.")
 
         # Arranca la recepción si no corre aún
         if not self._recv_task or self._recv_task.done():
