@@ -881,6 +881,11 @@ class TwilioWebSocketManager:
             # ────────── STREAMING DE AUDIO A TWILIO ──────────
             if not self.call_ended:
                 logger.info("🔊 Iniciando streaming de la respuesta TTS...")
+
+
+
+                # Pausar STT antes de lanzar TTS
+                self.ignorar_stt = True
                 await self.tts_client.send_text(reply_cleaned)
 
 
