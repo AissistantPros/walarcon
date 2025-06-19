@@ -290,7 +290,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         full_conversation_history = generate_openai_prompt(list(history)) #
 
         t1_start = perf_counter()
-        logger.debug("OpenAI Unified Flow - Pase 1: Enviando a %s", model)
+        #logger.debug("OpenAI Unified Flow - Pase 1: Enviando a %s", model)
 
         if not client:
             logger.error("Cliente OpenAI no inicializado. Abortando generate_openai_response_main.")
