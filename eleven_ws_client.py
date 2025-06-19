@@ -78,14 +78,14 @@ class ElevenLabsWSClient:
             "xi_api_key": ELEVEN_LABS_API_KEY,
             "text": " ",
             "voice_settings": {
-                "stability": 0.4,
+                "stability": 0.5,
                 "similarity_boost": 0.9,
                 "use_speaker_boost": True,
-                "style": 0.6,
-                "speed": 1.2,
+                "style": 0.5,
+                "speed": 1.1,
             },
             "generation_config": {
-                "chunk_length_schedule": [100, 160, 250, 290],
+                "chunk_length_schedule": [80,100, 160],
             },
         }))
 
@@ -151,7 +151,7 @@ class ElevenLabsWSClient:
             if len(pcm) % 2:
                 pcm = pcm[:-1]
 
-            pcm_amp = audioop.mul(pcm, 2, 4.0)            # volumen ×4
+            pcm_amp = audioop.mul(pcm, 2, 3.0)           
             mulaw = audioop.lin2ulaw(pcm_amp, 2)
 
             await self._send_audio_to_twilio(mulaw)
@@ -181,7 +181,7 @@ class ElevenLabsWSClient:
             except Exception as exc:
                 logger.error(f"[EL-WS] Error enviando a Twilio: {exc}")
                 return
-            await asyncio.sleep(self.CHUNK_INTERVAL)
+            #await asyncio.sleep(self.CHUNK_INTERVAL)
 
 
 
