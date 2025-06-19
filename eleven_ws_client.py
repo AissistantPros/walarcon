@@ -43,14 +43,14 @@ class ElevenLabsWSClient:
         self.ws: Optional[websockets.WebSocketClientProtocol] = None
         self._recv_task: Optional[asyncio.Task] = None
         self._last_text: str = ""
-        # ya no se necesita flag de autenticación porque el header va siempre
+       
 
     # ------------------------------------------------------------------
     async def connect(self) -> None:
         """Conecta si no está abierta."""
         if self.ws and self.ws.open:
             return
-        self.ws = await websockets.connect(self.url, extra_headers=self.headers)
+        self.ws = await websockets.connect(self.url, headers=self.headers)
         logger.info("[EL-WS] Conexión WebSocket abierta.")
 
     # ------------------------------------------------------------------
