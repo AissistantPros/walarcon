@@ -20,8 +20,7 @@ from decouple import config
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from state_store import session_state
-from tts_utils import RealTimeTTSHandler, ELEVEN_LABS_API_KEY, ELEVEN_LABS_VOICE_ID
-
+from eleven_ws_client import ElevenLabsWSClient
 
 
 # Tus importaciones de módulos locales
@@ -31,7 +30,6 @@ try:
     from consultarinfo import load_consultorio_data_to_cache 
     from deepgram_stt_streamer import DeepgramSTTStreamer 
     from prompt import generate_openai_prompt 
-    from tts_utils import text_to_speech 
     from utils import get_cancun_time 
 except ImportError as e:
     logging.exception(f"CRÍTICO: Error importando módulos locales: {e}.")
@@ -92,12 +90,11 @@ class TwilioWebSocketManager:
         self.last_final_stt_timestamp: Optional[float] = None # Para medir latencia real
         logger.debug(f"⏱️ TS:[{ts_now_str}] INIT Timestamps set: start={self.stream_start_time:.2f}, activity={self.last_activity_ts:.2f}, final={self.last_final_ts:.2f}")
 
+
+        self.tts_client: Optional[ElevenLabsWSClient] = None
         self.finales_acumulados: List[str] = []
         self.conversation_history: List[dict] = []
         self.speaking_lock = asyncio.Lock() 
-        self.tts_handler: Optional[RealTimeTTSHandler] = None
-        self.elevenlabs_api_key = ELEVEN_LABS_API_KEY
-        self.voice_id = ELEVEN_LABS_VOICE_ID
         self.audio_buffer_twilio: List[bytes] = []       # Buffer para audio de Twilio
         self.close_dg_task: Optional[asyncio.Task] = None   # Tarea para el cierre de Deepgram antes del TTS
         self.hold_audio_mulaw_bytes: bytes = b""
@@ -122,9 +119,14 @@ class TwilioWebSocketManager:
         logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] INIT END (ID: {id(self)})")
 
 
+
+
     def _now(self) -> float:
         """Devuelve el timestamp actual de alta precisión."""
         return time.perf_counter()
+
+
+
 
     def _reset_state_for_new_call(self):
         """Resetea variables de estado al inicio de una llamada."""
@@ -244,15 +246,16 @@ class TwilioWebSocketManager:
 
                 if event == "start":
                     self.stream_sid = data.get("streamSid")
-                    # --- Inicializar Real-Time TTS handler -----------------------------
-                    if not self.tts_handler:
-                        self.tts_handler = RealTimeTTSHandler(
-                            websocket=self.websocket,
+                    if not self.tts_client:
+                        self.tts_client = ElevenLabsWSClient(
                             stream_sid=self.stream_sid,
-                            api_key=self.elevenlabs_api_key
+                            websocket_send=self.websocket.send_text
                         )
-                        logger.info("[RT-TTS] Handler inicializado para streaming en vivo")
-                    # -------------------------------------------------------------------
+                        # Conexión anticipada (opcional):
+                        await self.tts_client.connect()       # abre WS pero no habla
+                    
+                    greeting_text = self._greeting()
+                    await self.tts_client.send_text(greeting_text)  # Twilio lo oirá en cuanto llegue
 
                     start_data = data.get("start", {})
                     received_call_sid = start_data.get("callSid")
@@ -261,12 +264,6 @@ class TwilioWebSocketManager:
                          logger.info(f"📞 CallSid actualizado a: {self.call_sid}")
                     logger.info(f"▶️ Evento 'start'. StreamSid: {self.stream_sid}. CallSid: {self.call_sid or 'N/A'}")
                     
-                    ts_greet_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-                    logger.debug(f"⏱️ TS:[{ts_greet_start}] HANDLE_WS Calling greeting TTS...")
-                    greeting_text = self._greeting()
-                    logger.info(f"👋 Saludo: '{greeting_text}'")
-                    audio_saludo = text_to_speech(greeting_text)
-                    await self._play_audio_bytes(audio_saludo)
                     logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Greeting TTS finished.")
                 elif event == "media":
                     # ts_media_start = self._now() # Descomentar si necesitas medir esta parte
@@ -816,11 +813,12 @@ class TwilioWebSocketManager:
                      logger.info("   PROCESS_GPT IA ya se despidió, cerrando.")
 
                 # Generar TTS para la despedida (si aplica)
-                audio_despedida = text_to_speech(frase_final) if frase_final else b""
-                await self._play_audio_bytes(audio_despedida) # Reproducir aunque sea vacío (no hará nada)
-                await asyncio.sleep(0.2) # Pequeña pausa para asegurar envío
-                await self._shutdown(reason="AI Request (__END_CALL__)")
-                return # Importante: salir después de shutdown
+              
+                if frase_final:
+                    await self.tts_client.send_text(frase_final)
+                    await asyncio.sleep(0.2) # Pequeña pausa para asegurar envío
+                    await self._shutdown(reason="AI Request (__END_CALL__)")
+                    return # Importante: salir después de shutdown
 
            
 
@@ -838,12 +836,12 @@ class TwilioWebSocketManager:
                  error_message = "Lo siento, ocurrió un error técnico."
                  if not self.conversation_history or "[ERROR]" not in self.conversation_history[-1].get("content",""):
                      self.conversation_history.append({"role": "assistant", "content": f"[ERROR] {error_message}"})
-                 audio_para_reproducir = text_to_speech(error_message) # Sobrescribir con audio de error
-                 if not audio_para_reproducir:
-                      logger.error("❌ Falló incluso la generación de TTS para el mensaje de error genérico.")
+                 await self.tts_client.send_text(error_message)
+
+
             except Exception as e_tts_error_fallback:
                  logger.error(f"❌ Error generando TTS para mensaje de error genérico: {e_tts_error_fallback}")
-                 audio_para_reproducir = b"" # Asegurar que esté vacío si todo falla
+                
 
         # --- Bloque de Reproducción (Fuera del try/except de GPT/TTS) ---
         # Este bloque se ejecuta siempre, incluso si hubo errores en GPT/TTS,
@@ -883,7 +881,7 @@ class TwilioWebSocketManager:
             # ────────── STREAMING DE AUDIO A TWILIO ──────────
             if not self.call_ended:
                 logger.info("🔊 Iniciando streaming de la respuesta TTS...")
-                await self._stream_tts_realtime(reply_cleaned)
+                await self.tts_client.send_text(reply_cleaned)
 
 
                 # Corte inmediato si la frase ya es una despedida
@@ -965,30 +963,10 @@ class TwilioWebSocketManager:
 
 
     # ------------------------------------------------------------------
-    async def _stream_tts_realtime(self, text: str) -> None:
-        """
-        Envía la respuesta TTS a Twilio en tiempo real usando RealTimeTTSHandler.
-        Si algo falla, recurre al método antiguo (_stream_tts_to_twilio).
-        """
-        if not self.tts_handler:
-            logger.error("[RT-TTS] tts_handler no inicializado; usando fallback.")
-            await self._stream_tts_to_twilio(text)     
-            return
 
-        # Señalamos que la IA está hablando → pausamos STT
-        self.is_speaking = True
-        self.ignorar_stt = True
 
-        try:
-            await self.tts_handler.start_streaming_tts(text, self.voice_id)
-        except Exception as e:
-            logger.error(f"[RT-TTS] Error durante streaming en vivo: {e}")
-            # Fallback al método anterior (audio completo)
-            await self._stream_tts_fallback(text)
-        finally:
-            # Reactivamos STT y estado
-            self.is_speaking = False
-            self.ignorar_stt = False
+
+
     # ------------------------------------------------------------------
 
 
@@ -997,32 +975,9 @@ class TwilioWebSocketManager:
 
 
     # ------------------------------------------------------------------
-    async def _stream_tts_fallback(self, text: str) -> None:
-        """
-        Fallback sencillo: genera todo el audio con text_to_speech()
-        y lo envía en un solo bloque.  Solo se usa si falla el streaming
-        en vivo.
-        """
-        try:
-            audio_mulaw = text_to_speech(text)
-            if not audio_mulaw:
-                logger.error("[TTS-FB] No se pudo generar audio fallback.")
-                return
+   
 
-            if not self.websocket or not self.stream_sid:
-                logger.error("[TTS-FB] WebSocket o streamSid no disponible.")
-                return
 
-            payload_b64 = base64.b64encode(audio_mulaw).decode()
-            await self.websocket.send_text(json.dumps({
-                "event": "media",
-                "streamSid": self.stream_sid,
-                "media": {"payload": payload_b64}
-            }))
-            logger.info(f"[TTS-FB] Audio fallback enviado ({len(audio_mulaw)} bytes).")
-
-        except Exception as e:
-            logger.error(f"[TTS-FB] Error enviando fallback: {e}")
     # ------------------------------------------------------------------
 
 
@@ -1148,6 +1103,14 @@ class TwilioWebSocketManager:
                 finally: # Asegurar que la referencia se limpia
                     self.stt_streamer = None
 
+
+
+            # --- Cerrar WebSocket de Eleven Labs ---
+            if self.tts_client:
+                await self.tts_client.close()
+
+
+
             # --- Cerrar WebSocket de Twilio ---
             await self._safe_close_websocket(code=1000, reason=self.shutdown_reason)
 
@@ -1159,6 +1122,10 @@ class TwilioWebSocketManager:
 
             ts_shutdown_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.info(f"🏁 TS:[{ts_shutdown_end}] SHUTDOWN Completado (Razón: {self.shutdown_reason}).")
+
+
+
+
 
 
 
@@ -1187,7 +1154,7 @@ class TwilioWebSocketManager:
 def set_debug(active: bool = True) -> None:
     """Establece el nivel de logging para módulos clave."""
     level = logging.DEBUG if active else logging.INFO
-    modules_to_set = ["tw_utils", "aiagent", "buscarslot", "consultarinfo", "tts_utils", "deepgram_stt_streamer"]
+    modules_to_set = ["tw_utils", "aiagent", "buscarslot", "consultarinfo", "deepgram_stt_streamer"]
     for name in modules_to_set:
          logging.getLogger(name).setLevel(level)
     logger.info(f"Nivel de log establecido a {'DEBUG' if active else 'INFO'} para módulos relevantes.")
