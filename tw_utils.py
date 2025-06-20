@@ -331,6 +331,9 @@ class TwilioWebSocketManager:
                     if not self.call_ended:
                         logger.warning("Llamada no marcada como finalizada en finally de handle_twilio_websocket, llamando a _shutdown como precaución.")
                         await self._shutdown(reason="Cleanup in handle_twilio_websocket finally")
+                    logger.info("📜 Historial completo de conversación enviado a GPT:")
+                    for i, msg in enumerate(self.conversation_history):
+                        logger.info(f"[{i}] ({msg['role']}): {json.dumps(msg['content'], ensure_ascii=False)}")    
                     logger.info(f"🏁 Finalizado handle_twilio_websocket (post-finally). CallSid: {self.call_sid or 'N/A'}")
                     if CURRENT_CALL_MANAGER is self: 
                         CURRENT_CALL_MANAGER = None
@@ -714,6 +717,16 @@ class TwilioWebSocketManager:
                 #else:
                     #logger.info(f"[{log_prefix}] Buffer de Twilio vacío, no hay nada que procesar.")
                 
+
+
+                # Limpiar cualquier transcripción acumulada que haya quedado
+                self.finales_acumulados.clear()  # ← si usas esta lista para acumular finales
+                self.audio_buffer_twilio.clear()  # ← limpia el buffer de audio de Twilio
+                logger.debug(f"[{log_prefix}] 🧹 Buffers limpiados antes de reactivar STT.")
+
+
+
+
                 if self.ignorar_stt: # Solo cambiar si estaba True
                     self.ignorar_stt = False 
                     logger.info(f"[{log_prefix}] ✅ Flag 'ignorar_stt' puesto a False.")
