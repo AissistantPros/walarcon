@@ -78,7 +78,7 @@ class ElevenLabsWSClient:
             "xi_api_key": ELEVEN_LABS_API_KEY,
             "text": " ",
             "voice_settings": {
-                "stability": 0.5,
+                "stability": 0.3,
                 "similarity_boost": 0.9,
                 "use_speaker_boost": True,
                 "style": 0.5,
