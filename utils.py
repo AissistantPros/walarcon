@@ -4,11 +4,13 @@
 Módulo de utilidades para integración con Google APIs y manejo de tiempo.
 """
 
+import base64
 import os
 import json
 import logging
 import threading
 from datetime import datetime, timedelta, date # Asegúrate que 'date' está aquí
+import httpx
 import pytz
 from dotenv import load_dotenv
 from decouple import config
@@ -385,6 +387,25 @@ def search_calendar_event_by_phone(phone: str) -> List[Dict[str, Any]]:
 
 
 
+async def terminar_llamada_twilio(call_sid: str):
+    """Finaliza formalmente una llamada activa en Twilio usando la REST API."""
+    account_sid = config("TWILIO_ACCOUNT_SID")
+    auth_token = config("TWILIO_AUTH_TOKEN")
 
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Calls/{call_sid}.json"
+
+    data = {
+        "status": "completed" 
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, data=data, auth=(account_sid, auth_token), timeout=5.0)
+            if response.status_code == 200:
+                logger.info(f"📞 Twilio: Llamada {call_sid} finalizada exitosamente.")
+            else:
+                logger.warning(f"⚠️ Twilio: No se pudo finalizar la llamada {call_sid}. Código: {response.status_code}, Detalle: {response.text}")
+    except Exception as e:
+        logger.error(f"❌ Error al finalizar llamada en Twilio (call_sid={call_sid}): {e}")
 
 

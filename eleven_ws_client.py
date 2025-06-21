@@ -10,6 +10,8 @@ from typing import Callable, Awaitable, Optional
 import websockets
 from decouple import config
 
+from tw_utils import CURRENT_CALL_MANAGER
+
 # ────────────────────────────────────────────────────────────
 # ElevenLabs ⇄ WebSocket  →  Twilio (μ-law 8 kHz, 160 B/20 ms)
 # ────────────────────────────────────────────────────────────
@@ -157,7 +159,13 @@ class ElevenLabsWSClient:
             await self._send_audio_to_twilio(mulaw)
 
             if data.get("isFinal"):
-                logger.info("[EL-WS] 📤 Último chunk recibido (isFinal=True).")
+                logger.info("[EL-WS] 📤 Último chunk recibido (isFinal=True). Finalizando TTS y reactivando STT.")
+                
+                if CURRENT_CALL_MANAGER:
+                    await CURRENT_CALL_MANAGER._reactivar_stt_despues_de_envio()
+                else:
+                    logger.warning("[EL-WS] ⚠️ No se encontró CURRENT_CALL_MANAGER para reactivar STT.")
+
         except Exception as exc:
             logger.warning(f"[EL-WS] Error procesando chunk: {exc}")
 
