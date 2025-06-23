@@ -299,10 +299,10 @@ class TwilioWebSocketManager:
                         else:
                             try:
                                 await self.stt_streamer.send_audio(decoded_payload)
-                                logger.debug(
-                                    f"✅ Audio enviado directamente a Deepgram. "
-                                    f"Tamaño: {chunk_size} bytes."
-                                )
+                                #logger.debug(
+                                 #   f"✅ Audio enviado directamente a Deepgram. "
+                                  #  f"Tamaño: {chunk_size} bytes."
+                                #)
                             except Exception as e_send_audio:
                                 logger.error(f"❌ Error enviando audio a Deepgram: {e_send_audio}")
                         # ───────────────────────────
