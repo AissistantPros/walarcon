@@ -22,6 +22,7 @@ from starlette.websockets import WebSocketState
 from state_store import session_state
 from eleven_ws_client import ElevenLabsWSClient
 from utils import terminar_llamada_twilio
+from global_state import CURRENT_CALL_MANAGER
 
 
 # Tus importaciones de módulos locales
@@ -52,7 +53,7 @@ SILENCE_FRAME = b'\x00' * 160          # 20 ms de μ-law @ 8 kHz
 SILENCE_PERIOD = 5.0                  # cada 5 seg envía un paquete
 
 # --- Otras Constantes Globales ---
-CURRENT_CALL_MANAGER: Optional["TwilioWebSocketManager"] = None
+
 CALL_MAX_DURATION = 600 
 CALL_SILENCE_TIMEOUT = 30 
 GOODBYE_PHRASE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"

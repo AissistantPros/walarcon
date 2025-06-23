@@ -10,7 +10,8 @@ from typing import Callable, Awaitable, Optional
 import websockets
 from decouple import config
 
-from tw_utils import CURRENT_CALL_MANAGER
+from global_state import CURRENT_CALL_MANAGER
+
 
 # ────────────────────────────────────────────────────────────
 # ElevenLabs ⇄ WebSocket  →  Twilio (μ-law 8 kHz, 160 B/20 ms)
