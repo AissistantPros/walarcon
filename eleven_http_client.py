@@ -37,14 +37,15 @@ REQUEST_BODY = {
 
 
 # ---------------------------------------------------------------------------
-# Función pública que llama el cliente WS cuando necesita fallback
+# Función pública que llama el cliente 
 # ---------------------------------------------------------------------------
-async def send_tts_fallback_to_twilio(
+async def send_tts_http_to_twilio(
     *,
     text: str,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
-    chunk_size: int = 160 * 50,  # ≈ 1 s de audio (20 ms * 50)
+    chunk_size: int = 160 * 50,
+    volume_multiplier: float = 2.0,  # ← nuevo parámetro
 ) -> None:
     """Genera TTS por HTTP y lo envía chunk a chunk hacia Twilio.
 
@@ -56,10 +57,10 @@ async def send_tts_fallback_to_twilio(
     """
 
     if not text.strip():
-        logger.warning("[EL-HTTP] Texto vacío recibido en fallback — omitido.")
+        logger.warning("[EL-HTTP] Texto vacío recibido  — omitido.")
         return
 
-    logger.info("[EL-HTTP] Iniciando fallback HTTP → ElevenLabs TTS …")
+    logger.info("[EL-HTTP] Iniciando HTTP → ElevenLabs TTS …")
 
     body = REQUEST_BODY.copy()
     body["text"] = text.strip()
@@ -83,14 +84,16 @@ async def send_tts_fallback_to_twilio(
                     while len(buffer) >= chunk_size:
                         pcm_chunk = bytes(buffer[:chunk_size])
                         del buffer[:chunk_size]
-                        await _convert_and_send_chunk(pcm_chunk, stream_sid, websocket_send)
+                        await _convert_and_send_chunk(pcm_chunk, stream_sid, websocket_send, volume_multiplier)
+
 
                 # Envía lo que quede al final
                 if buffer:
-                    await _convert_and_send_chunk(bytes(buffer), stream_sid, websocket_send)
+                    await _convert_and_send_chunk(bytes(buffer), stream_sid, websocket_send, volume_multiplier)
+
 
     except Exception as e:  # noqa: BLE001
-        logger.error(f"[EL-HTTP] Error general en fallback HTTP: {e}")
+        logger.error(f"[EL-HTTP] Error general en HTTP ELabs: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -100,21 +103,32 @@ async def _convert_and_send_chunk(
     pcm_bytes: bytes,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
+    volume_multiplier: float = 1.0,  # ← nuevo parámetro
 ) -> None:
-    """Convierte PCM 16‑bit a μ‑law 8 kHz y lo envía a Twilio."""
+    """Convierte PCM 16‑bit a μ‑law 8 kHz y lo envía a Twilio en bloques de 160 bytes (20 ms)."""
     try:
+        if volume_multiplier != 1.0:
+            pcm_bytes = audioop.mul(pcm_bytes, 2, volume_multiplier)
+
         mulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[EL-HTTP] Error convirtiendo a μ‑law: {e}")
+
+    except Exception as e:
+        logger.warning(f"[EL-HTTP] Error convirtiendo a μ-law: {e}")
         return
 
-    payload_b64 = base64.b64encode(mulaw_bytes).decode("utf-8")
-    message = {
-        "event": "media",
-        "streamSid": stream_sid,
-        "media": {"payload": payload_b64},
-    }
-    try:
-        await websocket_send(json.dumps(message))
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"[EL-HTTP] No se pudo enviar chunk a Twilio: {e}")
+    # 🔄 Divide en frames de 160 bytes (≈20 ms cada uno)
+    for i in range(0, len(mulaw_bytes), 160):
+        frame = mulaw_bytes[i:i + 160]
+        if not frame:
+            continue
+
+        payload_b64 = base64.b64encode(frame).decode("utf-8")
+        message = {
+            "event": "media",
+            "streamSid": stream_sid,
+            "media": {"payload": payload_b64},
+        }
+        try:
+            await websocket_send(json.dumps(message))
+        except Exception as e:
+            logger.error(f"[EL-HTTP] No se pudo enviar frame a Twilio: {e}")

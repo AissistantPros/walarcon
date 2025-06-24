@@ -34,7 +34,6 @@ class DeepgramSTTStreamer:
         self.deepgram = None
         if DEEPGRAM_KEY:
             try:
-                # Activa KeepAlive aquí
                 config = DeepgramClientOptions(options={"keepalive": "true"})
                 self.deepgram = DeepgramClient(DEEPGRAM_KEY, config) 
             except Exception as e:

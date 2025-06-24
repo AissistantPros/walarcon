@@ -20,7 +20,7 @@ from decouple import config
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from state_store import session_state
-from eleven_ws_client import ElevenLabsWSClient
+from eleven_http_client import send_tts_http_to_twilio
 from utils import terminar_llamada_twilio
 from global_state import CURRENT_CALL_MANAGER
 
@@ -73,7 +73,7 @@ class TwilioWebSocketManager:
         self.stt_streamer: Optional[DeepgramSTTStreamer] = None
         self.current_gpt_task: Optional[asyncio.Task] = None
         self.temporizador_pausa: Optional[asyncio.Task] = None 
-        self.tts_timeout_task: Optional[asyncio.Task] = None  # ← nuevo
+        
 
         self.call_sid: str = "" 
         self.stream_sid: Optional[str] = None 
@@ -99,11 +99,12 @@ class TwilioWebSocketManager:
         self.audio_buffer_lock = asyncio.Lock()
         self.audio_buffer_max_bytes = 40000  # ~5 segundos de audio μ-law 8kHz
         self.audio_buffer_current_bytes = 0
+        self.hold_audio_task: Optional[asyncio.Task] = None
 
 
-        self.tts_en_progreso = False
+      
 
-        self.tts_client: Optional[ElevenLabsWSClient] = None
+       
         self.finales_acumulados: List[str] = []
         self.conversation_history: List[dict] = []
         self.hold_audio_mulaw_bytes: bytes = b""
@@ -255,60 +256,70 @@ class TwilioWebSocketManager:
 
                 if event == "start":
                     self.stream_sid = data.get("streamSid")
-                    if not self.tts_client:
-                        self.tts_client = ElevenLabsWSClient(
-                            stream_sid=self.stream_sid,
-                            websocket_send=self.websocket.send_text
-                        )
-                        # Conexión anticipada (opcional):
-                        await self.tts_client.connect()       # abre WS pero no habla
-                    
-                    greeting_text = self._greeting()
-                    await self.tts_client.send_text(greeting_text)  # Twilio lo oirá en cuanto llegue
 
+                    # Generar el saludo
+                    greeting_text = self._greeting()
+
+                    # 🔇 Silenciar STT mientras hablamos
+                    self.tts_en_progreso = True
+                    self.ignorar_stt = True
+
+                    # ▶️ Enviar TTS por HTTP
+                    await send_tts_http_to_twilio(
+                        text=greeting_text,
+                        stream_sid=self.stream_sid,
+                        websocket_send=self.websocket.send_text,
+                        volume_multiplier=2.0  # ← ajustable
+                    )
+
+                    # ✅ Reactivar STT después del envío
+                    await self._reactivar_stt_despues_de_envio()
+
+                    # Actualizar CallSid si aplica
                     start_data = data.get("start", {})
                     received_call_sid = start_data.get("callSid")
                     if received_call_sid and self.call_sid != received_call_sid:
-                         self.call_sid = received_call_sid
-                         logger.info(f"📞 CallSid actualizado a: {self.call_sid}")
+                        self.call_sid = received_call_sid
+                        logger.info(f"📞 CallSid actualizado a: {self.call_sid}")
+
                     logger.info(f"▶️ Evento 'start'. StreamSid: {self.stream_sid}. CallSid: {self.call_sid or 'N/A'}")
-                    
                     logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Greeting TTS finished.")
+
                 
-                
+
+
+
+
+
+
                 elif event == "media":
                     payload_b64 = data.get("media", {}).get("payload")
-                    if payload_b64:
-                        decoded_payload = base64.b64decode(payload_b64)
-                        chunk_size = len(decoded_payload)
+                    if not payload_b64:
+                        continue  # 👈 CORRECTO: ignoramos este mensaje y seguimos
 
-                        # 🔒 Durante TTS: descartar directamente
-                        if self.ignorar_stt or self.tts_en_progreso:
-                            #logger.debug("🚫 Chunk descartado durante TTS.")  # Verbosidad reducida
+                    decoded_payload = base64.b64decode(payload_b64)
+                    chunk_size = len(decoded_payload)
 
-                            continue
+                    if self.ignorar_stt:
+                        continue
 
-                        # 🔌 Deepgram no disponible: bufferizar
-                        if not self.stt_streamer or not self.stt_streamer._started:
-                            async with self.audio_buffer_lock:
-                                if self.audio_buffer_current_bytes + chunk_size <= self.audio_buffer_max_bytes:
-                                    self.audio_buffer_twilio.append(decoded_payload)
-                                    self.audio_buffer_current_bytes += chunk_size
-                                    logger.debug(
-                                        f"🎙️ Audio bufferizado (Deepgram inactivo). "
-                                        f"Tamaño total: {self.audio_buffer_current_bytes} bytes."
-                                    )
-                                else:
-                                    logger.warning("⚠️ Buffer de audio excedido. Chunk descartado.")
-                            continue
+                    if not self.stt_streamer or not self.stt_streamer._started:
+                        async with self.audio_buffer_lock:
+                            if self.audio_buffer_current_bytes + chunk_size <= self.audio_buffer_max_bytes:
+                                self.audio_buffer_twilio.append(decoded_payload)
+                                self.audio_buffer_current_bytes += chunk_size
+                                logger.debug(
+                                    f"🎙️ Audio bufferizado (Deepgram inactivo). "
+                                    f"Tamaño total: {self.audio_buffer_current_bytes} bytes."
+                                )
+                            else:
+                                logger.warning("⚠️ Buffer de audio excedido. Chunk descartado.")
+                        continue
 
-                        # ✅ Enviar directamente a Deepgram
-                        try:
-                            await self.stt_streamer.send_audio(decoded_payload)
-                            # logger.debug(f"✅ Audio enviado directamente a Deepgram. Tamaño: {chunk_size} bytes.")
-                        except Exception as e_send_audio:
-                            logger.error(f"❌ Error enviando audio a Deepgram: {e_send_audio}")
-
+                    try:
+                        await self.stt_streamer.send_audio(decoded_payload)
+                    except Exception as e_send_audio:
+                        logger.error(f"❌ Error enviando audio a Deepgram: {e_send_audio}")
 
 
 
@@ -332,31 +343,50 @@ class TwilioWebSocketManager:
         except Exception as e_main_loop:
             logger.error(f"❌ Error fatal en bucle principal WebSocket: {e_main_loop}", exc_info=True)
             await self._shutdown(reason=f"Main Loop Error: {type(e_main_loop).__name__}")
+
+            
         finally:
-                    # Asegurar limpieza final
-                    logger.info(f"🏁 Iniciando bloque finally de handle_twilio_websocket. CallSid: {self.call_sid or 'N/A'}") 
-                    if monitor_task and not monitor_task.done(): # 'monitor_task' se define antes del try
-                        logger.info("Cancelando tarea de monitoreo en finally...") # Log mejorado
-                        monitor_task.cancel()
-                        try:
-                            await asyncio.wait_for(monitor_task, timeout=0.5) # Espera breve similar
-                        except asyncio.TimeoutError:
-                            logger.warning("Timeout (0.5s) esperando la cancelación de la tarea de monitoreo.")
-                        except asyncio.CancelledError:
-                            logger.debug("Tarea de monitoreo ya estaba cancelada o se canceló a tiempo.")
-                        except Exception as e_cancel_mon:
-                            logger.error(f"Error durante la espera de cancelación de la tarea de monitoreo: {e_cancel_mon}")
-                    if not self.call_ended:
-                        logger.warning("Llamada no marcada como finalizada en finally de handle_twilio_websocket, llamando a _shutdown como precaución.")
-                        await self._shutdown(reason="Cleanup in handle_twilio_websocket finally")
-                    logger.info("📜 Historial completo de conversación enviado a GPT:")
-                    for i, msg in enumerate(self.conversation_history):
-                        logger.info(f"[{i}] ({msg['role']}): {json.dumps(msg['content'], ensure_ascii=False)}")    
-                    logger.info(f"🏁 Finalizado handle_twilio_websocket (post-finally). CallSid: {self.call_sid or 'N/A'}")
-                    if CURRENT_CALL_MANAGER is self: 
-                        CURRENT_CALL_MANAGER = None
+            # Asegurar limpieza final
+            logger.info(f"🏁 Iniciando bloque finally de handle_twilio_websocket. CallSid: {self.call_sid or 'N/A'}") 
+            
+            if monitor_task and not monitor_task.done():
+                logger.info("Cancelando tarea de monitoreo en finally...")
+                monitor_task.cancel()
+                try:
+                    await asyncio.wait_for(monitor_task, timeout=0.5)
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout (0.5s) esperando la cancelación de la tarea de monitoreo.")
+                except asyncio.CancelledError:
+                    logger.debug("Tarea de monitoreo ya estaba cancelada o se canceló a tiempo.")
+                except Exception as e_cancel_mon:
+                    logger.error(f"Error durante la espera de cancelación de la tarea de monitoreo: {e_cancel_mon}")
 
+            # Cancelar audio_espera_task si seguía activo
+            if self.audio_espera_task and not self.audio_espera_task.done():
+                logger.debug("🛑 Cancelando tarea de audio de espera en cleanup final...")
+                self.audio_espera_task.cancel()
+                try:
+                    await asyncio.wait_for(self.audio_espera_task, timeout=0.5)
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Timeout esperando cancelación de audio_espera_task.")
+                except asyncio.CancelledError:
+                    logger.debug("Tarea de audio de espera cancelada correctamente.")
+                except Exception as e:
+                    logger.error(f"❌ Error al cancelar audio_espera_task: {e}")
+            self.audio_espera_task = None
 
+            if not self.call_ended:
+                logger.warning("Llamada no marcada como finalizada en finally de handle_twilio_websocket, llamando a _shutdown como precaución.")
+                await self._shutdown(reason="Cleanup in handle_twilio_websocket finally")
+
+            logger.info("📜 Historial completo de conversación enviado a GPT:")
+            for i, msg in enumerate(self.conversation_history):
+                logger.info(f"[{i}] ({msg['role']}): {json.dumps(msg['content'], ensure_ascii=False)}")    
+
+            logger.info(f"🏁 Finalizado handle_twilio_websocket (post-finally). CallSid: {self.call_sid or 'N/A'}")
+
+            if CURRENT_CALL_MANAGER is self: 
+                CURRENT_CALL_MANAGER = None
 
 
 
@@ -453,7 +483,7 @@ class TwilioWebSocketManager:
         #logger.debug(f"⏱️ TS:[{ts_callback_start}] STT_CALLBACK START (final={is_final})")
 
         if self.ignorar_stt:
-            logger.warning(f"🚫 STT Ignorado (ignorar_stt=True): final={is_final}, text='{transcript[:60]}...' (TS:{ts_callback_start})")
+            logger.debug(f"🚫 STT Ignorado (ignorar_stt=True): final={is_final}, text='{transcript[:60]}...' (TS:{ts_callback_start})")
             return 
 
         ahora_pc = self._now() # Usar perf_counter para coherencia en timestamps relativos internos
@@ -612,6 +642,19 @@ class TwilioWebSocketManager:
     async def _iniciar_tarea_gpt(self, mensaje: str, ts_final: Optional[float]):
         """Cancela tarea GPT anterior (si aplica) e inicia nueva."""
 
+        # 🔔 Lanzar temporizador para audio de espera
+        self.audio_espera_task = asyncio.create_task(
+            self._iniciar_temporizador_audio_espera(ts_final),
+            name=f"AudioEspera_{self.call_sid or id(self)}"
+        )
+
+        # ⏳ Iniciar temporizador de audio de espera si GPT tarda en responder
+        self.audio_espera_task = asyncio.create_task(
+            self._iniciar_temporizador_audio_espera(ts_final),
+            name=f"AudioEspera_{self.call_sid or id(self)}"
+        )
+
+
         if self.current_gpt_task and not self.current_gpt_task.done():
             logger.warning("⚠️ Tarea GPT anterior aún activa. Cancelando...")
             self.current_gpt_task.cancel()
@@ -649,14 +692,15 @@ class TwilioWebSocketManager:
 
 
 
-    def estimar_duracion_tts(self, texto: str, margen: float = 1.2) -> float:
-        """
-        Estima cuántos segundos durará el TTS de ElevenLabs con base en el número de palabras.
-        Aplica un margen adicional para evitar cortes prematuros.
-        """
-        palabras = len(texto.split())
-        segundos_estimados = palabras / 2.5  # 2.5 palabras por segundo ≈ ritmo de habla
-        return segundos_estimados * margen
+
+
+
+
+
+
+
+
+
 
 
     async def _timeout_reactivar_stt(self, segundos: float):
@@ -681,6 +725,11 @@ class TwilioWebSocketManager:
 
 
 
+
+
+
+
+
     async def _reactivar_stt_despues_de_envio(self):
         log_prefix = f"ReactivarSTT_{self.call_sid}"
 
@@ -701,12 +750,17 @@ class TwilioWebSocketManager:
 
         # 5. Reactivar STT
         self.ignorar_stt = False
+        self.tts_en_progreso = False  
         logger.info(f"[{log_prefix}] 🟢 STT reactivado (ignorar_stt=False).")
 
         # Si había un cronómetro esperando, lo cancelamos
         if self.tts_timeout_task and not self.tts_timeout_task.done():
             self.tts_timeout_task.cancel()
         self.tts_timeout_task = None
+
+
+
+
 
 
 
@@ -720,9 +774,13 @@ class TwilioWebSocketManager:
 
         if self.ignorar_stt:
             self.ignorar_stt = False
+            self.tts_en_progreso = False # Aseguramos que no estamos en modo TTS
             logger.info(f"[{log_prefix}] 🟢 STT reactivado (ignorar_stt=False).")
         else:
             logger.debug(f"[{log_prefix}] STT ya estaba activo (ignorar_stt=False).")
+
+
+
 
 
 
@@ -778,67 +836,67 @@ class TwilioWebSocketManager:
 
 
 
+
+
     async def handle_tts_response(self, texto: str, last_final_ts: Optional[float]):
         """
-        Envía la respuesta a ElevenLabs, reproduce mensaje de espera si hace falta,
+        Envía la respuesta a ElevenLabs (HTTP), reproduce mensaje de espera si hace falta,
         y detecta si debe cerrar la llamada por despedida.
         """
-
         if self.call_ended:
             logger.warning("🔇 TTS cancelado: llamada terminada.")
             return
 
         try:
-            # Verificar si se debe reproducir mensaje de espera
+            # 0️⃣ Mensaje de cortesía si GPT tardó
             if await self.should_play_hold_audio(last_final_ts):
                 logger.info("⏳ Latencia detectada, reproduciendo mensaje de espera.")
                 await self._play_audio_bytes(self.hold_audio_mulaw_bytes)
 
-            # Enviar respuesta TTS a ElevenLabs
-            logger.info("🔊 Iniciando envío de respuesta TTS a ElevenLabs...")
+            # 🛑 Cancelar audio de espera si estaba en cuenta regresiva
+            if self.audio_espera_task and not self.audio_espera_task.done():
+                self.audio_espera_task.cancel()
+                self.audio_espera_task = None
 
-            self.is_speaking = True
+
+
+            logger.info("🔊 Iniciando envío TTS (HTTP → ElevenLabs)…")
+            self.is_speaking   = True
             self.tts_en_progreso = True
 
-            # 1️⃣ Calcula la duración máxima esperada
-            duracion_max = self.estimar_duracion_tts(texto)  # ← usa tu método nuevo
-
-            # 2️⃣ Cancela cronómetro viejo si existía
+            # 1️⃣ Cronómetro failsafe
+            duracion_max = estimar_duracion_tts(texto)          # ≈ 3.3 wps * margen
             if self.tts_timeout_task and not self.tts_timeout_task.done():
                 self.tts_timeout_task.cancel()
-
-            # 3️⃣ Crea la nueva tarea
             self.tts_timeout_task = asyncio.create_task(
                 self._timeout_reactivar_stt(duracion_max),
-                name=f"TTS_Timeout_{self.call_sid or id(self)}"
+                name=f"TTS_TO_{self.call_sid or id(self)}"
             )
 
-
-            try:
-                await self.tts_client.send_text(texto)
-            finally:
-                self.is_speaking = False
-                #self.tts_en_progreso = False
-
-            # Detectar si es despedida explícita
-            texto_lower = texto.lower()
-            es_despedida = any(
-                frase in texto_lower
-                for frase in (
-                    "fue un placer atenderle",  # Prompt oficial
-                    "gracias por comunicarse"
-                )
+            # 2️⃣ **Nueva llamada HTTP a ElevenLabs**  (volumen ×2 opcional)
+            await send_tts_http_to_twilio(
+                text           = texto,
+                stream_sid     = self.stream_sid,
+                websocket_send = self.websocket.send_text,
+                chunk_size     = 160 * 50,            # 1 s de audio
+                volume_multiplier = 2.0               # súbelo o bájalo si hace falta
             )
 
-            if es_despedida:
-                logger.info("👋 Despedida detectada en respuesta de IA. Cerrando llamada.")
-                await asyncio.sleep(0.2)
-                await self._shutdown(reason="Assistant farewell")
+        finally:
+            self.is_speaking = False
+          
 
-        except asyncio.CancelledError:
-            logger.info("🚫 handle_tts_response cancelado (normal en shutdown).")
-        except Exception as e:
-            logger.error(f"❌ Error en handle_tts_response: {e}", exc_info=True)
+        # 3️⃣ Despedida automática
+        if any(phrase in texto.lower() for phrase in (
+            "fue un placer atenderle",
+            "gracias por comunicarse",
+        )):
+            logger.info("👋 Despedida detectada. Cerrando llamada.")
+            await asyncio.sleep(0.2)
+            await self._shutdown(reason="Assistant farewell")
+
+
+
 
 
 
@@ -862,6 +920,31 @@ class TwilioWebSocketManager:
         return False
 
 
+
+
+
+
+
+    async def _iniciar_temporizador_audio_espera(self, ts_final: Optional[float]):
+        """
+        Inicia un temporizador para reproducir el audio de espera si GPT tarda mucho.
+        Se cancela automáticamente si TTS comienza antes del umbral.
+        """
+        if ts_final is None:
+            return
+
+        threshold = LATENCY_THRESHOLD_FOR_HOLD_MESSAGE
+        try:
+            await asyncio.sleep(threshold)
+            if self.call_ended or self.tts_en_progreso:
+                return
+            if await self.should_play_hold_audio(ts_final):
+                await self._play_audio_bytes(self.hold_audio_mulaw_bytes)
+        except asyncio.CancelledError:
+            # Normal si la tarea fue cancelada porque llegó TTS
+            pass
+        except Exception as e:
+            logger.error(f"Error en temporizador de audio de espera: {e}", exc_info=True)
 
 
 
@@ -1103,6 +1186,11 @@ class TwilioWebSocketManager:
 
 
 
+
+def estimar_duracion_tts(texto: str, margen: float = 1.08) -> float:
+    palabras = len(texto.split())
+    segundos = palabras / 3.3          # ≈ 3.3 wps
+    return max(segundos, 0.8) * margen # nunca menos de 0.8 s
 
 
 
