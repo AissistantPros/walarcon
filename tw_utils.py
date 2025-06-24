@@ -771,7 +771,7 @@ class TwilioWebSocketManager:
                 await self.tts_client.send_text(texto)
             finally:
                 self.is_speaking = False
-                self.tts_en_progreso = False
+                #self.tts_en_progreso = False
 
             # Detectar si es despedida explícita
             texto_lower = texto.lower()
