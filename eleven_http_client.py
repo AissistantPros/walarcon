@@ -24,15 +24,16 @@ HEADERS = {
 }
 
 REQUEST_BODY = {
-    "model_id": "eleven_multilingual_v2",  # Modelo estable (puedes cambiarlo)
-    "text": "",  # Se llena en runtime
+    "model_id": "eleven_multilingual_v2",
+    "text": "",
     "voice_settings": {
         "stability": 0.7,
         "style": 0.5,
         "use_speaker_boost": False,
-        "speed": 1.15,
+        "speed": 1.2,
     },
-    "output_format": "pcm_8000",  # PCM 16‑bit, 8 kHz — fácil de convertir a μ‑law
+    
+    "output_format": "ulaw_8000",
 }
 
 
@@ -45,7 +46,7 @@ async def send_tts_http_to_twilio(
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
     chunk_size: int = 160 * 50,          # ≈ 1 s de audio (20 ms * 50)
-    volume_multiplier: float = 2.0,      # ↕️ sube / baja volumen antes de enviar
+    volume_multiplier: float = 1.0,      # ↕️ sube / baja volumen antes de enviar
 ) -> None:
     """
     Genera TTS por HTTP y lo envía a Twilio en frames de 160 bytes μ-law.
@@ -126,31 +127,36 @@ async def send_tts_http_to_twilio(
 
 
 
-
 # ---------------------------------------------------------------------------
 # Helpers internos
 # ---------------------------------------------------------------------------
 async def _convert_and_send_chunk(
-    pcm_bytes: bytes,
+    ulaw_bytes: bytes,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
-    volume_multiplier: float = 1.0,  # ← nuevo parámetro
+    volume_multiplier: float = 1.0,
 ) -> None:
-    """Convierte PCM 16‑bit a μ‑law 8 kHz y lo envía a Twilio en bloques de 160 bytes (20 ms)."""
+    """
+    Recibe audio µ-law 8 kHz y lo envía a Twilio en frames de 160 bytes (20 ms).
+
+    • Si volume_multiplier ≠ 1.0, aplica ganancia con audioop.mul(width=1).
+    • No realiza conversión de formato: Eleven Labs ya entrega µ-law.
+    """
+    # 1️⃣  Ajuste opcional de volumen
     try:
         if volume_multiplier != 1.0:
-            pcm_bytes = audioop.mul(pcm_bytes, 2, volume_multiplier)
-
-        mulaw_bytes = audioop.lin2ulaw(pcm_bytes, 2)
-
+            ulaw_bytes = audioop.mul(ulaw_bytes, 1, volume_multiplier)  # width=1 → µ-law
     except Exception as e:
-        logger.warning(f"[EL-HTTP] Error convirtiendo a μ-law: {e}")
+        logger.warning(f"[EL-HTTP] Error ajustando volumen: {e}")
         return
 
-    # 🔄 Divide en frames de 160 bytes (≈20 ms cada uno)
-    for i in range(0, len(mulaw_bytes), 160):
-        frame = mulaw_bytes[i:i + 160]
-        if not frame:
+    # 2️⃣  Envía en frames de 160 bytes (20 ms)
+    for i in range(0, len(ulaw_bytes), 160):
+        frame = ulaw_bytes[i : i + 160]
+        if not frame or len(frame) < 160:
+            # Si el stream termina con un frame incompleto, lo ignoramos.
+            if frame:
+                logger.warning("[EL-HTTP] Stream terminó con frame incompleto — descartado.")
             continue
 
         payload_b64 = base64.b64encode(frame).decode("utf-8")
