@@ -283,8 +283,8 @@ class TwilioWebSocketManager:
                         # 🔒 Durante TTS: descartar directamente
                         if self.ignorar_stt or self.tts_en_progreso:
                             logger.debug(
-                                f"🚫 Audio descartado (ignorar_stt={self.ignorar_stt}, tts_en_progreso={self.tts_en_progreso}). "
-                                f"Tamaño: {chunk_size} bytes."
+                                #f"🚫 Audio descartado (ignorar_stt={self.ignorar_stt}, tts_en_progreso={self.tts_en_progreso}). "
+                                #f"Tamaño: {chunk_size} bytes."
                             )
                             continue
 
