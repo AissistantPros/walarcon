@@ -73,6 +73,8 @@ class TwilioWebSocketManager:
         self.stt_streamer: Optional[DeepgramSTTStreamer] = None
         self.current_gpt_task: Optional[asyncio.Task] = None
         self.temporizador_pausa: Optional[asyncio.Task] = None 
+        self.tts_timeout_task: Optional[asyncio.Task] = None  # ← nuevo
+
         self.call_sid: str = "" 
         self.stream_sid: Optional[str] = None 
         self.call_ended: bool = False
@@ -647,7 +649,35 @@ class TwilioWebSocketManager:
 
 
 
+    def estimar_duracion_tts(self, texto: str, margen: float = 1.2) -> float:
+        """
+        Estima cuántos segundos durará el TTS de ElevenLabs con base en el número de palabras.
+        Aplica un margen adicional para evitar cortes prematuros.
+        """
+        palabras = len(texto.split())
+        segundos_estimados = palabras / 2.5  # 2.5 palabras por segundo ≈ ritmo de habla
+        return segundos_estimados * margen
 
+
+    async def _timeout_reactivar_stt(self, segundos: float):
+        """
+        Espera 'segundos'.  
+        Si al terminar todavía estamos en modo TTS (self.tts_en_progreso),
+        asume que ElevenLabs nunca envió isFinal y reactiva el STT.
+        """
+        try:
+            await asyncio.sleep(segundos)
+            if self.call_ended:
+                return
+
+            if self.tts_en_progreso:        # --> sigue “hablando” según nuestro estado
+                logger.warning(f"[TTS-TIMEOUT] Pasaron {segundos:.1f}s sin isFinal; "
+                            "reactivando STT por seguridad.")
+                self.tts_en_progreso = False
+                await self._reactivar_stt_despues_de_envio()
+        except asyncio.CancelledError:
+            # Cronómetro cancelado a tiempo (llegó isFinal)
+            pass
 
 
 
@@ -673,6 +703,10 @@ class TwilioWebSocketManager:
         self.ignorar_stt = False
         logger.info(f"[{log_prefix}] 🟢 STT reactivado (ignorar_stt=False).")
 
+        # Si había un cronómetro esperando, lo cancelamos
+        if self.tts_timeout_task and not self.tts_timeout_task.done():
+            self.tts_timeout_task.cancel()
+        self.tts_timeout_task = None
 
 
 
@@ -765,6 +799,21 @@ class TwilioWebSocketManager:
 
             self.is_speaking = True
             self.tts_en_progreso = True
+
+            # 1️⃣ Calcula la duración máxima esperada
+            duracion_max = self.estimar_duracion_tts(texto)  # ← usa tu método nuevo
+
+            # 2️⃣ Cancela cronómetro viejo si existía
+            if self.tts_timeout_task and not self.tts_timeout_task.done():
+                self.tts_timeout_task.cancel()
+
+            # 3️⃣ Crea la nueva tarea
+            self.tts_timeout_task = asyncio.create_task(
+                self._timeout_reactivar_stt(duracion_max),
+                name=f"TTS_Timeout_{self.call_sid or id(self)}"
+            )
+
+
             try:
                 await self.tts_client.send_text(texto)
             finally:
