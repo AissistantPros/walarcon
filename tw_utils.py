@@ -73,7 +73,8 @@ class TwilioWebSocketManager:
         self.stt_streamer: Optional[DeepgramSTTStreamer] = None
         self.current_gpt_task: Optional[asyncio.Task] = None
         self.temporizador_pausa: Optional[asyncio.Task] = None 
-        
+        self.tts_timeout_task: Optional[asyncio.Task] = None
+        self.audio_espera_task: Optional[asyncio.Task] = None
 
         self.call_sid: str = "" 
         self.stream_sid: Optional[str] = None 
@@ -600,6 +601,11 @@ class TwilioWebSocketManager:
         await self._iniciar_tarea_gpt(mensaje, self.last_final_stt_timestamp)
 
 
+
+
+
+
+
     async def _preparar_mensaje_para_gpt(self) -> Optional[str]:
         """Valida si hay finales, construye mensaje y limpia buffers si es inválido."""
         
@@ -626,6 +632,11 @@ class TwilioWebSocketManager:
         return mensaje
     
 
+
+
+
+
+
     async def _activar_modo_ignorar_stt(self):
         """Activa ignorar_stt y cancela temporizador de pausa si existe."""
         
@@ -639,24 +650,17 @@ class TwilioWebSocketManager:
     
 
 
+
+
+
+
+
     async def _iniciar_tarea_gpt(self, mensaje: str, ts_final: Optional[float]):
-        """Cancela tarea GPT anterior (si aplica) e inicia nueva."""
+        """Cancela tarea GPT anterior (si aplica), programa el audio-espera y lanza la nueva tarea GPT."""
 
-        # 🔔 Lanzar temporizador para audio de espera
-        self.audio_espera_task = asyncio.create_task(
-            self._iniciar_temporizador_audio_espera(ts_final),
-            name=f"AudioEspera_{self.call_sid or id(self)}"
-        )
-
-        # ⏳ Iniciar temporizador de audio de espera si GPT tarda en responder
-        self.audio_espera_task = asyncio.create_task(
-            self._iniciar_temporizador_audio_espera(ts_final),
-            name=f"AudioEspera_{self.call_sid or id(self)}"
-        )
-
-
+        # ── 1️⃣  Cancela una tarea GPT previa ──────────────────────────────────────
         if self.current_gpt_task and not self.current_gpt_task.done():
-            logger.warning("⚠️ Tarea GPT anterior aún activa. Cancelando...")
+            logger.warning("⚠️ Tarea GPT anterior aún activa. Cancelando…")
             self.current_gpt_task.cancel()
             try:
                 await asyncio.wait_for(self.current_gpt_task, timeout=0.5)
@@ -666,11 +670,24 @@ class TwilioWebSocketManager:
                 logger.error(f"❌ Error al cancelar tarea GPT previa: {e}")
             self.current_gpt_task = None
 
-        logger.debug("🚀 Iniciando nueva tarea GPT...")
+        # ── 2️⃣  (Re)programa el temporizador “un segundo, por favor” ─────────────
+        if self.audio_espera_task and not self.audio_espera_task.done():
+            self.audio_espera_task.cancel()
+
+        if ts_final is not None:
+            self.audio_espera_task = asyncio.create_task(
+                self._iniciar_temporizador_audio_espera(ts_final),
+                name=f"HoldAudioTimer_{self.call_sid or id(self)}"
+            )
+
+        # ── 3️⃣  Lanza la nueva tarea GPT ─────────────────────────────────────────
+        logger.debug("🚀 Iniciando nueva tarea GPT…")
         self.current_gpt_task = asyncio.create_task(
             self.process_gpt_response_wrapper(mensaje, ts_final),
             name=f"GPTTask_{self.call_sid or id(self)}"
         )
+
+
 
 
 
@@ -840,32 +857,27 @@ class TwilioWebSocketManager:
 
     async def handle_tts_response(self, texto: str, last_final_ts: Optional[float]):
         """
-        Envía la respuesta a ElevenLabs (HTTP), reproduce mensaje de espera si hace falta,
-        y detecta si debe cerrar la llamada por despedida.
+        Convierte la respuesta de GPT a TTS vía ElevenLabs HTTP,
+        reproduce el audio-espera si se programó, y al terminar
+        reactiva el STT.  También detecta la despedida.
         """
+
         if self.call_ended:
-            logger.warning("🔇 TTS cancelado: llamada terminada.")
+            logger.warning("🔇 handle_tts_response abortado: llamada terminada.")
             return
 
         try:
-            # 0️⃣ Mensaje de cortesía si GPT tardó
-            if await self.should_play_hold_audio(last_final_ts):
-                logger.info("⏳ Latencia detectada, reproduciendo mensaje de espera.")
-                await self._play_audio_bytes(self.hold_audio_mulaw_bytes)
-
-            # 🛑 Cancelar audio de espera si estaba en cuenta regresiva
+            # ── 1️⃣  Cancela el temporizador de audio-espera si aún corre ────────
             if self.audio_espera_task and not self.audio_espera_task.done():
                 self.audio_espera_task.cancel()
                 self.audio_espera_task = None
 
-
-
-            logger.info("🔊 Iniciando envío TTS (HTTP → ElevenLabs)…")
-            self.is_speaking   = True
+            # ── 2️⃣  Marca que estamos hablando (silencia STT) ───────────────────
             self.tts_en_progreso = True
+            self.ignorar_stt     = True
 
-            # 1️⃣ Cronómetro failsafe
-            duracion_max = estimar_duracion_tts(texto)          # ≈ 3.3 wps * margen
+            # ── 3️⃣  Programa el cronómetro failsafe ─────────────────────────────
+            duracion_max = estimar_duracion_tts(texto)
             if self.tts_timeout_task and not self.tts_timeout_task.done():
                 self.tts_timeout_task.cancel()
             self.tts_timeout_task = asyncio.create_task(
@@ -873,29 +885,30 @@ class TwilioWebSocketManager:
                 name=f"TTS_TO_{self.call_sid or id(self)}"
             )
 
-            # 2️⃣ **Nueva llamada HTTP a ElevenLabs**  (volumen ×2 opcional)
+            # ── 4️⃣  Envía el TTS por HTTP a Twilio ─────────────────────────────
             await send_tts_http_to_twilio(
-                text           = texto,
-                stream_sid     = self.stream_sid,
-                websocket_send = self.websocket.send_text,
-                chunk_size     = 160 * 50,            # 1 s de audio
-                volume_multiplier = 2.0               # súbelo o bájalo si hace falta
+                text=texto,
+                stream_sid=self.stream_sid,
+                websocket_send=self.websocket.send_text,
+                volume_multiplier=2.0          # ajusta si quieres
             )
 
-        finally:
-            self.is_speaking = False
-          
+            # ── 5️⃣  Limpieza + re-activación de STT ─────────────────────────────
+            await self._reactivar_stt_despues_de_envio()
 
-        # 3️⃣ Despedida automática
-        if any(phrase in texto.lower() for phrase in (
-            "fue un placer atenderle",
-            "gracias por comunicarse",
-        )):
-            logger.info("👋 Despedida detectada. Cerrando llamada.")
-            await asyncio.sleep(0.2)
-            await self._shutdown(reason="Assistant farewell")
+            # ── 6️⃣  Detecta si es despedida para cerrar la llamada ──────────────
+            if any(frase in texto.lower()
+                for frase in ("fue un placer atenderle", "gracias por comunicarse")):
+                logger.info("👋 Despedida detectada; cerrando llamada.")
+                await asyncio.sleep(0.2)                # breve pausa opcional
+                await self._shutdown(reason="Assistant farewell")
 
-
+        except asyncio.CancelledError:
+            logger.info("🚫 handle_tts_response cancelado (normal en shutdown).")
+        except Exception as e:
+            logger.error(f"❌ Error en handle_tts_response: {e}", exc_info=True)
+            # intenta no dejar el STT desactivado si algo falla
+            await self._reactivar_stt_despues_de_envio()
 
 
 
@@ -1132,9 +1145,6 @@ class TwilioWebSocketManager:
 
 
 
-            # --- Cerrar WebSocket de Eleven Labs ---
-            if self.tts_client:
-                await self.tts_client.close()
 
 
 
