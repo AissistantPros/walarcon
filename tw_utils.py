@@ -282,7 +282,7 @@ class TwilioWebSocketManager:
 
                         # 🔒 Durante TTS: descartar directamente
                         if self.ignorar_stt or self.tts_en_progreso:
-                            logger.debug("🚫 Chunk descartado durante TTS.")  # Verbosidad reducida
+                            #logger.debug("🚫 Chunk descartado durante TTS.")  # Verbosidad reducida
 
                             continue
 
