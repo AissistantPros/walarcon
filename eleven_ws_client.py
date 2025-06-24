@@ -150,6 +150,7 @@ class ElevenLabsWSClient:
 
             # ——— Nuevo: imprime las claves recibidas, para diagnóstico ———
             logger.debug(f"[EL-WS] Chunk keys: {list(data.keys())}")
+            logger.debug(f"[EL-WS] isFinal: {data.get('isFinal')}")
 
             # 1️⃣  Capturamos el aviso final ANTES de cualquier return.
             if data.get("isFinal"):
