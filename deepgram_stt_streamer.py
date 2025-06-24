@@ -123,6 +123,13 @@ class DeepgramSTTStreamer:
             state_info = f"_started={self._started}, _is_closing={self._is_closing}, dg_connection_exists={self.dg_connection is not None}"
             logger.warning(f"⚠️ Audio ignorado por STT: conexión no iniciada o no operativa. Estado: {state_info}")
 
+
+
+
+
+
+
+
     async def close(self):
         """Cierra la conexión con Deepgram de forma controlada."""
         if not self.dg_connection or self._is_closing:

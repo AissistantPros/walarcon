@@ -163,7 +163,10 @@ class ElevenLabsWSClient:
                 logger.info("[EL-WS] 📤 Último chunk recibido (isFinal=True). Finalizando TTS y reactivando STT.")
                 
                 if CURRENT_CALL_MANAGER:
+                    CURRENT_CALL_MANAGER.tts_en_progreso = False
                     await CURRENT_CALL_MANAGER._reactivar_stt_despues_de_envio()
+                    
+
                 else:
                     logger.warning("[EL-WS] ⚠️ No se encontró CURRENT_CALL_MANAGER para reactivar STT.")
 

@@ -99,6 +99,7 @@ class TwilioWebSocketManager:
         self.audio_buffer_current_bytes = 0
 
 
+        self.tts_en_progreso = False
 
         self.tts_client: Optional[ElevenLabsWSClient] = None
         self.finales_acumulados: List[str] = []
@@ -279,33 +280,37 @@ class TwilioWebSocketManager:
                         decoded_payload = base64.b64decode(payload_b64)
                         chunk_size = len(decoded_payload)
 
-                        # ───── BLOQUE CORRECTO ─────
-                        if self.ignorar_stt or not self.stt_streamer or not self.stt_streamer._started:
+                        # 🔒 Durante TTS: descartar directamente
+                        if self.ignorar_stt or self.tts_en_progreso:
+                            logger.debug(
+                                f"🚫 Audio descartado (ignorar_stt={self.ignorar_stt}, tts_en_progreso={self.tts_en_progreso}). "
+                                f"Tamaño: {chunk_size} bytes."
+                            )
+                            continue
+
+                        # 🔌 Deepgram no disponible: bufferizar
+                        if not self.stt_streamer or not self.stt_streamer._started:
                             async with self.audio_buffer_lock:
                                 if self.audio_buffer_current_bytes + chunk_size <= self.audio_buffer_max_bytes:
                                     self.audio_buffer_twilio.append(decoded_payload)
                                     self.audio_buffer_current_bytes += chunk_size
-                                    origen = "ignorar_stt=True" if self.ignorar_stt else "Deepgram inactivo"
                                     logger.debug(
-                                        f"🎙️ Audio bufferizado ({origen}). "
+                                        f"🎙️ Audio bufferizado (Deepgram inactivo). "
                                         f"Tamaño total: {self.audio_buffer_current_bytes} bytes."
                                     )
                                 else:
-                                    logger.warning(
-                                        f"⚠️ Buffer de audio excedido "
-                                        f"({'ignorar_stt' if self.ignorar_stt else 'DG inactivo'}). "
-                                        "Chunk descartado."
-                                    )
-                        else:
-                            try:
-                                await self.stt_streamer.send_audio(decoded_payload)
-                                #logger.debug(
-                                 #   f"✅ Audio enviado directamente a Deepgram. "
-                                  #  f"Tamaño: {chunk_size} bytes."
-                                #)
-                            except Exception as e_send_audio:
-                                logger.error(f"❌ Error enviando audio a Deepgram: {e_send_audio}")
-                        # ───────────────────────────
+                                    logger.warning("⚠️ Buffer de audio excedido. Chunk descartado.")
+                            continue
+
+                        # ✅ Enviar directamente a Deepgram
+                        try:
+                            await self.stt_streamer.send_audio(decoded_payload)
+                            # logger.debug(f"✅ Audio enviado directamente a Deepgram. Tamaño: {chunk_size} bytes.")
+                        except Exception as e_send_audio:
+                            logger.error(f"❌ Error enviando audio a Deepgram: {e_send_audio}")
+
+
+
 
 
 
@@ -620,7 +625,7 @@ class TwilioWebSocketManager:
 
         logger.debug("🚀 Iniciando nueva tarea GPT...")
         self.current_gpt_task = asyncio.create_task(
-            self.process_gpt_and_reactivate_stt(mensaje, ts_final),
+            self.process_gpt_response_wrapper(mensaje, ts_final),
             name=f"GPTTask_{self.call_sid or id(self)}"
         )
 
@@ -630,20 +635,16 @@ class TwilioWebSocketManager:
 
 
 
-    async def process_gpt_and_reactivate_stt(self, texto_para_gpt: str, last_final_ts: Optional[float]):
+    async def process_gpt_response_wrapper(self, texto_para_gpt: str, last_final_ts: Optional[float]):
         """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
         ts_wrapper_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        #logger.debug(f"⏱️ TS:[{ts_wrapper_start}] PROCESS_GPT_WRAPPER START")
         try:
-             # ### MODIFICADO ### Pasar el timestamp
             await self.process_gpt_response(texto_para_gpt, last_final_ts)
         except Exception as e:
-             logger.error(f"❌ Error capturado dentro de process_gpt_and_reactivate_stt: {e}", exc_info=True)
+            logger.error(f"❌ Error capturado dentro de process_gpt_response_wrapper: {e}", exc_info=True)
         finally:
             ts_wrapper_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_GPT_WRAPPER Finalizando. Reactivando STT...")
-            await self._reactivar_stt_despues_de_envio()
-
+            logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_GPT_WRAPPER Finalizado. STT seguirá desactivado hasta isFinal de TTS")
 
 
 
@@ -653,33 +654,29 @@ class TwilioWebSocketManager:
 
 
     async def _reactivar_stt_despues_de_envio(self):
-        """Reactiva STT después del TTS si la llamada sigue activa."""
+        log_prefix = f"ReactivarSTT_{self.call_sid}"
 
-        if self.call_ended:
-            logger.info("🛑 ReactivarSTT: La llamada ya fue marcada como finalizada → no se reactiva STT.")
-            return
-
-        log_prefix = f"ReactivarSTT_{self.call_sid or str(id(self))[-6:]}"
-        
-
-        await self._descartar_audio_y_limpiar_buffers(log_prefix)
-        await self._reactivar_stt_si_posible(log_prefix)
-
-
-
-
-    async def _descartar_audio_y_limpiar_buffers(self, log_prefix: str):
-        """Limpia buffers de audio y texto antes de reactivar STT."""
-
+        # 1. Limpiar buffers de audio
         async with self.audio_buffer_lock:
-            if self.audio_buffer_twilio:
-                num_chunks = len(self.audio_buffer_twilio)
-                self.audio_buffer_twilio.clear()
-                logger.info(f"[{log_prefix}] 🔇 {num_chunks} chunks de audio descartados (durante TTS).")
+            bytes_descartados = self.audio_buffer_current_bytes
+            self.audio_buffer_twilio.clear()
             self.audio_buffer_current_bytes = 0
 
+        # 2. Limpiar textos finales acumulados
         self.finales_acumulados.clear()
-        logger.debug(f"[{log_prefix}] 🧹 Buffers de texto limpiados antes de reactivar STT.")
+
+        # 3. Logs de limpieza
+        logger.info(f"[{log_prefix}] 🧹 Buffer de audio vaciado: {bytes_descartados} bytes descartados.")
+
+        # 4. Reset de timestamp de última frase final
+        self.last_final_stt_timestamp = None
+
+        # 5. Reactivar STT
+        self.ignorar_stt = False
+        logger.info(f"[{log_prefix}] 🟢 STT reactivado (ignorar_stt=False).")
+
+
+
 
 
 
@@ -769,10 +766,12 @@ class TwilioWebSocketManager:
             logger.info("🔊 Iniciando envío de respuesta TTS a ElevenLabs...")
 
             self.is_speaking = True
+            self.tts_en_progreso = True
             try:
                 await self.tts_client.send_text(texto)
             finally:
                 self.is_speaking = False
+                self.tts_en_progreso = False
 
             # Detectar si es despedida explícita
             texto_lower = texto.lower()
