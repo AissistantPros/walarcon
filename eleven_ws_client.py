@@ -140,35 +140,49 @@ class ElevenLabsWSClient:
 
 
     async def _handle_ws_message(self, message: str) -> None:
+        """
+        Procesa cada mensaje que llega del WebSocket de ElevenLabs.
+        1. Primero revisa si el chunk es el aviso final ("isFinal": true).
+        2. Si no, convierte el audio a mu-law y lo envía a Twilio.
+        """
         try:
             data = json.loads(message)
+
+            # ——— Nuevo: imprime las claves recibidas, para diagnóstico ———
+            logger.debug(f"[EL-WS] Chunk keys: {list(data.keys())}")
+
+            # 1️⃣  Capturamos el aviso final ANTES de cualquier return.
+            if data.get("isFinal"):
+                logger.info("[EL-WS] 📤 Último chunk recibido (isFinal=True). "
+                            "Finalizando TTS y reactivando STT.")
+
+                if CURRENT_CALL_MANAGER:
+                    CURRENT_CALL_MANAGER.tts_en_progreso = False
+                    await CURRENT_CALL_MANAGER._reactivar_stt_despues_de_envio()
+                else:
+                    logger.warning("[EL-WS] ⚠️ No se encontró CURRENT_CALL_MANAGER "
+                                "para reactivar STT.")
+                return  # 🔚 nada más que hacer con este mensaje
+
+            # 2️⃣  Si no es 'isFinal', revisamos si al menos trae audio.
             audio_b64 = data.get("audio")
             if not audio_b64:
-                return
+                return  # Chunk sin audio ni isFinal → lo ignoramos
 
+            # Registramos el primer chunk solo una vez
             if not self._first_chunk_logged:
                 logger.info("[EL-WS] 📥 Primer chunk recibido.")
                 self._first_chunk_logged = True
 
+            # Decodificamos y preparamos audio para Twilio
             pcm = base64.b64decode(audio_b64)
-            if len(pcm) % 2:
+            if len(pcm) % 2:           # asegúrate de que la longitud sea par
                 pcm = pcm[:-1]
 
-            pcm_amp = audioop.mul(pcm, 2, 3.0)           
+            pcm_amp = audioop.mul(pcm, 2, 3.0)  # pequeño aumento de volumen
             mulaw = audioop.lin2ulaw(pcm_amp, 2)
 
             await self._send_audio_to_twilio(mulaw)
-
-            if data.get("isFinal"):
-                logger.info("[EL-WS] 📤 Último chunk recibido (isFinal=True). Finalizando TTS y reactivando STT.")
-                
-                if CURRENT_CALL_MANAGER:
-                    CURRENT_CALL_MANAGER.tts_en_progreso = False
-                    await CURRENT_CALL_MANAGER._reactivar_stt_despues_de_envio()
-                    
-
-                else:
-                    logger.warning("[EL-WS] ⚠️ No se encontró CURRENT_CALL_MANAGER para reactivar STT.")
 
         except Exception as exc:
             logger.warning(f"[EL-WS] Error procesando chunk: {exc}")

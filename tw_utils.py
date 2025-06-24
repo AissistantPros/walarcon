@@ -473,7 +473,7 @@ class TwilioWebSocketManager:
                 self.finales_acumulados.append(transcript.strip())
             else:
                  # Loguear parciales solo si el nivel de log es TRACE o similar (si lo implementas)
-                 logger.debug(f"📊 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Parcial: '{log_text_brief}'")
+                 #logger.debug(f"📊 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Parcial: '{log_text_brief}'")
                  pass
 
             # Reiniciar el temporizador principal
