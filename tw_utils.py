@@ -22,7 +22,7 @@ from starlette.websockets import WebSocketState
 from state_store import session_state
 from eleven_http_client import send_tts_http_to_twilio
 from utils import terminar_llamada_twilio
-from global_state import CURRENT_CALL_MANAGER
+
 
 
 # Tus importaciones de módulos locales
@@ -59,7 +59,7 @@ CALL_SILENCE_TIMEOUT = 30
 GOODBYE_PHRASE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
 TEST_MODE_NO_GPT = False # <--- Poner en True para pruebas sin GPT
 
-
+CURRENT_CALL_MANAGER: Optional[object] = None
 
 
 # --------------------------------------------------------------------------
