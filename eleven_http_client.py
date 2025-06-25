@@ -1,28 +1,26 @@
 # eleven_http_client.py
 # ---------------------------------------------------------------
-# HTTP → ElevenLabs TTS  → WebSocket Twilio  (μ-law 8 kHz / 20 ms)
+# HTTP → ElevenLabs (μ-law 8 kHz) → WebSocket Twilio (μ-law 8 kHz)
 # ---------------------------------------------------------------
 import base64, json, logging, os
 from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
+
 import httpx
 from decouple import config
 
 logger = logging.getLogger("eleven_http_client")
 logger.setLevel(logging.INFO)
 
-ELEVEN_LABS_API_KEY: str = config("ELEVEN_LABS_API_KEY")
-ELEVEN_LABS_VOICE_ID: str = config("ELEVEN_LABS_VOICE_ID")
+# ── Credenciales ───────────────────────────────────────────────
+ELEVEN_LABS_API_KEY = config("ELEVEN_LABS_API_KEY")
+ELEVEN_LABS_VOICE_ID = config("ELEVEN_LABS_VOICE_ID")
 
 STREAM_ENDPOINT = (
     f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVEN_LABS_VOICE_ID}/stream"
 )
-
-HEADERS = {
-    "xi-api-key": ELEVEN_LABS_API_KEY,
-    "Content-Type": "application/json",
-}
+HEADERS = {"xi-api-key": ELEVEN_LABS_API_KEY, "Content-Type": "application/json"}
 
 REQUEST_BODY = {
     "model_id": "eleven_multilingual_v2",
@@ -33,89 +31,83 @@ REQUEST_BODY = {
         "use_speaker_boost": False,
         "speed": 1.20,
     },
-    "output_format": "ulaw_8000",   # ← μ-law 8 kHz mono
+    "output_format": "ulaw_8000",          # ← μ-law 8 kHz
 }
 
-# ── opcional: guardar chunks crudos para depurar ───────────────
+# ── Dump opcional de chunks para depurar ───────────────────────
 DEBUG_TTS_DUMP = bool(int(os.getenv("DEBUG_TTS_DUMP", "0")))
 if DEBUG_TTS_DUMP:
-    DUMP_DIR = Path("tts_dumps")
-    DUMP_DIR.mkdir(exist_ok=True)
-    logger.info(f"[EL-HTTP] Dump de chunks activado en {DUMP_DIR.resolve()}")
+    DUMP_DIR = Path("tts_dumps"); DUMP_DIR.mkdir(exist_ok=True)
+    logger.info(f"[EL-HTTP] Dump ACTIVADO en: {DUMP_DIR.resolve()}")
 
-# ───────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 async def send_tts_http_to_twilio(
     *,
     text: str,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
-    frame_ms: int = 20,                # tamaño de frame en milisegundos
+    chunk_size: int = 160 * 50,      # ≈1 s (50×20 ms)
 ) -> None:
     """
-    Pide TTS a ElevenLabs (μ-law 8 kHz) y reenvía los bytes tal cual
-    a Twilio en marcos de 160 bytes (20 ms).
+    Pide audio μ-law a ElevenLabs y lo re-envía a Twilio tal cual
+    (frames de 160 bytes = 20 ms, conforme al content-type μ-law
+    declarado en tu TwiML).
     """
     if not text.strip():
-        logger.warning("[EL-HTTP] Texto vacío: no se envía TTS.")
-        return
+        logger.warning("[EL-HTTP] Texto vacío — omitido."); return
 
-    logger.info("[EL-HTTP] Solicitando TTS a ElevenLabs…")
-    body = REQUEST_BODY.copy()
-    body["text"] = text.strip()
-
-    FRAME = int(8000 * frame_ms / 1000)  # 160 muestras → 160 bytes μ-law
+    logger.info("[EL-HTTP] Streaming TTS desde ElevenLabs…")
+    body = REQUEST_BODY.copy(); body["text"] = text.strip()
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
-            async with client.stream(
-                "POST", STREAM_ENDPOINT, json=body, headers=HEADERS
-            ) as resp:
-
+            async with client.stream("POST", STREAM_ENDPOINT,
+                                      json=body, headers=HEADERS) as resp:
                 if resp.status_code != 200:
-                    logger.error(f"[EL-HTTP] Respuesta {resp.status_code}: {resp.text}")
-                    return
+                    logger.error(f"[EL-HTTP] {resp.status_code}: {resp.text}"); return
 
-                remainder = bytearray()
+                buffer = bytearray()
+                async for ulaw_chunk in resp.aiter_bytes():
+                    if not ulaw_chunk: continue
 
-                async for chunk in resp.aiter_bytes():
-                    if not chunk:
-                        continue
-
+                    # (Opcional) guarda el chunk crudo para pruebas
                     if DEBUG_TTS_DUMP:
                         ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
-                        (DUMP_DIR / f"{ts}.ulaw").write_bytes(chunk)
+                        (DUMP_DIR / f"{ts}.ulaw").write_bytes(ulaw_chunk)
 
-                    remainder.extend(chunk)
+                    buffer.extend(ulaw_chunk)
 
-                    while len(remainder) >= FRAME:
-                        frame = bytes(remainder[:FRAME])
-                        del remainder[:FRAME]
-                        await _send_ulaw_frame(frame, stream_sid, websocket_send)
+                    # Envía bloques de chunk_size (1 s) para no saturar
+                    while len(buffer) >= chunk_size:
+                        to_send = bytes(buffer[:chunk_size])
+                        del buffer[:chunk_size]
+                        await _send_ulaw_to_twilio(to_send, stream_sid, websocket_send)
 
-                # último trozo (si quedó algo menor a 160 bytes, Twilio lo ignora)
-                if remainder:
-                    logger.warning("[EL-HTTP] Frame incompleto descartado al final.")
+                if buffer:  # resto final
+                    await _send_ulaw_to_twilio(bytes(buffer), stream_sid, websocket_send)
 
     except Exception as e:
-        logger.error(f"[EL-HTTP] Error general: {e}", exc_info=True)
+        logger.error(f"[EL-HTTP] Error: {e}", exc_info=True)
 
-# ───────────────────────────────────────────────────────────────
-async def _send_ulaw_frame(
-    frame: bytes,
+# ---------------------------------------------------------------------------
+async def _send_ulaw_to_twilio(
+    ulaw_bytes: bytes,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
 ) -> None:
-    try:
-        await websocket_send(
-            json.dumps(
-                {
-                    "event": "media",
-                    "streamSid": stream_sid,
-                    "media": {
-                        "payload": base64.b64encode(frame).decode("ascii")
-                    },
-                }
-            )
-        )
-    except Exception as e:
-        logger.error(f"[EL-HTTP] No se pudo enviar frame a Twilio: {e}")
+    FRAME = 160  # 20 ms μ-law
+
+    for i in range(0, len(ulaw_bytes), FRAME):
+        frame = ulaw_bytes[i:i + FRAME]
+        if len(frame) < FRAME:
+            logger.warning("[EL-HTTP] Frame incompleto descartado."); continue
+
+        msg = {
+            "event": "media",
+            "streamSid": stream_sid,
+            "media": {"payload": base64.b64encode(frame).decode("ascii")},
+        }
+        try:
+            await websocket_send(json.dumps(msg))
+        except Exception as e:
+            logger.error(f"[EL-HTTP] No se pudo enviar frame a Twilio: {e}")
