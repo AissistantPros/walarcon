@@ -131,39 +131,37 @@ async def send_tts_http_to_twilio(
 # Helpers internos
 # ---------------------------------------------------------------------------
 async def _convert_and_send_chunk(
-    ulaw_bytes: bytes,
+    pcm_bytes: bytes,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
     volume_multiplier: float = 1.0,
 ) -> None:
     """
-    Recibe audio µ-law 8 kHz y lo envía a Twilio en frames de 160 bytes (20 ms).
-
-    • Si volume_multiplier ≠ 1.0, aplica ganancia con audioop.mul(width=1).
-    • No realiza conversión de formato: Eleven Labs ya entrega µ-law.
+    Recibe audio PCM-16 bit, 8 kHz, MONO.
+    ◦ Opcionalmente ajusta volumen con audioop.mul (solo para PCM).
+    ◦ Parte en frames de 20 ms = 160 muestras = 320 bytes.
+    ◦ Envía cada frame a Twilio tal cual — sin convertir a μ-law.
     """
-    # 1️⃣  Ajuste opcional de volumen
     try:
         if volume_multiplier != 1.0:
-            ulaw_bytes = audioop.mul(ulaw_bytes, 1, volume_multiplier)  # width=1 → µ-law
+            pcm_bytes = audioop.mul(pcm_bytes, 2, volume_multiplier)  # width=2 (16-bit)
+
     except Exception as e:
-        logger.warning(f"[EL-HTTP] Error ajustando volumen: {e}")
+        logger.warning(f"[EL-HTTP] Error al aplicar ganancia: {e}")
         return
 
-    # 2️⃣  Envía en frames de 160 bytes (20 ms)
-    for i in range(0, len(ulaw_bytes), 160):
-        frame = ulaw_bytes[i : i + 160]
-        if not frame or len(frame) < 160:
-            # Si el stream termina con un frame incompleto, lo ignoramos.
-            if frame:
-                logger.warning("[EL-HTTP] Stream terminó con frame incompleto — descartado.")
+    FRAME_BYTES = 320                      # 160 muestras * 2 bytes
+    for i in range(0, len(pcm_bytes), FRAME_BYTES):
+        frame = pcm_bytes[i:i + FRAME_BYTES]
+        if not frame:
             continue
 
-        payload_b64 = base64.b64encode(frame).decode("utf-8")
         message = {
             "event": "media",
             "streamSid": stream_sid,
-            "media": {"payload": payload_b64},
+            "media": {
+                "payload": base64.b64encode(frame).decode("ascii")
+            },
         }
         try:
             await websocket_send(json.dumps(message))

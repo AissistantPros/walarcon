@@ -292,17 +292,25 @@ async def root():
 async def twilio_voice():
     """
     Endpoint que Twilio llama cuando entra una llamada.
-    Responde con TwiML que abre un <Stream> hacia nuestro WebSocket.
+    Responde con TwiML que abre un <Stream> hacia nuestro WebSocket
+    y le indica a Twilio que use audio PCM lineal (audio/raw).
     """
     logger.info("📞 Nueva llamada entrante desde Twilio.")
+
     twiml_response = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
     <Stream name="AudioStream"
-            url="wss://walarcon.onrender.com/twilio-websocket" />
+            url="wss://walarcon.onrender.com/twilio-websocket"
+            track="inbound_track">
+      <!-- Fuerza a Twilio a usar PCM 16-bit, 8 kHz, mono -->
+      <Parameter name="content-type" value="audio/raw"/>
+    </Stream>
   </Connect>
 </Response>"""
+
     return Response(content=twiml_response, media_type="application/xml")
+
 
 
 @app.websocket("/twilio-websocket")
