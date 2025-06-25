@@ -28,7 +28,7 @@ REQUEST_BODY = {
     "voice_settings": {
         "stability": 0.7,
         "style": 0.5,
-        "use_speaker_boost": False,
+        "use_speaker_boost": True,
         "speed": 1.20,
     },
     "output_format": "ulaw_8000",          # ← μ-law 8 kHz
