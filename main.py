@@ -301,7 +301,7 @@ async def twilio_voice():
 <Response>
   <Connect>
     <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" track="inbound_track">
-      <Parameter name="content-type" value="audio/raw"/>
+      <Parameter name="content-type" value="audio/x-mulaw;rate=8000;channels=1"/>
     </Stream>
   </Connect>
 </Response>"""

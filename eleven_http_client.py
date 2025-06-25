@@ -1,24 +1,17 @@
 # eleven_http_client.py
 # ---------------------------------------------------------------
-# HTTP → ElevenLabs TTS  → WebSocket Twilio  (PCM 16-bit / 8 kHz)
+# HTTP → ElevenLabs TTS  → WebSocket Twilio  (μ-law 8 kHz / 20 ms)
 # ---------------------------------------------------------------
-import base64
-import json
-import logging
-import os
+import base64, json, logging, os
 from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
-
-import audioop  # type: ignore
 import httpx
 from decouple import config
 
-# ── Logging ────────────────────────────────────────────────────
 logger = logging.getLogger("eleven_http_client")
 logger.setLevel(logging.INFO)
 
-# ── Claves y constantes ────────────────────────────────────────
 ELEVEN_LABS_API_KEY: str = config("ELEVEN_LABS_API_KEY")
 ELEVEN_LABS_VOICE_ID: str = config("ELEVEN_LABS_VOICE_ID")
 
@@ -40,113 +33,89 @@ REQUEST_BODY = {
         "use_speaker_boost": False,
         "speed": 1.20,
     },
-    "output_format": "ulaw_8000",  # μ-law 8 kHz (plan básico)
+    "output_format": "ulaw_8000",   # ← μ-law 8 kHz mono
 }
 
-# ── Opcional: volcado de chunks brutos para depuración ─────────
+# ── opcional: guardar chunks crudos para depurar ───────────────
 DEBUG_TTS_DUMP = bool(int(os.getenv("DEBUG_TTS_DUMP", "0")))
 if DEBUG_TTS_DUMP:
     DUMP_DIR = Path("tts_dumps")
     DUMP_DIR.mkdir(exist_ok=True)
-    logger.info(f"[EL-HTTP] Dump de chunks ACTIVADO en: {DUMP_DIR.resolve()}")
+    logger.info(f"[EL-HTTP] Dump de chunks activado en {DUMP_DIR.resolve()}")
 
-# ---------------------------------------------------------------------------
-# Función pública
-# ---------------------------------------------------------------------------
+# ───────────────────────────────────────────────────────────────
 async def send_tts_http_to_twilio(
     *,
     text: str,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
-    chunk_size: int = 160 * 50,        # 1 s de audio (20 ms × 50)
-    volume_multiplier: float = 2.0,    # ganancia sobre PCM
+    frame_ms: int = 20,                # tamaño de frame en milisegundos
 ) -> None:
     """
-    Consume el endpoint streaming de ElevenLabs, convierte μ-law → PCM 16-bit,
-    aplica ganancia opcional y envía frames de 320 bytes (20 ms) a Twilio.
+    Pide TTS a ElevenLabs (μ-law 8 kHz) y reenvía los bytes tal cual
+    a Twilio en marcos de 160 bytes (20 ms).
     """
     if not text.strip():
-        logger.warning("[EL-HTTP] Texto vacío recibido — omitido.")
+        logger.warning("[EL-HTTP] Texto vacío: no se envía TTS.")
         return
 
-    logger.info("[EL-HTTP] Iniciando HTTP → ElevenLabs TTS …")
-
+    logger.info("[EL-HTTP] Solicitando TTS a ElevenLabs…")
     body = REQUEST_BODY.copy()
     body["text"] = text.strip()
+
+    FRAME = int(8000 * frame_ms / 1000)  # 160 muestras → 160 bytes μ-law
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
             async with client.stream(
                 "POST", STREAM_ENDPOINT, json=body, headers=HEADERS
-            ) as response:
-                if response.status_code != 200:
-                    logger.error(
-                        f"[EL-HTTP] ElevenLabs devolvió {response.status_code}: {response.text}"
-                    )
+            ) as resp:
+
+                if resp.status_code != 200:
+                    logger.error(f"[EL-HTTP] Respuesta {resp.status_code}: {resp.text}")
                     return
 
-                buffer = bytearray()
+                remainder = bytearray()
 
-                async for raw_chunk in response.aiter_bytes():
-                    if not raw_chunk:
+                async for chunk in resp.aiter_bytes():
+                    if not chunk:
                         continue
 
-                    # ── Volcado opcional del chunk μ-law crudo ───────────────
                     if DEBUG_TTS_DUMP:
                         ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S-%f")
-                        (DUMP_DIR / f"{ts}_raw.ulaw").write_bytes(raw_chunk)
+                        (DUMP_DIR / f"{ts}.ulaw").write_bytes(chunk)
 
-                    # μ-law → PCM 16-bit (8 kHz)
-                    pcm_chunk = audioop.ulaw2lin(raw_chunk, 2)
+                    remainder.extend(chunk)
 
-                    # Ganancia (solo sobre PCM)
-                    if volume_multiplier != 1.0:
-                        pcm_chunk = audioop.mul(pcm_chunk, 2, volume_multiplier)
+                    while len(remainder) >= FRAME:
+                        frame = bytes(remainder[:FRAME])
+                        del remainder[:FRAME]
+                        await _send_ulaw_frame(frame, stream_sid, websocket_send)
 
-                    buffer.extend(pcm_chunk)
+                # último trozo (si quedó algo menor a 160 bytes, Twilio lo ignora)
+                if remainder:
+                    logger.warning("[EL-HTTP] Frame incompleto descartado al final.")
 
-                    # ── Procesar mientras haya al menos chunk_size bytes ─────
-                    while len(buffer) >= chunk_size:
-                        to_send = bytes(buffer[:chunk_size])
-                        del buffer[:chunk_size]
-                        await _send_pcm_to_twilio(
-                            to_send, stream_sid, websocket_send
-                        )
+    except Exception as e:
+        logger.error(f"[EL-HTTP] Error general: {e}", exc_info=True)
 
-                # ── Restante al final ───────────────────────────────────────
-                if buffer:
-                    await _send_pcm_to_twilio(bytes(buffer), stream_sid, websocket_send)
-
-    except Exception as e:  # noqa: BLE001
-        logger.error(f"[EL-HTTP] Error general en HTTP ELabs: {e}", exc_info=True)
-
-
-# ---------------------------------------------------------------------------
-# Helpers internos
-# ---------------------------------------------------------------------------
-async def _send_pcm_to_twilio(
-    pcm_bytes: bytes,
+# ───────────────────────────────────────────────────────────────
+async def _send_ulaw_frame(
+    frame: bytes,
     stream_sid: str,
     websocket_send: Callable[[str], Awaitable[None]],
 ) -> None:
-    """
-    Divide el PCM 16-bit / 8 kHz en frames de 320 bytes (20 ms) y los envía.
-    """
-    FRAME = 320  # 160 muestras × 2 bytes
-
-    for i in range(0, len(pcm_bytes), FRAME):
-        frame = pcm_bytes[i : i + FRAME]
-        if len(frame) < FRAME:
-            logger.warning("[EL-HTTP] Frame incompleto descartado.")
-            continue
-
-        payload_b64 = base64.b64encode(frame).decode("ascii")
-        message = {
-            "event": "media",
-            "streamSid": stream_sid,
-            "media": {"payload": payload_b64},
-        }
-        try:
-            await websocket_send(json.dumps(message))
-        except Exception as e:
-            logger.error(f"[EL-HTTP] No se pudo enviar frame a Twilio: {e}")
+    try:
+        await websocket_send(
+            json.dumps(
+                {
+                    "event": "media",
+                    "streamSid": stream_sid,
+                    "media": {
+                        "payload": base64.b64encode(frame).decode("ascii")
+                    },
+                }
+            )
+        )
+    except Exception as e:
+        logger.error(f"[EL-HTTP] No se pudo enviar frame a Twilio: {e}")
