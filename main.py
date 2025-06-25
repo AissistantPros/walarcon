@@ -300,10 +300,7 @@ async def twilio_voice():
     twiml_response = """<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream name="AudioStream"
-            url="wss://walarcon.onrender.com/twilio-websocket"
-            track="inbound_track">
-      <!-- Fuerza a Twilio a usar PCM 16-bit, 8 kHz, mono -->
+    <Stream name="AudioStream" url="wss://walarcon.onrender.com/twilio-websocket" track="inbound_track">
       <Parameter name="content-type" value="audio/raw"/>
     </Stream>
   </Connect>
