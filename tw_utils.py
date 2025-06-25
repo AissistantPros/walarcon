@@ -269,8 +269,7 @@ class TwilioWebSocketManager:
                     await send_tts_http_to_twilio(
                         text=greeting_text,
                         stream_sid=self.stream_sid,
-                        websocket_send=self.websocket.send_text,
-                        volume_multiplier=2.0  # ← ajustable
+                        websocket_send=self.websocket.send_text
                     )
 
                     # ✅ Reactivar STT después del envío
@@ -889,8 +888,7 @@ class TwilioWebSocketManager:
             await send_tts_http_to_twilio(
                 text=texto,
                 stream_sid=self.stream_sid,
-                websocket_send=self.websocket.send_text,
-                volume_multiplier=2.0          # ajusta si quieres
+                websocket_send=self.websocket.send_text
             )
 
             # ── 5️⃣  Limpieza + re-activación de STT ─────────────────────────────
