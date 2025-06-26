@@ -52,7 +52,7 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
 
 
         # Amplifica el audio μ-law
-        GAIN = 1.5  # Puedes probar 1.5 o 2.5 si quieres afinar más
+        GAIN = 1  # Puedes probar 1.5 o 2.5 si quieres afinar más
 
         try:
             audio_data = audioop.mul(audio_data, 1, GAIN)
