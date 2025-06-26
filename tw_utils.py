@@ -114,7 +114,13 @@ class TwilioWebSocketManager:
         try:
             if os.path.exists(HOLD_MESSAGE_FILE):
                 with open(HOLD_MESSAGE_FILE, 'rb') as f:
-                    self.hold_audio_mulaw_bytes = f.read()
+                    raw = f.read()
+
+                # ── Si el archivo comienza con “RIFF” es un WAV; quita cabecera de 44 bytes ──
+                if raw[:4] == b"RIFF":
+                    raw = raw[44:]
+
+                self.hold_audio_mulaw_bytes = raw
                 if self.hold_audio_mulaw_bytes:
                     logger.info(f"Successfully loaded hold message '{HOLD_MESSAGE_FILE}' ({len(self.hold_audio_mulaw_bytes)} bytes).")
                 else:
@@ -264,6 +270,13 @@ class TwilioWebSocketManager:
                     self.tts_en_progreso = True
                     self.ignorar_stt = True
 
+
+                    # 🧹 Vacía el búfer de audio que Twilio pudiera tener
+                    await self.websocket.send_text(json.dumps({
+                        "event": "clear",
+                        "streamSid": self.stream_sid
+                    }))
+
                     # ▶️ Enviar TTS por HTTP
                     await send_tts_http_to_twilio(
                         text=greeting_text,
@@ -328,14 +341,23 @@ class TwilioWebSocketManager:
                     logger.info(f"🛑 Evento 'stop' recibido de Twilio (TS:{datetime.now().strftime(LOG_TS_FORMAT)[:-3]})")
                     await self._shutdown(reason="Twilio Stop Event")
                     # break # shutdown pone call_ended a True
+
+
                 elif event == "mark":
                     mark_name = data.get("mark", {}).get("name")
+                    if mark_name == "end_of_tts":                      
+                            self.ignorar_stt = False                      
+                            logger.info("🔈 Fin de TTS, STT reactivado")    
+
                     logger.debug(f"🔹 Evento 'mark' recibido: {mark_name} (TS:{datetime.now().strftime(LOG_TS_FORMAT)[:-3]})")
-                    pass    
+                    
                 elif event == "connected": # Ignorar este evento informativo
                      pass                   
                 else:
                     logger.warning(f"❓ Evento WebSocket desconocido: {event} (TS:{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}), Data: {str(data)[:200]}")
+
+
+
 
         except asyncio.CancelledError:
              logger.info("🚦 Tarea principal WebSocket cancelada (normal durante cierre).")
@@ -882,6 +904,15 @@ class TwilioWebSocketManager:
                 self._timeout_reactivar_stt(duracion_max),
                 name=f"TTS_TO_{self.call_sid or id(self)}"
             )
+
+
+            # 🧹 Vacía el búfer de audio que Twilio pudiera tener
+            await self.websocket.send_text(json.dumps({
+                "event": "clear",
+                "streamSid": self.stream_sid
+            }))
+
+
 
             # ── 4️⃣  Envía el TTS por HTTP a Twilio ─────────────────────────────
             await send_tts_http_to_twilio(
