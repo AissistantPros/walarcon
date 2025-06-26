@@ -35,7 +35,7 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
             "style": 0.45,
             "use_speaker_boost": False,
             "speed": 1.2,
-            "volume": 2.0
+            "volume": 4.0
         }
     }
 
