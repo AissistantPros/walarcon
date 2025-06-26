@@ -31,10 +31,11 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
         "text": text,
         "model_id": "eleven_multilingual_v2",
         "voice_settings": {
-            "stability": 0.7,
-            "style": 0.5,
+            "stability": 0.75,
+            "style": 0.45,
             "use_speaker_boost": False,
-            "speed": 1.0
+            "speed": 1.2,
+            "volume": 2.0
         }
     }
 
