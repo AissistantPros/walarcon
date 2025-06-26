@@ -9,7 +9,7 @@ import requests
 import asyncio
 import logging
 import json
-
+import audioop # type: ignore
 from io import BytesIO
 
 # ======= CREDENCIALES EN DURO (ajusta si lo quieres dinámico) =======
@@ -49,6 +49,18 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
                 audio_buffer.write(chunk)
 
         audio_data = audio_buffer.getvalue()
+
+
+        # Amplifica el audio μ-law
+        GAIN = 2.0  # Puedes probar 1.5 o 2.5 si quieres afinar más
+
+        try:
+            audio_data = audioop.mul(audio_data, 1, GAIN)
+            logger.info(f"🔊 Audio amplificado con ganancia x{GAIN}")
+        except Exception as e:
+            logger.warning(f"❌ Error al amplificar audio: {e}")
+
+
 
         # ── Si comienza con RIFF es un WAV → quita los primeros 44 bytes ──
         if audio_data[:4] == b"RIFF":
