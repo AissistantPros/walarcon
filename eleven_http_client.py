@@ -4,6 +4,7 @@
 # y lo envía a Twilio en chunks de 160 bytes.
 # --------------------------------------------------
 
+import base64
 import requests
 import asyncio
 import logging
@@ -47,6 +48,14 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
                 audio_buffer.write(chunk)
 
         audio_data = audio_buffer.getvalue()
+
+        # ── Si comienza con RIFF es un WAV → quita los primeros 44 bytes ──
+        if audio_data[:4] == b"RIFF":
+            logger.warning("⚠️  ElevenLabs devolvió WAV; eliminando cabecera de 44 bytes")
+            audio_data = audio_data[44:]
+
+
+
         logger.info(f"✅ Audio TTS recibido ({len(audio_data)} bytes)")
 
         # Enviar en chunks de 160 bytes (20 ms por frame a 8kHz)
@@ -62,7 +71,8 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
                 "event": "media",
                 "streamSid": stream_sid,
                 "media": {
-                    "payload": frame.hex()
+                    "payload": base64.b64encode(frame).decode("ascii")
+
                 }
             }))
             await asyncio.sleep(0.02)  # espera 20 ms por frame (match con realtime)
