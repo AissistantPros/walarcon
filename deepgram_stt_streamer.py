@@ -30,7 +30,7 @@ class DeepgramSTTStreamer:
         on_disconnect_callback: función a llamar cuando Deepgram se desconecta inesperadamente
         """
         self.callback = callback
-        self.on_disconnect_callback = on_disconnect_callback # <--- NUEVA LÍNEA
+        self.on_disconnect_callback = on_disconnect_callback 
         self.deepgram = None
         if DEEPGRAM_KEY:
             try:
@@ -84,7 +84,7 @@ class DeepgramSTTStreamer:
 
             options = LiveOptions(
                 model="nova-2",
-                language="es",
+                #language="es",
                 encoding="mulaw",
                 sample_rate=8000,
                 channels=1,
