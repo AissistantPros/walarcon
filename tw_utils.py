@@ -21,6 +21,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from state_store import session_state
 from eleven_http_client import send_tts_http_to_twilio
+from deepgram_tts_client import send_deepgram_tts_to_twilio
 from utils import terminar_llamada_twilio
 import utils
 
@@ -279,12 +280,29 @@ class TwilioWebSocketManager:
                         "streamSid": self.stream_sid
                     }))
 
-                    # ▶️ Enviar TTS por HTTP
-                    await send_tts_http_to_twilio(
-                        text=greeting_text,
-                        stream_sid=self.stream_sid,
-                        websocket_send=self.websocket.send_text
-                    )
+                    # ▶️ Enviar TTS (Deepgram como preferencia)
+                    try:
+                        await send_deepgram_tts_to_twilio(
+                            text=greeting_text,
+                            stream_sid=self.stream_sid,
+                            websocket_send=self.websocket.send_text,
+                        )
+                    except Exception as e_dg:
+                        logger.error(
+                            f"Deepgram TTS fallo en saludo: {e_dg}. Usando ElevenLabs."
+                        )
+                        await send_tts_http_to_twilio(
+                            text=greeting_text,
+                            stream_sid=self.stream_sid,
+                            websocket_send=self.websocket.send_text,
+                        )
+                    #
+                    # ▶️ Enviar TTS por HTTP (implementación original)
+                    # await send_tts_http_to_twilio(
+                    #     text=greeting_text,
+                    #     stream_sid=self.stream_sid,
+                    #     websocket_send=self.websocket.send_text,
+                    # )
 
                     # ✅ Reactivar STT después del envío
                     await self._reactivar_stt_despues_de_envio()
@@ -934,16 +952,43 @@ class TwilioWebSocketManager:
 
 
 
-            # ── 4️⃣  Envía el TTS por HTTP a Twilio ─────────────────────────────
+            # ── 4️⃣  Envía el TTS a Twilio (Deepgram preferido) ────────────────
             ts_tts_start = self._now()
-            await send_tts_http_to_twilio(
-                text=texto,
-                stream_sid=self.stream_sid,
-                websocket_send=self.websocket.send_text
-            )
-            ts_tts_end = self._now()
-            tts_total_ms = (ts_tts_end - ts_tts_start) * 1000
-            logger.info(f"📦 TTS→Twilio completo en {tts_total_ms:.1f} ms")
+            try:
+                await send_deepgram_tts_to_twilio(
+                    text=texto,
+                    stream_sid=self.stream_sid,
+                    websocket_send=self.websocket.send_text,
+                )
+                ts_tts_end = self._now()
+                tts_total_ms = (ts_tts_end - ts_tts_start) * 1000
+                logger.info(
+                    f"📦 Deepgram TTS→Twilio completo en {tts_total_ms:.1f} ms"
+                )
+            except Exception as e_dg:
+                logger.error(f"Deepgram TTS fallo: {e_dg}. Usando ElevenLabs.")
+                ts_tts_start = self._now()
+                await send_tts_http_to_twilio(
+                    text=texto,
+                    stream_sid=self.stream_sid,
+                    websocket_send=self.websocket.send_text,
+                )
+                ts_tts_end = self._now()
+                tts_total_ms = (ts_tts_end - ts_tts_start) * 1000
+                logger.info(
+                    f"📦 ElevenLabs TTS→Twilio completo en {tts_total_ms:.1f} ms"
+                )
+            #
+            # ── 4️⃣  Envía el TTS por HTTP a Twilio (implementación original)
+            # ts_tts_start = self._now()
+            # await send_tts_http_to_twilio(
+            #     text=texto,
+            #     stream_sid=self.stream_sid,
+            #     websocket_send=self.websocket.send_text
+            # )
+            # ts_tts_end = self._now()
+            # tts_total_ms = (ts_tts_end - ts_tts_start) * 1000
+            # logger.info(f"📦 TTS→Twilio completo en {tts_total_ms:.1f} ms")
 
 
             # ── 5️⃣  Limpieza + re-activación de STT ─────────────────────────────
