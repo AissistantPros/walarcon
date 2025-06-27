@@ -44,6 +44,10 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
         response = requests.post(url, json=payload, headers=headers, stream=True)
         response.raise_for_status()
 
+        ts_elabs_first_chunk = None      # ← inicializa la variable
+        ts_elabs_request     = time.perf_counter()   # marca el momento de la petición
+
+
         audio_buffer = BytesIO()
         for chunk in response.iter_content(chunk_size=4096):
             if chunk:
@@ -99,7 +103,7 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
         ts_send_end = time.perf_counter()
         envio_ms = (ts_send_end - ts_send_start) * 1000
         logger.info(f"📶 Audio enviado a Twilio en {envio_ms:.1f} ms")
-        
+
         # Enviar marca de fin para saber que ya acabó el audio
         await websocket_send(json.dumps({
             "event": "mark",
