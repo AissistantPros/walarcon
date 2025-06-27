@@ -27,7 +27,7 @@ import audioop  # type: ignore
 import requests
 
 DEEPGRAM_KEY = os.environ["DEEPGRAM_KEY"]
-DEEPGRAM_TTS_MODEL = os.environ("DEEPGRAM_TTS_MODEL", "aura-2-estrella-es")
+DEEPGRAM_TTS_MODEL = os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-estrella-es")
 
 FRAME_SIZE = 160  # 20 ms @ 8 kHz \u00b5-law
 GROUP_FRAMES = 5
