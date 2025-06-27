@@ -3,7 +3,7 @@
 """
 aiagent – motor de decisión para la asistente telefónica
 ────────────────────────────────────────────────────────
-• Único modelo → gpt-4o-mini (o el que estés usando)
+• Único modelo → (o el que estés usando)
 • Flujos main / edit / delete con redirecciones internas
 • Nueva "súper herramienta" process_appointment_request
 • Métricas de latencia (🕒 ms) en todos los pases Chat-GPT
@@ -169,7 +169,6 @@ TOOLS = [
                 "type": "object",
                 "properties": {
                     "event_id": {"type": "string", "description": "El ID del evento de calendario a modificar. Obtenido de 'search_calendar_event_by_phone'."},
-                    # "original_start_time" SE ELIMINA COMO PARÁMETRO DE ESTA HERRAMIENTA
                     "new_start_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de inicio para la cita en formato ISO8601 con offset (ej. 2025-MM-DDTHH:MM:SS-05:00). Obtenida de 'process_appointment_request'."}, # CAMBIADO a _iso
                     "new_end_time_iso": {"type": "string", "format": "date-time", "description": "Nueva hora de fin para la cita en formato ISO8601 con offset. Obtenida de 'process_appointment_request'."}, # CAMBIADO a _iso
                     "new_name": {"type": "string", "description": "Opcional. Nuevo nombre del paciente si el usuario desea cambiarlo."},
@@ -285,7 +284,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4o-mini") -> str: #
+async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-nano") -> str: #
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
 
