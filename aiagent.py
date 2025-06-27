@@ -3,7 +3,7 @@
 """
 aiagent – motor de decisión para la asistente telefónica
 ────────────────────────────────────────────────────────
-• Único modelo → gpt-4.1-mini (o el que estés usando)
+• Único modelo → gpt-4o-mini (o el que estés usando)
 • Flujos main / edit / delete con redirecciones internas
 • Nueva "súper herramienta" process_appointment_request
 • Métricas de latencia (🕒 ms) en todos los pases Chat-GPT
@@ -285,7 +285,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
+async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4o-mini") -> str: #
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
 

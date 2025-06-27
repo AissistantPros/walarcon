@@ -845,7 +845,7 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "user", "content": user_text})
 
         try:
-            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
+            model_a_usar = config("CHATGPT_MODEL", default="gpt-4o-mini")
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             start_gpt_call = self._now()
@@ -1245,11 +1245,10 @@ class TwilioWebSocketManager:
 
 
 
-def estimar_duracion_tts(texto: str, margen: float = 1.08) -> float:
-    palabras = len(texto.split())
-    segundos = palabras / 3.3          # ≈ 3.3 wps
-    return max(segundos, 0.8) * margen # nunca menos de 0.8 s
-
+def estimar_duracion_tts(texto: str) -> float:
+    # 13 caracteres ≈ 1 seg a 1.2 × (empírico)
+    secs = len(texto) / 13 / 1.2
+    return secs * 1.2 + 3      # +20 % colchón + 3 s extra
 
 
 # --- Función de ayuda para nivel de log ---
