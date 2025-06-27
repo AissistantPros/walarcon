@@ -46,7 +46,7 @@ logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuev
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .25
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
 LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 10 # Umbral para mensaje de espera
 HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
@@ -166,7 +166,7 @@ class TwilioWebSocketManager:
         self.ignorar_stt = False
         self.ultimo_evento_fue_parcial = False
         now = self._now()
-        # stream_start_time se mantiene desde __init__
+        
         self.last_activity_ts = now
         self.last_final_ts = now
         self.finales_acumulados = []
