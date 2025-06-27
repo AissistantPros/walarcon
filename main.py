@@ -2,7 +2,7 @@
 import os
 import logging
 from fastapi import FastAPI, Response, WebSocket, Body, Request
-from aiagent import generate_openai_response_main, generate_openai_response_ultravox
+from aiagent import generate_openai_response_main
 from tw_utils import TwilioWebSocketManager, set_debug   
 from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache 
 from consultarinfo import router as consultorio_router 
@@ -324,14 +324,3 @@ async def twilio_websocket(websocket: WebSocket):
 
 
 
-
-@app.post("/process_appointment_request")
-async def process_appointment_request(request: Request):
-    payload = await request.json()
-    logger.info(f"📦 Payload recibido desde Ultravox: {payload}")
-
-    try:
-        respuesta = await generate_openai_response_ultravox(payload)
-        return respuesta
-    except Exception as e:
-        return {"error": str(e)}
