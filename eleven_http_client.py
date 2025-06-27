@@ -43,7 +43,7 @@ ELEVEN_LABS_VOICE_ID = os.environ["ELEVEN_LABS_VOICE_ID"]
 FRAME_SIZE         = 160          # 160 bytes  → 20 ms @ 8 kHz μ‑law
 GROUP_FRAMES       = 5            # máx. 100 ms por paquete (1‑5 frames)
 MAX_AHEAD_MS       = 200          # no enviar >200 ms adelantado al tiempo real
-GAIN               = 1.1          # Ganancia de audio (multiplicador)
+GAIN               = 1         # Ganancia de audio (multiplicador)
 
 logger = logging.getLogger("eleven_http_client")
 

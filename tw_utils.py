@@ -845,7 +845,7 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "user", "content": user_text})
 
         try:
-            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
+            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-nano")
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             start_gpt_call = self._now()
