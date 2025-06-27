@@ -22,6 +22,7 @@ from starlette.websockets import WebSocketState
 from state_store import session_state
 from eleven_http_client import send_tts_http_to_twilio
 from utils import terminar_llamada_twilio
+import utils
 
 
 
@@ -74,6 +75,7 @@ class TwilioWebSocketManager:
         self.temporizador_pausa: Optional[asyncio.Task] = None 
         self.tts_timeout_task: Optional[asyncio.Task] = None
         self.audio_espera_task: Optional[asyncio.Task] = None
+        self.finalizar_llamada_pendiente = False
 
         self.call_sid: str = "" 
         self.stream_sid: Optional[str] = None 
@@ -865,9 +867,18 @@ class TwilioWebSocketManager:
             self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
 
             if reply_cleaned == "__END_CALL__":
-                logger.info("🔚 GPT pidió finalizar la llamada. Ejecutando shutdown…")
-                await self._shutdown(reason="gpt_requested_end_call")
+                logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
+                self.finalizar_llamada_pendiente = True
+                # Lanza la corrutina de cierre con despedida y sale
+                asyncio.create_task(
+                    utils.cierre_con_despedida(
+                        manager=self,
+                        reason="user_request",
+                        delay=7.0       # segundos de margen para que se reproduzca el TTS
+                    )
+                )
                 return
+
 
             await self.handle_tts_response(reply_cleaned, last_final_ts)
 
@@ -938,12 +949,7 @@ class TwilioWebSocketManager:
             # ── 5️⃣  Limpieza + re-activación de STT ─────────────────────────────
             await self._reactivar_stt_despues_de_envio()
 
-            # ── 6️⃣  Detecta si es despedida para cerrar la llamada ──────────────
-            if any(frase in texto.lower()
-                for frase in ("fue un placer atenderle", "gracias por comunicarse")):
-                logger.info("👋 Despedida detectada; cerrando llamada.")
-                await asyncio.sleep(0.2)                # breve pausa opcional
-                await self._shutdown(reason="Assistant farewell")
+
 
         except asyncio.CancelledError:
             logger.info("🚫 handle_tts_response cancelado (normal en shutdown).")

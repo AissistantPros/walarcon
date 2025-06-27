@@ -7,7 +7,7 @@ Módulo de utilidades para integración con Google APIs y manejo de tiempo.
 import base64
 import os
 import json
-import logging
+import logging, asyncio
 import threading
 from datetime import datetime, timedelta, date # Asegúrate que 'date' está aquí
 import httpx
@@ -16,14 +16,18 @@ from dotenv import load_dotenv
 from decouple import config
 from googleapiclient.discovery import build
 from google.oauth2.service_account import Credentials
-# from dateutil.parser import parse # No se usa directamente en este archivo ahora
-import locale # No se usa directamente en este archivo ahora
 import re
 from typing import Dict, Optional, List, Any # Añadido Any y List
 from state_store import session_state
-
+from twilio.rest import Client
 
       
+logger = logging.getLogger("utils")
+
+ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN")
+_twilio_client = Client(ACCOUNT_SID, AUTH_TOKEN)
+
 
 
 # Cargar variables de entorno
@@ -387,25 +391,49 @@ def search_calendar_event_by_phone(phone: str) -> List[Dict[str, Any]]:
 
 
 
-async def terminar_llamada_twilio(call_sid: str):
-    """Finaliza formalmente una llamada activa en Twilio usando la REST API."""
-    account_sid = config("TWILIO_ACCOUNT_SID")
-    auth_token = config("TWILIO_AUTH_TOKEN")
 
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Calls/{call_sid}.json"
 
-    data = {
-        "status": "completed" 
-    }
+
+
+
+
+
+async def terminar_llamada_twilio(call_sid: str, motivo: str = "completed"):
+    """
+    Marca la llamada como 'completed' en Twilio (cuelga).
+    """
+    logger.info("☎️  Terminando llamada %s en Twilio (motivo=%s)…", call_sid, motivo)
+    await asyncio.to_thread(
+        _twilio_client.calls(call_sid).update,
+        status="completed"
+    )
+    logger.info("✅ Twilio confirmó cierre de llamada %s.", call_sid)
+
+
+async def cierre_con_despedida(manager, reason: str, delay: float = 7.0):
+    """
+    1) Envía despedida TTS.
+    2) Espera `delay` s para que Twilio la reproduzca.
+    3) Cuelga la llamada en Twilio.
+    4) Llama a _shutdown().
+    """
+    FAREWELL = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, data=data, auth=(account_sid, auth_token), timeout=5.0)
-            if response.status_code == 200:
-                logger.info(f"📞 Twilio: Llamada {call_sid} finalizada exitosamente.")
-            else:
-                logger.warning(f"⚠️ Twilio: No se pudo finalizar la llamada {call_sid}. Código: {response.status_code}, Detalle: {response.text}")
-    except Exception as e:
-        logger.error(f"❌ Error al finalizar llamada en Twilio (call_sid={call_sid}): {e}")
+        # 1️⃣  Despedida
+        await manager.handle_tts_response(FAREWELL, None)
 
+        # 2️⃣  Pausa
+        logger.info("⏳ Esperando %.1fs antes de colgar…", delay)
+        await asyncio.sleep(delay)
 
+        # 3️⃣  Cuelga en Twilio
+        if manager.call_sid:
+            await terminar_llamada_twilio(manager.call_sid, reason)
+            manager.twilio_terminated = True
+        else:
+            logger.warning("⚠️  Sin call_sid; no se pudo colgar en Twilio.")
+
+    finally:
+        # 4️⃣  Shutdown normal
+        await manager._shutdown(reason=f"assistant_farewell ({reason})")

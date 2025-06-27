@@ -417,11 +417,7 @@ PASO E6. Confirmar el resultado de la eliminación al usuario:
 
 ================  T E R M I N A R   L A   L L A M A D A  =================
 Razones para terminar la llamada:
-  - El usuario se despide (ej. "gracias, hasta luego", "bye"). → `reason="user_request"`
-  - Tarea completada exitosamente (cita agendada/modificada/cancelada y no hay más solicitudes). → `reason="task_completed"`
-  - Llamada de SPAM. → `reason="spam"`
-***TE TIENES DESPEDIR SIEMPRE CON:***
-   “Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!”  
+  - El usuario se despide (ej. "gracias, hasta luego", "Adios", "bye"). → `reason="user_request"`
     Para terminar la llamada, usa la función `end_call()`.
    
 
