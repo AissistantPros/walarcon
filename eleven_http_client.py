@@ -125,7 +125,7 @@ async def send_tts_http_to_twilio(
     try:
         if gain != 1.0:
             audio_raw = audioop.mul(audio_raw, 1, gain)
-            logger.info("🔊 Audio amplificado x%.2f", gain)
+            #logger.info("🔊 Audio amplificado x%.2f", gain)
     except Exception as exc:
         logger.warning("❌ Error al amplificar audio: %s", exc)
 
