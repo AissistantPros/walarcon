@@ -84,7 +84,7 @@ class DeepgramSTTStreamer:
 
             options = LiveOptions(
                 model="nova-2",
-                #language="es",
+                language="es",
                 encoding="mulaw",
                 sample_rate=8000,
                 channels=1,
