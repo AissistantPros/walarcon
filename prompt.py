@@ -420,7 +420,7 @@ Razones para terminar la llamada:
   - El usuario se despide (ej. "gracias, hasta luego", "bye"). → `reason="user_request"`
   - Tarea completada exitosamente (cita agendada/modificada/cancelada y no hay más solicitudes). → `reason="task_completed"`
   - Llamada de SPAM. → `reason="spam"`
-
+***TE TIENES DESPEDIR SIEMPRE CON:***
    “Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!”  
     Para terminar la llamada, usa la función `end_call()`.
    

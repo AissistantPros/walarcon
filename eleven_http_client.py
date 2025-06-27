@@ -5,6 +5,7 @@
 # --------------------------------------------------
 
 import base64
+import time
 import requests
 import asyncio
 import logging
@@ -33,26 +34,30 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
         "voice_settings": {
             "stability": 0.75,
             "style": 0.45,
-            "use_speaker_boost": False,
-            "speed": 1.2,
-            "volume": 4.0
+            "use_speaker_boost": True,
+            "speed": 1.2
         }
     }
 
     try:
+        ts_elabs_request = time.perf_counter()
         response = requests.post(url, json=payload, headers=headers, stream=True)
         response.raise_for_status()
 
         audio_buffer = BytesIO()
         for chunk in response.iter_content(chunk_size=4096):
             if chunk:
+                if ts_elabs_first_chunk is None:
+                    ts_elabs_first_chunk = time.perf_counter()
+                    latency_ms = (ts_elabs_first_chunk - ts_elabs_request) * 1000
+                    logger.info(f"⏱️ ElevenLabs respondió primer chunk tras {latency_ms:.1f} ms")
                 audio_buffer.write(chunk)
 
         audio_data = audio_buffer.getvalue()
 
 
         # Amplifica el audio μ-law
-        GAIN = 1.2  # Puedes probar 1.5 o 2.5 si quieres afinar más
+        GAIN = 1  # Puedes probar 1.5 o 2.5 si quieres afinar más
 
         try:
             audio_data = audioop.mul(audio_data, 1, GAIN)
@@ -76,6 +81,8 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
         total_frames = len(audio_data) // frame_size
         logger.info(f"📤 Enviando {total_frames} frames a Twilio…")
 
+
+        ts_send_start = time.perf_counter()
         for i in range(0, len(audio_data), frame_size):
             frame = audio_data[i:i + frame_size]
             if len(frame) < frame_size:
@@ -89,7 +96,10 @@ async def send_tts_http_to_twilio(text, stream_sid, websocket_send):
                 }
             }))
             await asyncio.sleep(0.02)  # espera 20 ms por frame (match con realtime)
-
+        ts_send_end = time.perf_counter()
+        envio_ms = (ts_send_end - ts_send_start) * 1000
+        logger.info(f"📶 Audio enviado a Twilio en {envio_ms:.1f} ms")
+        
         # Enviar marca de fin para saber que ya acabó el audio
         await websocket_send(json.dumps({
             "event": "mark",

@@ -301,7 +301,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=TOOLS, 
             tool_choice="auto",
-            max_tokens=150, 
+            max_tokens=100, 
             temperature=0.2, 
             timeout=15, 
         ).choices[0].message
@@ -340,8 +340,8 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=TOOLS, 
             tool_choice="auto",
-            #max_tokens=150, 
-            #temperature=0.2,
+            max_tokens=100, 
+            temperature=0.2,
         ).choices[0].message
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
 
@@ -353,16 +353,3 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
 
 
-async def generate_openai_response_ultravox(payload: dict):
-    try:
-        history = payload.get("history") or [ { "role": "user", "content": payload.get("user_query_for_date_time", "") } ]
-        resultado = await generate_openai_response_main(history)
-        return {
-            "status": "RAW_MESSAGE",
-            "message": resultado
-        }
-    except Exception as e:
-        return {
-            "status": "ERROR",
-            "message": "Error interno al procesar la solicitud desde Ultravox."
-        }
