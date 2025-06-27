@@ -410,7 +410,9 @@ async def terminar_llamada_twilio(call_sid: str, motivo: str = "completed"):
     logger.info("✅ Twilio confirmó cierre de llamada %s.", call_sid)
 
 
-async def cierre_con_despedida(manager, reason: str, delay: float = 7.0):
+
+
+async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
     """
     1) Envía despedida TTS.
     2) Espera `delay` s para que Twilio la reproduzca.
@@ -420,6 +422,12 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 7.0):
     FAREWELL = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
 
     try:
+        # --- MODIFICACIÓN ---
+        # Activamos el modo "ignorar STT" inmediatamente
+        manager.ignorar_stt = True
+        logger.info("🤫 Activando ignorar_stt para la secuencia de cierre.")
+        # --- FIN DE LA MODIFICACIÓN ---
+
         # 1️⃣  Despedida
         await manager.handle_tts_response(FAREWELL, None)
 

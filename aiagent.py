@@ -284,7 +284,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-nano") -> str: #
+async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
 
