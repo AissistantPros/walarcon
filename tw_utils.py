@@ -325,19 +325,32 @@ class TwilioWebSocketManager:
                             greeting_text,
                             on_chunk=_send_greet_chunk,
                             on_end=_on_greet_end,
+                            timeout_first_chunk=3.0,
                         )
                         if not ok:
                             raise RuntimeError("Deepgram tardó en dar el primer chunk")
 
                     except Exception as e_dg_greet:
                         logger.error(f"Deepgram TTS falló en saludo: {e_dg_greet}. Usando ElevenLabs.")
+
+                        # ── 1) Cerrar con seguridad el WS de Deepgram si sigue abierto ─────────
+                        try:
+                            if getattr(self, "dg_tts_client", None):
+                                await self.dg_tts_client.close()          # cierre limpio
+                                self.dg_tts_client = None                 # se recreará luego
+                        except Exception as e_close:
+                            logger.debug(f"DG TTS WS ya cerrado o falló al cerrar: {e_close}")
+
+                        # ── 2) Fallback a ElevenLabs (HTTP) ────────────────────────────────────
                         await send_tts_http_to_twilio(
                             text=greeting_text,
                             stream_sid=self.stream_sid,
                             websocket_send=self.websocket.send_text,
                         )
-                        # Con ElevenLabs reactivamos STT aquí mismo
+
+                        # ── 3) Reactivar STT tan pronto termine el envío del fallback ──────────
                         await self._reactivar_stt_despues_de_envio()
+
 
                     # Actualizar CallSid si aplica
                     start_data = data.get("start", {})
@@ -1019,6 +1032,7 @@ class TwilioWebSocketManager:
                     texto,
                     on_chunk=_send_chunk,
                     on_end=self._reactivar_stt_despues_de_envio,   # STT se reactiva al cerrar el WS
+                    timeout_first_chunk=3.0,
                 )
                 if not ok:
                     raise RuntimeError("Deepgram tardó demasiado en dar el primer chunk")
