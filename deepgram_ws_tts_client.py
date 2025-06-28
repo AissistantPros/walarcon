@@ -71,12 +71,20 @@ class DeepgramTTSSocketClient:
         self._conn.on(SpeakWebSocketEvents.Open, self._on_open)
         self._conn.on(SpeakWebSocketEvents.AudioData, self._on_audio)
         self._conn.on(SpeakWebSocketEvents.Close, self._on_close)
-
+        self._conn.on(SpeakWebSocketEvents.Metadata, self._on_metadata) # Nuevo: metadata   
         # Arrancar
         if not self._conn.start(self._options):
             raise RuntimeError("No se pudo iniciar conexión WebSocket con Deepgram")
 
     # ──────────────────────────── Handlers internos (en thread) ────────────────────────────
+
+    def _on_metadata(self, *args, **kwargs):
+        """Maneja el evento de metadatos (fin de TTS)"""
+        logger.info("🔚 Evento de metadatos recibido (fin de TTS)")
+        if self._user_end:
+            asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
+
+
     def _on_open(self, *_):
         self._loop.call_soon_threadsafe(self._ws_open.set)
 
@@ -152,5 +160,11 @@ class DeepgramTTSSocketClient:
 
 
     async def close(self):
-        self._conn.finish()
-        await self._ws_close.wait()
+        try:
+            if not self._ws_close.is_set():
+                self._conn.finish()
+                await asyncio.wait_for(self._ws_close.wait(), timeout=2.0)
+        except asyncio.TimeoutError:
+            logger.warning("Timeout al cerrar conexión TTS")
+        except Exception as e:
+            logger.error(f"Error al cerrar TTS: {e}")

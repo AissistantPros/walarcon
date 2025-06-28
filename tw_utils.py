@@ -327,6 +327,9 @@ class TwilioWebSocketManager:
                             on_end=_on_greet_end,
                             timeout_first_chunk=3.0,
                         )
+                        await self._send_mark_end_of_tts()
+                        await self.dg_tts_client.close()
+
                         if not ok:
                             raise RuntimeError("Deepgram tardó en dar el primer chunk")
 
@@ -838,11 +841,7 @@ class TwilioWebSocketManager:
         """Limpia buffers, informa a Twilio que terminó el TTS y re‑habilita STT."""
         log_prefix = f"ReactivarSTT_{self.call_sid}"
 
-        # 0. Notificar a Twilio que el TTS ha terminado (mark end_of_tts)
-        try:
-            await self._send_mark_end_of_tts()
-        except Exception as e:
-            logger.debug(f"[{log_prefix}] No se pudo enviar mark end_of_tts: {e}")
+
 
         # 1. Limpiar buffers de audio
         async with self.audio_buffer_lock:
@@ -1035,6 +1034,10 @@ class TwilioWebSocketManager:
                     on_end=self._reactivar_stt_despues_de_envio,   # STT se reactiva al cerrar el WS
                     timeout_first_chunk=3.0,
                 )
+
+                await self._send_mark_end_of_tts()
+                await self.dg_tts_client.close()
+
                 if not ok:
                     raise RuntimeError("Deepgram tardó demasiado en dar el primer chunk")
 
