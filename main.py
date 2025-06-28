@@ -20,20 +20,22 @@ import traceback
 import json
 
 
-
 # ───────── CONFIGURACIÓN DE LOGGING ────────────────────────────
+import fastapi.logger as fastapi_logger
+
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)s | %(name)s: %(message)s",
                     datefmt="%H:%M:%S")
-fastapi.logger = logging.getLogger("fastapi")
-logging.getLogger("eleven_ws_client").setLevel(logging.DEBUG)
 
-
+# 🔧 Parche para Deepgram: asegurar que fastapi.logger tenga los métodos info/warning/etc
+_base = logging.getLogger("fastapi")
+for lvl in ("info", "warning", "error", "debug"):
+    if not hasattr(fastapi_logger, lvl):
+        setattr(fastapi_logger, lvl, getattr(_base, lvl))
 
 logger = logging.getLogger(__name__)
 
 # Silenciamos verbosidad de librerías externas
-# NIVEL PARA LIBRERÍAS EXTERNAS “NOISY”
 for noisy in (
     "openai._base_client",    # peticiones HTTP a OpenAI
     "httpcore.http11",        # tráfico httpx-httpcore
@@ -41,7 +43,6 @@ for noisy in (
     "httpx",
     "websockets.client",
     "websockets.server",
-    # Añade aquí cualquier otro módulo que genere ruido que quieras eliminar:
     "urllib3.connectionpool",
     "asyncio",
     "uvicorn.access",
@@ -50,7 +51,6 @@ for noisy in (
     "fastapi",
 ):
     logging.getLogger(noisy).setLevel(logging.WARNING)
-
 
 
 
