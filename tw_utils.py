@@ -303,14 +303,13 @@ class TwilioWebSocketManager:
 
 
                     # ▶️ Enviar TTS (Deepgram WS primero, ElevenLabs fallback)
-                    def _send_greet_chunk(chunk: bytes):
-                        """Deepgram llama a esta función (no await). Reenvía el audio al loop principal."""
-                        coro = self.websocket.send_text(json.dumps({
+                    async def _send_greet_chunk(chunk: bytes) -> None:          # ← ahora es async
+                        await self.websocket.send_text(json.dumps({
                             "event": "media",
                             "streamSid": self.stream_sid,
                             "media": { "payload": base64.b64encode(chunk).decode() },
                         }))
-                        run_coroutine_threadsafe(coro, loop)
+
 
 
                     async def _on_greet_end():
@@ -778,9 +777,6 @@ class TwilioWebSocketManager:
 
 
 
-
-
-
     async def process_gpt_response_wrapper(self, texto_para_gpt: str, last_final_ts: Optional[float]):
         """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
         ts_wrapper_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -791,19 +787,6 @@ class TwilioWebSocketManager:
         finally:
             ts_wrapper_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
             logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_GPT_WRAPPER Finalizado. STT seguirá desactivado hasta isFinal de TTS")
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
     async def _timeout_reactivar_stt(self, segundos: float):
@@ -819,7 +802,7 @@ class TwilioWebSocketManager:
 
             if self.tts_en_progreso:        # --> sigue “hablando” según nuestro estado
                 logger.warning(f"[TTS-TIMEOUT] Pasaron {segundos:.1f}s sin isFinal; "
-                            "reactivando STT por seguridad.")
+                               "reactivando STT por seguridad.")
                 self.tts_en_progreso = False
                 await self._reactivar_stt_despues_de_envio()
         except asyncio.CancelledError:
@@ -827,14 +810,25 @@ class TwilioWebSocketManager:
             pass
 
 
-
-
-
-
+    async def _send_mark_end_of_tts(self) -> None:
+        """Envía explícitamente el evento mark end_of_tts a Twilio."""
+        if self.websocket.application_state == WebSocketState.CONNECTED:
+            await self.websocket.send_text(json.dumps({
+                "event": "mark",
+                "streamSid": self.stream_sid,
+                "mark": {"name": "end_of_tts"}
+            }))
 
 
     async def _reactivar_stt_despues_de_envio(self):
+        """Limpia buffers, informa a Twilio que terminó el TTS y re‑habilita STT."""
         log_prefix = f"ReactivarSTT_{self.call_sid}"
+
+        # 0. Notificar a Twilio que el TTS ha terminado (mark end_of_tts)
+        try:
+            await self._send_mark_end_of_tts()
+        except Exception as e:
+            logger.debug(f"[{log_prefix}] No se pudo enviar mark end_of_tts: {e}")
 
         # 1. Limpiar buffers de audio
         async with self.audio_buffer_lock:
@@ -853,16 +847,13 @@ class TwilioWebSocketManager:
 
         # 5. Reactivar STT
         self.ignorar_stt = False
-        self.tts_en_progreso = False  
+        self.tts_en_progreso = False
         logger.info(f"[{log_prefix}] 🟢 STT reactivado (ignorar_stt=False).")
 
-        # Si había un cronómetro esperando, lo cancelamos
+        # 6. Cancelar cronómetro de timeout si existía
         if self.tts_timeout_task and not self.tts_timeout_task.done():
             self.tts_timeout_task.cancel()
         self.tts_timeout_task = None
-
-
-
 
 
 

@@ -104,11 +104,12 @@ class DeepgramTTSSocketClient:
 
         # Despacha el chunk al loop principal
         if self._user_chunk:
-            asyncio.run_coroutine_threadsafe(self._user_chunk(data), self._loop)
-
-        # Marca que llegó el primer chunk
-        if self._first_chunk and not self._first_chunk.is_set():
-            self._loop.call_soon_threadsafe(self._first_chunk.set)
+            if asyncio.iscoroutinefunction(self._user_chunk):          # ← detecta async
+                asyncio.run_coroutine_threadsafe(                      #   y la ejecuta
+                    self._user_chunk(data), self._loop
+                )
+            else:                                                      # ← callback normal
+                self._loop.call_soon_threadsafe(self._user_chunk, data)
 
 
 
