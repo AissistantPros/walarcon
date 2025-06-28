@@ -24,7 +24,7 @@ from eleven_http_client import send_tts_http_to_twilio
 from deepgram_ws_tts_client import DeepgramTTSSocketClient
 from utils import terminar_llamada_twilio
 import utils
-
+from asyncio import run_coroutine_threadsafe
 
 
 # Tus importaciones de módulos locales
@@ -297,8 +297,7 @@ class TwilioWebSocketManager:
 
 
 
-                    import asyncio, base64
-                    from asyncio import run_coroutine_threadsafe
+                   
                     loop = asyncio.get_running_loop()
 
 
