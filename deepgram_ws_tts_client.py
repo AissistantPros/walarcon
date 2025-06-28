@@ -104,11 +104,24 @@ class DeepgramTTSSocketClient:
         # Lanzar ping keep‑alive en segundo plano
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
-    def _on_audio(self, data: bytes, **_):
+    # ──────────────────────────── Handlers internos ────────────────────────────
+    def _on_audio(self, *args, **kwargs):
+        """
+        Deepgram envía el audio como argumento posicional **y**
+        palabra-clave 'data'.  Aceptamos ambos sin duplicar.
+        """
+        data = args[0] if args else kwargs.get("data")
+        if not data:
+            return
+
+        # Pasa el chunk al callback del usuario
         if self._user_chunk:
             asyncio.create_task(self._user_chunk(data))
+
+        # Marca que ya llegó el primer chunk
         if self._first_chunk is not None and not self._first_chunk.is_set():
             self._first_chunk.set()
+
 
     def _on_close(self, *_):  # tipo: ignore[no-self-use]
         if self._user_end:
