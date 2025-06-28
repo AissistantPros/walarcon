@@ -5,7 +5,7 @@ Cliente WebSocket de Deepgram TTS — v3
   diferente; ahora usamos `asyncio.run_coroutine_threadsafe` para
   despachar las corrutinas al *event loop* principal.
 • Evita el error «no running event loop» y los `send_raw() failed`.
-• Sigue incluyendo keep‑alive, on_end y timeout del primer chunk.
+
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ class DeepgramTTSSocketClient:
         model: str | None = None,
         encoding: str = "mulaw",
         sample_rate: int = 8000,
-        keepalive_interval: float = 3.0,
+        
     ) -> None:
         # API‑key: DEEPGRAM_API_KEY > DEEPGRAM_KEY > parámetro
         api_key = api_key or os.getenv("DEEPGRAM_API_KEY") or os.getenv("DEEPGRAM_KEY")
@@ -57,9 +57,7 @@ class DeepgramTTSSocketClient:
         self._user_chunk: Optional[ChunkCallback] = None
         self._user_end: Optional[EndCallback] = None
 
-        # Keep‑alive
-        self._keepalive_interval = keepalive_interval
-        self._keepalive_task: Optional[asyncio.Task] = None
+    
 
         # Opciones (dict para SDK 3.10+)
         self._options = SpeakOptions(
@@ -80,10 +78,7 @@ class DeepgramTTSSocketClient:
     # ──────────────────────────── Handlers internos (en thread) ────────────────────────────
     def _on_open(self, *_):
         self._loop.call_soon_threadsafe(self._ws_open.set)
-        # Lanzar bucle keep‑alive en loop principal
-        self._loop.call_soon_threadsafe(
-            lambda: self._keepalive_task or self._loop.create_task(self._keepalive_loop())
-        )
+
 
     def _on_audio(self, *args, **kwargs):
         data = args[0] if args else kwargs.get("data")
@@ -100,20 +95,8 @@ class DeepgramTTSSocketClient:
         if self._user_end:
             asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
         self._loop.call_soon_threadsafe(self._ws_close.set)
-        if self._keepalive_task:
-            self._keepalive_task.cancel()
+ 
 
-    async def _keepalive_loop(self):
-        try:
-            while True:
-                await asyncio.sleep(self._keepalive_interval)
-                try:
-                    self._conn.send_text(json.dumps({"type": "KeepAlive"}))
-                    self._conn.flush()
-                except Exception:
-                    break
-        except asyncio.CancelledError:
-            pass
 
     # ─────────────────────────────────── API pública ────────────────────────────────────
     async def speak(
@@ -139,10 +122,7 @@ class DeepgramTTSSocketClient:
         except asyncio.TimeoutError:
             return False
 
-    async def keepalive(self):
-        if self._ws_open.is_set() and not self._ws_close.is_set():
-            self._conn.send_text(json.dumps({"type": "KeepAlive"}))
-            self._conn.flush()
+
 
     async def close(self):
         self._conn.finish()

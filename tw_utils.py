@@ -295,15 +295,24 @@ class TwilioWebSocketManager:
                         "streamSid": self.stream_sid
                     }))
 
+
+
+                    import asyncio, base64
+                    from asyncio import run_coroutine_threadsafe
+                    loop = asyncio.get_running_loop()
+
+
+
                     # ▶️ Enviar TTS (Deepgram WS primero, ElevenLabs fallback)
-                    async def _send_greet_chunk(chunk: bytes):
-                        await self.websocket.send_text(json.dumps({
+                    def _send_greet_chunk(chunk: bytes):
+                        """Deepgram llama a esta función (no await). Reenvía el audio al loop principal."""
+                        coro = self.websocket.send_text(json.dumps({
                             "event": "media",
                             "streamSid": self.stream_sid,
-                            "media": {
-                                "payload": base64.b64encode(chunk).decode()
-                            },
+                            "media": { "payload": base64.b64encode(chunk).decode() },
                         }))
+                        run_coroutine_threadsafe(coro, loop)
+
 
                     async def _on_greet_end():
                         await self._reactivar_stt_despues_de_envio()
@@ -897,22 +906,17 @@ class TwilioWebSocketManager:
 
 
 
-        # ── PREPING: Mantener viva o recrear la conexión TTS ────────────────
+        # ── PREPING: Asegurar que existe un WebSocket TTS listo ────────────
         try:
-            if not hasattr(self, "dg_tts_client") or self.dg_tts_client is None:
-                # Aún no existe → créala
+            if (not hasattr(self, "dg_tts_client")
+                    or self.dg_tts_client is None
+                    or self.dg_tts_client._ws_close.is_set()):   # ya se cerró
+                from deepgram_ws_tts_client import DeepgramTTSSocketClient
                 self.dg_tts_client = DeepgramTTSSocketClient()
-                logger.debug("🔌 Deepgram TTS WS creado (init tardío).")
-            else:
-                # Enviamos un ping; si falla, volvemos a crear
-                try:
-                    await self.dg_tts_client.keepalive()
-                    logger.debug("💓 KeepAlive TTS enviado.")
-                except Exception:
-                    logger.warning("⚠️ KeepAlive falló: reabriendo WS TTS.")
-                    self.dg_tts_client = DeepgramTTSSocketClient()
-        except Exception as e_keep:
-            logger.error(f"❌ Error gestionando KeepAlive Deepgram: {e_keep}")
+                logger.debug("🔌 Deepgram TTS WS creado / recreado.")
+            # Si el WS sigue abierto, no hacemos nada: está listo.
+        except Exception as e_prep:
+            logger.error(f"❌ Error creando WebSocket Deepgram TTS: {e_prep}")
 
 
 
