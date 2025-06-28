@@ -2,6 +2,7 @@
 import os
 import logging
 from fastapi import FastAPI, Response, WebSocket, Body, Request
+import fastapi
 from aiagent import generate_openai_response_main
 from tw_utils import TwilioWebSocketManager, set_debug   
 from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache 
@@ -24,7 +25,7 @@ import json
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s | %(levelname)s | %(name)s: %(message)s",
                     datefmt="%H:%M:%S")
-
+fastapi.logger = logging.getLogger("fastapi")
 logging.getLogger("eleven_ws_client").setLevel(logging.DEBUG)
 
 

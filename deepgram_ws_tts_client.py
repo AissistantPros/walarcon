@@ -83,38 +83,36 @@ class DeepgramTTSSocketClient:
 
     def _on_audio(self, *args, **kwargs):
         """
-        Deepgram puede pasar (ws_client, bytes, …) o bytes en kwargs.
-        Elegimos el primer argumento de tipo bytes/bytearray.
+        Recibe audio de Deepgram (bytes) y lo re-envía al callback del usuario.
+        También marca la llegada del primer chunk para desactivar el fallback.
         """
         data = None
 
-        # ① busca en posicionales
+        # ① Buscamos bytes en los argumentos posicionales
         for arg in args:
             if isinstance(arg, (bytes, bytearray)):
                 data = arg
                 break
 
-        # ② si no lo encontró, busca en kwargs
+        # ② Si no apareció, revisamos kwargs (clave 'data')
         if data is None:
             maybe = kwargs.get("data")
             if isinstance(maybe, (bytes, bytearray)):
                 data = maybe
 
         if not data:
-            return  # no llegó audio
+            return  # nada que hacer
 
-        # ── NUEVO: llegó el primer chunk → desactiva fallback ─────────────
+        # ── NUEVO: llegó el primer chunk → avisa al semáforo ────────────────
         if self._first_chunk and not self._first_chunk.is_set():
             self._loop.call_soon_threadsafe(self._first_chunk.set)
             logger.info("🟢 Deepgram: primer chunk recibido; fallback desactivado.")
 
-        # Despacha el chunk al loop principal
+        # Reenvía el audio al callback del usuario (puede ser async o normal)
         if self._user_chunk:
-            if asyncio.iscoroutinefunction(self._user_chunk):          # ← callback async
-                asyncio.run_coroutine_threadsafe(                      #   la ejecuta
-                    self._user_chunk(data), self._loop
-                )
-            else:                                                      # ← callback normal
+            if asyncio.iscoroutinefunction(self._user_chunk):
+                asyncio.run_coroutine_threadsafe(self._user_chunk(data), self._loop)
+            else:
                 self._loop.call_soon_threadsafe(self._user_chunk, data)
 
 
