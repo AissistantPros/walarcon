@@ -1291,6 +1291,13 @@ class TwilioWebSocketManager:
                     self.stt_streamer = None
 
 
+            # --- Cerrar Deepgram TTS streamer explícitamente ---
+            if getattr(self, "dg_tts_client", None):
+                try:
+                    await self.dg_tts_client.close()   # cierre limpio
+                except Exception:
+                    pass                               # si ya estaba cerrado, ignoramos
+
 
 
 

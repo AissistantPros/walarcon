@@ -1,34 +1,11 @@
 """
-Cliente WebSocket de Deepgram TTS (v2)
+Cliente WebSocket de Deepgram TTS — v3
 =====================================
-
-• **Conexión temprana**: se abre al instanciarse para que ya esté viva
-  cuando Twilio empiece la llamada.
-• **Método `speak(text, on_chunk, on_end=None)`**
-  - Reenvía cada trozo de audio a `on_chunk(bytes)`.
-  - Llama a `on_end()` (si lo proporcionas) cuando Deepgram cierra el
-    socket → indicador fiable de que ya terminó de “hablar”.
-  - Devuelve `True` si llegó audio a tiempo, `False` si hubo timeout.
-• **Ping Keep‑Alive**: mientras la conexión permanezca abierta, se envía
-  cada `keepalive_interval` seg. un JSON `{"type": "KeepAlive"}` para
-  evitar que el WS se cierre por inactividad.    
-• **Cierre limpio** con `close()`.
-
-Ejemplo de uso
---------------
-```python
-client = DeepgramTTSSocketClient()
-
-async def handle_chunk(chunk: bytes):
-    twilio_ws.send(chunk)
-
-async def handle_end():
-    stt_streamer.resume()  # Vuelve a escuchar
-
-ok = await client.speak("Buenos días", handle_chunk, on_end=handle_end)
-if not ok:
-    eleven_labs_tts("Buenos días", twilio_ws)
-```
+• Maneja correctamente hilos: los callbacks del SDK llegan en un *thread*
+  diferente; ahora usamos `asyncio.run_coroutine_threadsafe` para
+  despachar las corrutinas al *event loop* principal.
+• Evita el error «no running event loop» y los `send_raw() failed`.
+• Sigue incluyendo keep‑alive, on_end y timeout del primer chunk.
 """
 
 from __future__ import annotations
@@ -38,15 +15,14 @@ import json
 import os
 from typing import Awaitable, Callable, Optional
 
-from deepgram import DeepgramClient, SpeakWebSocketEvents, SpeakOptions
+from deepgram import DeepgramClient, SpeakOptions, SpeakWebSocketEvents
 
-# Tipo para el callback de datos y fin
 ChunkCallback = Callable[[bytes], Awaitable[None]]
 EndCallback = Callable[[], Awaitable[None]]
 
 
 class DeepgramTTSSocketClient:
-    """Gestiona una única conexión WebSocket de Deepgram TTS."""
+    """Cliente único para TTS en streaming vía WebSocket."""
 
     def __init__(
         self,
@@ -57,18 +33,22 @@ class DeepgramTTSSocketClient:
         sample_rate: int = 8000,
         keepalive_interval: float = 3.0,
     ) -> None:
-        # 1️⃣  API-key: toma DEEPGRAM_API_KEY, DEEPGRAM_KEY, o parámetro
-        api_key = api_key or os.getenv("DEEPGRAM_KEY")
+        # API‑key: DEEPGRAM_API_KEY > DEEPGRAM_KEY > parámetro
+        api_key = api_key or os.getenv("DEEPGRAM_API_KEY") or os.getenv("DEEPGRAM_KEY")
         if not api_key:
             raise RuntimeError("Deepgram API-key no encontrada (DEEPGRAM_API_KEY/DEEPGRAM_KEY)")
 
-        # 2️⃣  Modelo por defecto (env DEEPGRAM_TTS_MODEL si existe)
+        # Modelo
         model = model or os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-estrella-es")
 
+        # Loop principal donde despacharemos callbacks
+        self._loop = asyncio.get_running_loop()
+
+        # SDK
         self._dg = DeepgramClient(api_key)
         self._conn = self._dg.speak.websocket.v("1")
 
-        # Eventos de control
+        # Eventos de coordinación
         self._ws_open = asyncio.Event()
         self._ws_close = asyncio.Event()
         self._first_chunk: Optional[asyncio.Event] = None
@@ -77,78 +57,65 @@ class DeepgramTTSSocketClient:
         self._user_chunk: Optional[ChunkCallback] = None
         self._user_end: Optional[EndCallback] = None
 
-        # Keep-alive
+        # Keep‑alive
         self._keepalive_interval = keepalive_interval
         self._keepalive_task: Optional[asyncio.Task] = None
 
-        # Opciones de síntesis
+        # Opciones (dict para SDK 3.10+)
         self._options = SpeakOptions(
             model=model,
             encoding=encoding,
             sample_rate=sample_rate,
-        ).to_dict()            # 👈 convierte a dict
+        ).to_dict()
 
-        # Handlers
+        # Registrar handlers (ejecutan en *thread* del SDK)
         self._conn.on(SpeakWebSocketEvents.Open, self._on_open)
         self._conn.on(SpeakWebSocketEvents.AudioData, self._on_audio)
         self._conn.on(SpeakWebSocketEvents.Close, self._on_close)
 
-        # Arrancar conexión
-        if not self._conn.start(self._options):   # ahora recibe un dict
+        # Arrancar
+        if not self._conn.start(self._options):
             raise RuntimeError("No se pudo iniciar conexión WebSocket con Deepgram")
 
+    # ──────────────────────────── Handlers internos (en thread) ────────────────────────────
+    def _on_open(self, *_):
+        self._loop.call_soon_threadsafe(self._ws_open.set)
+        # Lanzar bucle keep‑alive en loop principal
+        self._loop.call_soon_threadsafe(
+            lambda: self._keepalive_task or self._loop.create_task(self._keepalive_loop())
+        )
 
-    # ────────────────────────────── Handlers internos ─────────────────────────────
-    def _on_open(self, *_):  # tipo: ignore[no-self-use]
-        self._ws_open.set()
-        # Lanzar ping keep‑alive en segundo plano
-        self._keepalive_task = asyncio.create_task(self._keepalive_loop())
-
-    # ──────────────────────────── Handlers internos ────────────────────────────
     def _on_audio(self, *args, **kwargs):
-        """
-        Deepgram envía el audio como argumento posicional **y**
-        palabra-clave 'data'.  Aceptamos ambos sin duplicar.
-        """
         data = args[0] if args else kwargs.get("data")
         if not data:
             return
 
-        # Pasa el chunk al callback del usuario
         if self._user_chunk:
-            asyncio.create_task(self._user_chunk(data))
+            asyncio.run_coroutine_threadsafe(self._user_chunk(data), self._loop)
 
-        # Marca que ya llegó el primer chunk
-        if self._first_chunk is not None and not self._first_chunk.is_set():
-            self._first_chunk.set()
+        if self._first_chunk and not self._first_chunk.is_set():
+            self._loop.call_soon_threadsafe(self._first_chunk.set)
 
-
-    def _on_close(self, *_):  # tipo: ignore[no-self-use]
+    def _on_close(self, *_):
         if self._user_end:
-            asyncio.create_task(self._user_end())
-        self._ws_close.set()
-        # Detener keep‑alive
+            asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
+        self._loop.call_soon_threadsafe(self._ws_close.set)
         if self._keepalive_task:
             self._keepalive_task.cancel()
 
-    async def _keepalive_loop(self) -> None:
-        """Envía un JSON {"type": "KeepAlive"} cada N segundos."""
+    async def _keepalive_loop(self):
         try:
             while True:
                 await asyncio.sleep(self._keepalive_interval)
                 try:
-                    msg = json.dumps({"type": "KeepAlive"})
-                    # El SDK no expone directamente send_json, así que usamos send_text.
-                    # Deepgram ignora el contenido si sólo es un ping.
-                    self._conn.send_text(msg)
+                    self._conn.send_text(json.dumps({"type": "KeepAlive"}))
                     self._conn.flush()
                 except Exception:
-                    # Si falla, cortamos el bucle para que el WS se reinicie fuera.
                     break
         except asyncio.CancelledError:
             pass
 
-    # ─────────────────────────────── API pública ────────────────────────────────
+    # ─────────────────────────────────── API pública ────────────────────────────────────
     async def speak(
         self,
         text: str,
@@ -157,12 +124,6 @@ class DeepgramTTSSocketClient:
         on_end: Optional[EndCallback] = None,
         timeout_first_chunk: float = 1.0,
     ) -> bool:
-        """Envía *text* y reenvía audio a `on_chunk`.
-
-        Llama `on_end()` al concluir. Devuelve *True* si llegó audio
-        antes de `timeout_first_chunk`, o *False* para activar el
-        respaldo.
-        """
         await self._ws_open.wait()
 
         self._first_chunk = asyncio.Event()
@@ -178,14 +139,11 @@ class DeepgramTTSSocketClient:
         except asyncio.TimeoutError:
             return False
 
-    async def keepalive(self) -> None:
-        """Envía un ping inmediato (por si no quieres esperar al bucle)."""
+    async def keepalive(self):
         if self._ws_open.is_set() and not self._ws_close.is_set():
-            msg = json.dumps({"type": "KeepAlive"})
-            self._conn.send_text(msg)
+            self._conn.send_text(json.dumps({"type": "KeepAlive"}))
             self._conn.flush()
 
-    async def close(self) -> None:
-        """Cierra la conexión de forma limpia."""
+    async def close(self):
         self._conn.finish()
         await self._ws_close.wait()
