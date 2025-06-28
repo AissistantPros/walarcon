@@ -102,6 +102,10 @@ class DeepgramTTSSocketClient:
         if not data:
             return  # no llegó audio
 
+        # ── NUEVO: llegó el primer chunk → desactiva fallback ────────────────
+        if self._first_chunk and not self._first_chunk.is_set():
+            self._loop.call_soon_threadsafe(self._first_chunk.set)
+
         # Despacha el chunk al loop principal
         if self._user_chunk:
             if asyncio.iscoroutinefunction(self._user_chunk):          # ← detecta async
@@ -110,8 +114,6 @@ class DeepgramTTSSocketClient:
                 )
             else:                                                      # ← callback normal
                 self._loop.call_soon_threadsafe(self._user_chunk, data)
-
-
 
 
 
