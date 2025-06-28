@@ -81,15 +81,38 @@ class DeepgramTTSSocketClient:
 
 
     def _on_audio(self, *args, **kwargs):
-        data = args[0] if args else kwargs.get("data")
-        if not data:
-            return
+        """
+        Deepgram puede pasar (ws_client, bytes, …) o bytes en kwargs.
+        Elegimos el primer argumento de tipo bytes/bytearray.
+        """
+        data = None
 
+        # ① busca en posicionales
+        for arg in args:
+            if isinstance(arg, (bytes, bytearray)):
+                data = arg
+                break
+
+        # ② si no lo encontró, busca en kwargs
+        if data is None:
+            maybe = kwargs.get("data")
+            if isinstance(maybe, (bytes, bytearray)):
+                data = maybe
+
+        if not data:
+            return  # no llegó audio
+
+        # Despacha el chunk al loop principal
         if self._user_chunk:
             asyncio.run_coroutine_threadsafe(self._user_chunk(data), self._loop)
 
+        # Marca que llegó el primer chunk
         if self._first_chunk and not self._first_chunk.is_set():
             self._loop.call_soon_threadsafe(self._first_chunk.set)
+
+
+
+
 
     def _on_close(self, *_):
         if self._user_end:
