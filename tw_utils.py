@@ -342,6 +342,7 @@ class TwilioWebSocketManager:
                             logger.debug(f"DG TTS WS ya cerrado o falló al cerrar: {e_close}")
 
                         # ── 2) Fallback a ElevenLabs (HTTP) ────────────────────────────────────
+                        logger.info("🔴 Fallback (saludo): Deepgram no entregó audio a tiempo → se llama ElevenLabs.")
                         await send_tts_http_to_twilio(
                             text=greeting_text,
                             stream_sid=self.stream_sid,
@@ -1044,6 +1045,7 @@ class TwilioWebSocketManager:
 
             except Exception as e_dg:
                 logger.error(f"Deepgram WS falló: {e_dg}. Cambiando a ElevenLabs.")
+                logger.info("🔴 Fallback (respuesta): Deepgram no entregó audio a tiempo → se llama ElevenLabs.")
                 ts_tts_start = self._now()
                 await send_tts_http_to_twilio(
                     text=texto,
