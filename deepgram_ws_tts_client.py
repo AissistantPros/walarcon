@@ -123,6 +123,7 @@ class DeepgramTTSSocketClient:
             else:
                 self._loop.call_soon_threadsafe(self._user_chunk, data)
 
+        logger.debug(f"🔊 Audio chunk recibido: {len(data)} bytes")
 
 
 

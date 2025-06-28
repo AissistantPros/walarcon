@@ -327,8 +327,7 @@ class TwilioWebSocketManager:
                             on_end=_on_greet_end,
                             timeout_first_chunk=3.0,
                         )
-                        await self._send_mark_end_of_tts()
-                        await self.dg_tts_client.close()
+
 
                         if not ok:
                             raise RuntimeError("Deepgram tardó en dar el primer chunk")
@@ -841,7 +840,11 @@ class TwilioWebSocketManager:
         """Limpia buffers, informa a Twilio que terminó el TTS y re‑habilita STT."""
         log_prefix = f"ReactivarSTT_{self.call_sid}"
 
-
+        # 0. Enviar marca de fin de TTS
+        try:
+            await self._send_mark_end_of_tts()
+        except Exception as e:
+            logger.debug(f"[{log_prefix}] No se pudo enviar mark end_of_tts: {e}")
 
         # 1. Limpiar buffers de audio
         async with self.audio_buffer_lock:
@@ -869,7 +872,15 @@ class TwilioWebSocketManager:
         self.tts_timeout_task = None
 
 
-
+        # 7. Cerrar conexión TTS - AÑADE ESTO AL FINAL
+        if self.dg_tts_client:
+            try:
+                await self.dg_tts_client.close()
+                logger.info(f"[{log_prefix}] 🔌 Conexión TTS cerrada.")
+            except Exception as e:
+                logger.error(f"[{log_prefix}] ❌ Error al cerrar TTS: {e}")
+            finally:
+                self.dg_tts_client = None
 
 
 
@@ -1035,8 +1046,7 @@ class TwilioWebSocketManager:
                     timeout_first_chunk=3.0,
                 )
 
-                await self._send_mark_end_of_tts()
-                await self.dg_tts_client.close()
+
 
                 if not ok:
                     raise RuntimeError("Deepgram tardó demasiado en dar el primer chunk")
@@ -1367,7 +1377,7 @@ class TwilioWebSocketManager:
 def estimar_duracion_tts(texto: str) -> float:
     # 13 caracteres ≈ 1 seg a 1.2 × (empírico)
     secs = len(texto) / 13 / 1.2
-    return secs * 1.2 + 3      # +20 % colchón + 3 s extra
+    return secs * 1.5 + 5      # +20 % colchón + 3 s extra
 
 
 # --- Función de ayuda para nivel de log ---
