@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Awaitable, Callable, Optional
 
 from deepgram import DeepgramClient, SpeakWebSocketEvents, SpeakOptions
@@ -49,12 +50,22 @@ class DeepgramTTSSocketClient:
 
     def __init__(
         self,
-        model: str = "aura-2-estrella-es",
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
         encoding: str = "mulaw",
         sample_rate: int = 8000,
         keepalive_interval: float = 3.0,
     ) -> None:
-        self._dg = DeepgramClient()
+        # 1️⃣  API-key: toma DEEPGRAM_API_KEY, DEEPGRAM_KEY, o parámetro
+        api_key = api_key or os.getenv("DEEPGRAM_KEY")
+        if not api_key:
+            raise RuntimeError("Deepgram API-key no encontrada (DEEPGRAM_API_KEY/DEEPGRAM_KEY)")
+
+        # 2️⃣  Modelo por defecto (env DEEPGRAM_TTS_MODEL si existe)
+        model = model or os.getenv("DEEPGRAM_TTS_MODEL", "aura-2-estrella-es")
+
+        self._dg = DeepgramClient(api_key)
         self._conn = self._dg.speak.websocket.v("1")
 
         # Eventos de control
@@ -62,11 +73,11 @@ class DeepgramTTSSocketClient:
         self._ws_close = asyncio.Event()
         self._first_chunk: Optional[asyncio.Event] = None
 
-        # Callbacks de usuario
+        # Callbacks usuario
         self._user_chunk: Optional[ChunkCallback] = None
         self._user_end: Optional[EndCallback] = None
 
-        # Keep‑alive
+        # Keep-alive
         self._keepalive_interval = keepalive_interval
         self._keepalive_task: Optional[asyncio.Task] = None
 
@@ -75,16 +86,17 @@ class DeepgramTTSSocketClient:
             model=model,
             encoding=encoding,
             sample_rate=sample_rate,
-        )
+        ).to_dict()            # 👈 convierte a dict
 
-        # Registrar manejadores internos
+        # Handlers
         self._conn.on(SpeakWebSocketEvents.Open, self._on_open)
         self._conn.on(SpeakWebSocketEvents.AudioData, self._on_audio)
         self._conn.on(SpeakWebSocketEvents.Close, self._on_close)
 
         # Arrancar conexión
-        if not self._conn.start(self._options):
+        if not self._conn.start(self._options):   # ahora recibe un dict
             raise RuntimeError("No se pudo iniciar conexión WebSocket con Deepgram")
+
 
     # ────────────────────────────── Handlers internos ─────────────────────────────
     def _on_open(self, *_):  # tipo: ignore[no-self-use]
