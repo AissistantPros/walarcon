@@ -78,11 +78,20 @@ class DeepgramTTSSocketClient:
 
     # ──────────────────────────── Handlers internos (en thread) ────────────────────────────
 
+    
+
     def _on_metadata(self, *args, **kwargs):
         """Maneja el evento de metadatos (fin de TTS)"""
         logger.info("🔚 Evento de metadatos recibido (fin de TTS)")
+        # Log detallado de los argumentos recibidos
+        logger.debug(f"Metadata args: {args} | kwargs: {kwargs}") 
+        
         if self._user_end:
-            asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
+            logger.debug("Ejecutando callback de fin de usuario")
+            try:
+                asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
+            except Exception as e:
+                logger.error(f"Error ejecutando user_end: {e}")
 
 
     def _on_open(self, *_):

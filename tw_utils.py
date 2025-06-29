@@ -168,6 +168,9 @@ class TwilioWebSocketManager:
         self.ultimo_evento_fue_parcial = False
         now = self._now()
         
+        self.last_chunk_time = None
+        self.stall_detector_task = None
+
         self.last_activity_ts = now
         self.last_final_ts = now
         self.finales_acumulados = []
@@ -279,6 +282,9 @@ class TwilioWebSocketManager:
                 event = data.get("event")
                
 
+
+
+
                 if event == "start":
                     self.stream_sid = data.get("streamSid")
 
@@ -295,22 +301,15 @@ class TwilioWebSocketManager:
                         "streamSid": self.stream_sid
                     }))
 
-
-
-                   
-                    loop = asyncio.get_running_loop()
-
-
-
                     # ▶️ Enviar TTS (Deepgram WS primero, ElevenLabs fallback)
-                    async def _send_greet_chunk(chunk: bytes) -> None:          # ← ahora es async
+                    async def _send_greet_chunk(chunk: bytes) -> None:
                         await self.websocket.send_text(json.dumps({
                             "event": "media",
                             "streamSid": self.stream_sid,
                             "media": { "payload": base64.b64encode(chunk).decode() },
                         }))
-
-
+                        # ACTUALIZA EL TIMESTAMP DEL ÚLTIMO CHUNK
+                        self.last_chunk_time = self._now()
 
                     async def _on_greet_end():
                         await self._reactivar_stt_despues_de_envio()
@@ -320,6 +319,7 @@ class TwilioWebSocketManager:
                         if not getattr(self, "dg_tts_client", None):
                             from deepgram_ws_tts_client import DeepgramTTSSocketClient
                             self.dg_tts_client = DeepgramTTSSocketClient()
+                            logger.debug("🔌 Deepgram TTS WS creado / recreado.")
 
                         ok = await self.dg_tts_client.speak(
                             greeting_text,
@@ -328,13 +328,17 @@ class TwilioWebSocketManager:
                             timeout_first_chunk=3.0,
                         )
 
-
                         if not ok:
                             raise RuntimeError("Deepgram tardó en dar el primer chunk")
+                        else:
+                            # INICIAR DETECTOR DE STALLS PARA EL SALUDO
+                            self.stall_detector_task = asyncio.create_task(
+                                self._start_stall_detector()
+                            )
 
                     except Exception as e_dg_greet:
                         logger.error(f"Deepgram TTS falló en saludo: {e_dg_greet}. Usando ElevenLabs.")
-
+                        
                         # ── 1) Cerrar con seguridad el WS de Deepgram si sigue abierto ─────────
                         try:
                             if getattr(self, "dg_tts_client", None):
@@ -354,7 +358,6 @@ class TwilioWebSocketManager:
                         # ── 3) Reactivar STT tan pronto termine el envío del fallback ──────────
                         await self._reactivar_stt_despues_de_envio()
 
-
                     # Actualizar CallSid si aplica
                     start_data = data.get("start", {})
                     received_call_sid = start_data.get("callSid")
@@ -362,20 +365,7 @@ class TwilioWebSocketManager:
                         self.call_sid = received_call_sid
 
                     logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] Saludo TTS enviado.")
-
-
-                    # Actualizar CallSid si aplica
-                    start_data = data.get("start", {})
-                    received_call_sid = start_data.get("callSid")
-                    if received_call_sid and self.call_sid != received_call_sid:
-                        self.call_sid = received_call_sid
-                        #logger.info(f"📞 CallSid actualizado a: {self.call_sid}")
-
-                    #logger.info(f"▶️ Evento 'start'. StreamSid: {self.stream_sid}. CallSid: {self.call_sid or 'N/A'}")
                     logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Greeting TTS finished.")
-
-                
-
 
 
 
@@ -485,6 +475,10 @@ class TwilioWebSocketManager:
 
             if CURRENT_CALL_MANAGER is self: 
                 CURRENT_CALL_MANAGER = None
+
+
+
+
 
 
 
@@ -839,6 +833,16 @@ class TwilioWebSocketManager:
     async def _reactivar_stt_despues_de_envio(self):
         """Limpia buffers, informa a Twilio que terminó el TTS y re‑habilita STT."""
         log_prefix = f"ReactivarSTT_{self.call_sid}"
+        
+        # CANCELAR DETECTOR DE STALLS SI ESTÁ ACTIVO
+        if self.stall_detector_task:
+            self.stall_detector_task.cancel()
+            try:
+                await self.stall_detector_task
+            except asyncio.CancelledError:
+                pass
+            self.stall_detector_task = None
+        self.last_chunk_time = None
 
         # 0. Enviar marca de fin de TTS
         try:
@@ -872,15 +876,24 @@ class TwilioWebSocketManager:
         self.tts_timeout_task = None
 
 
-        # 7. Cerrar conexión TTS - AÑADE ESTO AL FINAL
-        if self.dg_tts_client:
-            try:
-                await self.dg_tts_client.close()
-                logger.info(f"[{log_prefix}] 🔌 Conexión TTS cerrada.")
-            except Exception as e:
-                logger.error(f"[{log_prefix}] ❌ Error al cerrar TTS: {e}")
-            finally:
-                self.dg_tts_client = None
+    async def _start_stall_detector(self):
+        """Monitorea si el envío de chunks se detiene"""
+        logger.debug("🚦 Iniciando detector de stalls TTS...")
+        while not self.call_ended and self.tts_en_progreso:
+            ahora = self._now()
+            if self.last_chunk_time and (ahora - self.last_chunk_time) > 0.3:  # 300ms
+                logger.warning("🚨 STALL DETECTED! No hay chunks recientes, reactivando STT")
+                await self._reactivar_stt_despues_de_envio()
+                break
+            await asyncio.sleep(0.05)  # Revisar cada 50ms
+
+
+
+
+
+
+
+
 
 
 
@@ -990,12 +1003,7 @@ class TwilioWebSocketManager:
 
 
     async def handle_tts_response(self, texto: str, last_final_ts: Optional[float]):
-        """
-        Convierte la respuesta de GPT a TTS (Deepgram WS preferido con
-        fallback a ElevenLabs HTTP), reproduce el audio y, al terminar,
-        reactiva el STT.  También detecta la despedida.
-        """
-
+        """Convierte respuesta GPT a TTS con Deepgram WS + fallback a ElevenLabs"""
         if self.call_ended:
             logger.warning("🔇 handle_tts_response abortado: llamada terminada.")
             return
@@ -1028,8 +1036,8 @@ class TwilioWebSocketManager:
             # ── 4️⃣  Envía el TTS a Twilio (Deepgram WS + fallback) ────────────
             ts_tts_start = self._now()
 
+            # REEMPLAZA LA FUNCIÓN _send_chunk CON ESTA VERSIÓN:
             async def _send_chunk(chunk: bytes):
-                # Cada trozo de audio se reenvía a Twilio tal cual
                 await self.websocket.send_text(json.dumps({
                     "event": "media",
                     "streamSid": self.stream_sid,
@@ -1037,19 +1045,24 @@ class TwilioWebSocketManager:
                         "payload": base64.b64encode(chunk).decode()
                     },
                 }))
+                # ACTUALIZA EL TIMESTAMP DEL ÚLTIMO CHUNK
+                self.last_chunk_time = self._now()
 
             try:
                 ok = await self.dg_tts_client.speak(
                     texto,
                     on_chunk=_send_chunk,
-                    on_end=self._reactivar_stt_despues_de_envio,   # STT se reactiva al cerrar el WS
+                    on_end=self._reactivar_stt_despues_de_envio,
                     timeout_first_chunk=3.0,
                 )
 
-
-
                 if not ok:
                     raise RuntimeError("Deepgram tardó demasiado en dar el primer chunk")
+
+                # INICIAR DETECTOR DE STALLS PARA LA RESPUESTA
+                self.stall_detector_task = asyncio.create_task(
+                    self._start_stall_detector()
+                )
 
                 ts_tts_end = self._now()
                 logger.info(
@@ -1078,7 +1091,6 @@ class TwilioWebSocketManager:
             logger.error(f"❌ Error en handle_tts_response: {e}", exc_info=True)
             # Intentamos no dejar el STT desactivado si algo falla
             await self._reactivar_stt_despues_de_envio()
-
 
 
 
