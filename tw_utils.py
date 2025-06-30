@@ -47,7 +47,7 @@ logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuev
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .35
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .35 # Tiempo de pausa sin actividad antes de enviar a GPT
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
 LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 10 # Umbral para mensaje de espera
 HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
@@ -952,7 +952,8 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "user", "content": user_text})
 
         try:
-            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
+            #model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
+            model_a_usar = "llama3-70b-8192"
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             start_gpt_call = self._now()

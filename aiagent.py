@@ -17,10 +17,10 @@ import logging
 from time import perf_counter
 from typing import Dict, List, Any # Añadido Any para el tipado de retorno de handle_tool_execution
 from decouple import config
-from openai import OpenAI
+#from openai import OpenAI
 from selectevent import select_calendar_event_by_index
 from weather_utils import get_cancun_weather # <--- AÑADE ESTA LÍNEA
-
+from groq import Groq
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
 LOG_LEVEL = logging.DEBUG # ⇢ INFO en prod.
@@ -34,7 +34,8 @@ logger = logging.getLogger("aiagent")
 # ──────────────────────── OPENAI CLIENT ───────────────────────────
 # Asegúrate que CHATGPT_SECRET_KEY esté en tu .env o configuración
 try:
-    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    #client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    client = Groq(api_key=config("GROQ_API_KEY"))
 except Exception as e:
     logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
     # Podrías querer que el sistema falle aquí si OpenAI es esencial.
@@ -284,7 +285,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
+async def generate_openai_response_main(history: List[Dict], model: str = "llama3-70b-8192") -> str: #
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
 
