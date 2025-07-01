@@ -375,3 +375,36 @@ async def generate_openai_response_main(history: List[Dict], model: str = "llama
     except Exception as e:
         logger.exception("generate_openai_response_main falló gravemente")
         return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar."
+
+
+async def generate_openai_response_streaming(history: List[Dict], model: str = "llama3-70b-8192"):
+    """Genera una respuesta usando streaming y va cediendo partes del texto."""
+    try:
+        if not history or history[0].get("role") != "system":
+            full_conversation_history = generate_openai_prompt(list(history))
+        else:
+            full_conversation_history = list(history)
+
+        if not client:
+            logger.error("Cliente Groq no inicializado. Abortando stream.")
+            return
+
+        response_stream = client.chat.completions.create(
+            model=model,
+            messages=full_conversation_history,
+            tools=TOOLS,
+            tool_choice="auto",
+            max_tokens=150,
+            temperature=0.2,
+            timeout=15,
+            stream=True,
+        )
+
+        for chunk in response_stream:
+            piece = chunk.choices[0].delta.content
+            if piece:
+                yield piece
+
+    except Exception as e:
+        logger.exception("generate_openai_response_streaming falló")
+        raise

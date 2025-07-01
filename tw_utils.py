@@ -29,7 +29,7 @@ from asyncio import run_coroutine_threadsafe
 
 # Tus importaciones de módulos locales
 try:
-    from aiagent import generate_openai_response_main 
+    from aiagent import generate_openai_response_main, generate_openai_response_streaming
     from buscarslot import load_free_slots_to_cache 
     from consultarinfo import load_consultorio_data_to_cache 
     from deepgram_stt_streamer import DeepgramSTTStreamer 
@@ -59,6 +59,7 @@ CALL_MAX_DURATION = 600
 CALL_SILENCE_TIMEOUT = 30 
 GOODBYE_PHRASE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
 TEST_MODE_NO_GPT = False # <--- Poner en True para pruebas sin GPT
+USE_GPT_STREAMING = config("USE_GPT_STREAMING", default="false").lower() == "true"  # Habilita respuestas de GPT en streaming
 
 CURRENT_CALL_MANAGER: Optional[object] = None
 
@@ -952,43 +953,126 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "user", "content": user_text})
 
         try:
-            #model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
             model_a_usar = "llama3-70b-8192"
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             start_gpt_call = self._now()
-            respuesta_gpt = await generate_openai_response_main(
-                history=mensajes_para_gpt,
-                model=model_a_usar
-            )
-            gpt_duration_ms = (self._now() - start_gpt_call) * 1000
-            logger.info(f"⏱️ GPT completado en {gpt_duration_ms:.1f} ms")
 
-            if self.call_ended:
-                return
+            if USE_GPT_STREAMING:
+                reply_full = ""
+                buffer = ""
 
-            if not respuesta_gpt or not isinstance(respuesta_gpt, str):
-                logger.error("❌ GPT devolvió una respuesta vacía o inválida.")
-                respuesta_gpt = "Disculpe, no pude procesar eso."
+                self.tts_en_progreso = True
+                self.ignorar_stt = True
 
-            reply_cleaned = respuesta_gpt.strip()
-            self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
+                async def _speak_segment(text: str, final: bool = False):
+                    async def _send_chunk(chunk: bytes):
+                        await self.websocket.send_text(json.dumps({
+                            "event": "media",
+                            "streamSid": self.stream_sid,
+                            "media": {"payload": base64.b64encode(chunk).decode()}
+                        }))
 
-            if reply_cleaned == "__END_CALL__":
-                logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
-                self.finalizar_llamada_pendiente = True
-                # Lanza la corrutina de cierre con despedida y sale
-                asyncio.create_task(
-                    utils.cierre_con_despedida(
-                        manager=self,
-                        reason="user_request",
-                        delay=7.0       # segundos de margen para que se reproduzca el TTS
+                    await self.dg_tts_client.speak(
+                        text,
+                        on_chunk=_send_chunk,
+                        on_end=None,
+                        timeout_first_chunk=3.0,
                     )
+                    if final:
+                        await self._reactivar_stt_despues_de_envio()
+
+                try:
+                    async for piece in generate_openai_response_streaming(
+                            history=mensajes_para_gpt,
+                            model=model_a_usar):
+                        reply_full += piece
+                        buffer += piece
+                        if any(buffer.endswith(p) for p in (".", "?", "!")) or len(buffer) > 80:
+                            await _speak_segment(buffer, final=False)
+                            buffer = ""
+
+                    if reply_full.strip() == "__END_CALL__":
+                        self.conversation_history.append({"role": "assistant", "content": reply_full.strip()})
+                        logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
+                        self.finalizar_llamada_pendiente = True
+                        asyncio.create_task(
+                            utils.cierre_con_despedida(
+                                manager=self,
+                                reason="user_request",
+                                delay=7.0
+                            )
+                        )
+                        return
+
+                    if buffer:
+                        await _speak_segment(buffer, final=True)
+                    else:
+                        await self._reactivar_stt_despues_de_envio()
+
+                    gpt_duration_ms = (self._now() - start_gpt_call) * 1000
+                    logger.info(f"⏱️ GPT completado en {gpt_duration_ms:.1f} ms")
+
+                    reply_cleaned = reply_full.strip()
+                    self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
+
+                except Exception as stream_err:
+                    logger.error(f"Streaming GPT falló: {stream_err}. Usando modo no streaming")
+                    respuesta_gpt = await generate_openai_response_main(history=mensajes_para_gpt, model=model_a_usar)
+                    gpt_duration_ms = (self._now() - start_gpt_call) * 1000
+                    logger.info(f"⏱️ GPT completado en {gpt_duration_ms:.1f} ms")
+
+                    if not respuesta_gpt or not isinstance(respuesta_gpt, str):
+                        logger.error("❌ GPT devolvió una respuesta vacía o inválida.")
+                        respuesta_gpt = "Disculpe, no pude procesar eso."
+
+                    reply_cleaned = respuesta_gpt.strip()
+                    self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
+                    if reply_cleaned == "__END_CALL__":
+                        logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
+                        self.finalizar_llamada_pendiente = True
+                        asyncio.create_task(
+                            utils.cierre_con_despedida(
+                                manager=self,
+                                reason="user_request",
+                                delay=7.0
+                            )
+                        )
+                        return
+
+                    await self.handle_tts_response(reply_cleaned, last_final_ts)
+
+            else:
+                respuesta_gpt = await generate_openai_response_main(
+                    history=mensajes_para_gpt,
+                    model=model_a_usar
                 )
-                return
+                gpt_duration_ms = (self._now() - start_gpt_call) * 1000
+                logger.info(f"⏱️ GPT completado en {gpt_duration_ms:.1f} ms")
 
+                if self.call_ended:
+                    return
 
-            await self.handle_tts_response(reply_cleaned, last_final_ts)
+                if not respuesta_gpt or not isinstance(respuesta_gpt, str):
+                    logger.error("❌ GPT devolvió una respuesta vacía o inválida.")
+                    respuesta_gpt = "Disculpe, no pude procesar eso."
+
+                reply_cleaned = respuesta_gpt.strip()
+                self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
+
+                if reply_cleaned == "__END_CALL__":
+                    logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
+                    self.finalizar_llamada_pendiente = True
+                    asyncio.create_task(
+                        utils.cierre_con_despedida(
+                            manager=self,
+                            reason="user_request",
+                            delay=7.0
+                        )
+                    )
+                    return
+
+                await self.handle_tts_response(reply_cleaned, last_final_ts)
 
         except asyncio.CancelledError:
             logger.info("🚫 Tarea GPT cancelada.")
