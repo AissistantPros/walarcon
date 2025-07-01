@@ -623,7 +623,7 @@ class TwilioWebSocketManager:
         timeout_maximo = MAX_TIMEOUT_SIN_ACTIVIDAD
 
         try:
-            logger.debug(f"⏳ Esperando {tiempo_espera:.1f}s de pausa total...")
+            #logger.debug(f"⏳ Esperando {tiempo_espera:.1f}s de pausa total...")
             await asyncio.sleep(tiempo_espera)
             
             ts_sleep_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
