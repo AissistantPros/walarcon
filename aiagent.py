@@ -322,7 +322,16 @@ async def generate_openai_response_main(history: List[Dict], model: str = "llama
             logger.debug("OpenAI Unified Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
-        full_conversation_history.append(response_pase1.model_dump()) 
+                # --- COMIENZA EL CÓDIGO CORREGIDO ---
+        # Construimos manualmente el mensaje del asistente para el historial,
+        # incluyendo solo los campos que Groq acepta.
+        assistant_message_for_history = {
+            "role": "assistant",
+            "content": response_pase1.content,
+            "tool_calls": response_pase1.tool_calls
+        }
+        full_conversation_history.append(assistant_message_for_history)
+        # --- TERMINA EL CÓDIGO CORREGIDO ---
 
         tool_messages_for_pase2 = []
         for tool_call in response_pase1.tool_calls:
