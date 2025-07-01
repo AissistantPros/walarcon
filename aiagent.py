@@ -286,69 +286,85 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
 async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
     try:
-        full_conversation_history = generate_openai_prompt(list(history)) #
+        texto_completo = []
+        async for token in stream_openai_response_main(history, model):
+            if token == "__END_CALL__":
+                return token
+            texto_completo.append(token)
+        return "".join(texto_completo) if texto_completo else ""
+    except Exception as e:
+        logger.exception("generate_openai_response_main falló gravemente")
+        return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
 
-        t1_start = perf_counter()
-        #logger.debug("OpenAI Unified Flow - Pase 1: Enviando a %s", model)
+
+async def stream_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini"):
+    """Genera la respuesta de OpenAI devolviendo el texto en streaming."""
+    try:
+        full_conversation_history = generate_openai_prompt(list(history))
 
         if not client:
-            logger.error("Cliente OpenAI no inicializado. Abortando generate_openai_response_main.")
-            return "Lo siento, estoy teniendo problemas técnicos para conectarme. Por favor, intente más tarde."
+            logger.error("Cliente OpenAI no inicializado. Abortando stream_openai_response_main.")
+            return
 
+        # -------- Pase 1 (sin streaming) --------
         response_pase1 = client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
-            tools=TOOLS, 
+            tools=TOOLS,
             tool_choice="auto",
-            max_tokens=100, 
-            temperature=0.2, 
-            timeout=15, 
+            max_tokens=100,
+            temperature=0.2,
+            timeout=15,
         ).choices[0].message
 
-        logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
-
         if not response_pase1.tool_calls:
-            logger.debug("OpenAI Unified Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
-            return response_pase1.content or "No he podido procesar su solicitud en este momento."
+            for chunk in client.chat.completions.create(
+                model=model,
+                messages=full_conversation_history,
+                tools=TOOLS,
+                tool_choice="auto",
+                max_tokens=100,
+                temperature=0.2,
+                stream=True,
+            ):
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
+            return
 
-        full_conversation_history.append(response_pase1.model_dump()) 
-
+        # -------- Pase 2 con herramientas --------
+        full_conversation_history.append(response_pase1.model_dump())
         tool_messages_for_pase2 = []
         for tool_call in response_pase1.tool_calls:
-            tool_call_id = tool_call.id
             function_result = handle_tool_execution(tool_call)
 
             if function_result.get("call_ended_reason"):
-                logger.info("Solicitud de finalizar llamada recibida desde ejecución de herramienta: %s", function_result["call_ended_reason"])
-                return "__END_CALL__"
+                yield "__END_CALL__"
+                return
 
             tool_messages_for_pase2.append({
-                "tool_call_id": tool_call_id,
+                "tool_call_id": tool_call.id,
                 "role": "tool",
                 "name": tool_call.function.name,
-                "content": json.dumps(function_result), 
+                "content": json.dumps(function_result),
             })
 
         full_conversation_history.extend(tool_messages_for_pase2)
 
-        t2_start = perf_counter()
-        logger.debug("OpenAI Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)
-
-        response_pase2 = client.chat.completions.create(
+        for chunk in client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
-            tools=TOOLS, 
+            tools=TOOLS,
             tool_choice="auto",
-            max_tokens=100, 
+            max_tokens=100,
             temperature=0.2,
-        ).choices[0].message
-        logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
-
-        logger.debug("OpenAI Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
-        return response_pase2.content or "No tengo una respuesta en este momento."
+            stream=True,
+        ):
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
+                yield delta.content
 
     except Exception as e:
-        logger.exception("generate_openai_response_main falló gravemente")
-        return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
+        logger.exception("stream_openai_response_main falló")
 
 

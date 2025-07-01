@@ -29,7 +29,7 @@ from asyncio import run_coroutine_threadsafe
 
 # Tus importaciones de módulos locales
 try:
-    from aiagent import generate_openai_response_main 
+    from aiagent import generate_openai_response_main, stream_openai_response_main
     from buscarslot import load_free_slots_to_cache 
     from consultarinfo import load_consultorio_data_to_cache 
     from deepgram_stt_streamer import DeepgramSTTStreamer 
@@ -791,7 +791,11 @@ class TwilioWebSocketManager:
         """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
         ts_wrapper_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
         try:
-            await self.process_gpt_response(texto_para_gpt, last_final_ts)
+            streaming_enabled = config("GPT_STREAMING", default="false").lower() == "true"
+            if streaming_enabled:
+                await self.process_gpt_response_streaming(texto_para_gpt, last_final_ts)
+            else:
+                await self.process_gpt_response(texto_para_gpt, last_final_ts)
         except Exception as e:
             logger.error(f"❌ Error capturado dentro de process_gpt_response_wrapper: {e}", exc_info=True)
         finally:
@@ -993,6 +997,69 @@ class TwilioWebSocketManager:
             logger.info("🚫 Tarea GPT cancelada.")
         except Exception as e:
             logger.error(f"❌ Error en process_gpt_response: {e}", exc_info=True)
+            await self.handle_tts_response("Lo siento, ocurrió un error técnico.", last_final_ts)
+
+    async def process_gpt_response_streaming(self, user_text: str, last_final_ts: Optional[float]):
+        """Versión en streaming que envía el TTS conforme se generan tokens."""
+        if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
+            logger.warning("⚠️ PROCESS_GPT Ignorado: llamada terminada o WS desconectado.")
+            return
+
+        if not user_text:
+            logger.warning("⚠️ PROCESS_GPT Texto de usuario vacío, saltando.")
+            return
+
+        logger.info(f"🗣️ Mensaje para GPT: '{user_text}' (streaming)")
+
+        try:
+            if (not hasattr(self, "dg_tts_client") or self.dg_tts_client is None or self.dg_tts_client._ws_close.is_set()):
+                from deepgram_ws_tts_client import DeepgramTTSSocketClient
+                self.dg_tts_client = DeepgramTTSSocketClient()
+
+        except Exception as e_prep:
+            logger.error(f"❌ Error creando WebSocket Deepgram TTS: {e_prep}")
+
+        self.conversation_history.append({"role": "user", "content": user_text})
+
+        model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
+        mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
+
+        respuesta_total = []
+        frase_actual = ""
+
+        try:
+            async for token in stream_openai_response_main(mensajes_para_gpt, model=model_a_usar):
+                if token == "__END_CALL__":
+                    respuesta_total = ["__END_CALL__"]
+                    break
+
+                respuesta_total.append(token)
+                frase_actual += token
+
+                if any(frase_actual.endswith(p) for p in (".", "?", "!")):
+                    await self.handle_tts_response(frase_actual.strip(), last_final_ts)
+                    frase_actual = ""
+
+            if frase_actual and respuesta_total != ["__END_CALL__"]:
+                await self.handle_tts_response(frase_actual.strip(), last_final_ts)
+
+            final_text = "".join(respuesta_total)
+            self.conversation_history.append({"role": "assistant", "content": final_text})
+
+            if final_text == "__END_CALL__":
+                logger.info("🔚 end_call recibido en streaming: se enviará despedida y luego se colgará.")
+                self.finalizar_llamada_pendiente = True
+                asyncio.create_task(
+                    utils.cierre_con_despedida(
+                        manager=self,
+                        reason="user_request",
+                        delay=7.0
+                    )
+                )
+        except asyncio.CancelledError:
+            logger.info("🚫 Tarea GPT streaming cancelada.")
+        except Exception as e:
+            logger.error(f"❌ Error en process_gpt_response_streaming: {e}", exc_info=True)
             await self.handle_tts_response("Lo siento, ocurrió un error técnico.", last_final_ts)
 
 
