@@ -3,7 +3,7 @@ import json
 from typing import List, Dict, Optional
 from decouple import config
 from openai import OpenAI
-
+from groq import Groq
 
 # 1. Importamos la función para generar el prompt desde tu archivo prompt_text.py
 from prompt_text import generate_openai_prompt
@@ -12,15 +12,16 @@ from prompt_text import generate_openai_prompt
 CLIENT_INIT_ERROR = None
 client = None
 try:
-    print("[aiagent_text.py] Intentando inicializar cliente OpenAI...")
-    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
-    print("[aiagent_text.py] Cliente OpenAI inicializado aparentemente con éxito.")
+    print("[aiagent_text.py] Intentando inicializar cliente Groq...") # (cambio opcional para claridad)
+    # client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    client = Groq(api_key=config("GROQ_API_KEY"))
+    print("[aiagent_text.py] Cliente Groq inicializado aparentemente con éxito.") # (cambio opcional para claridad)
 except Exception as e:
     CLIENT_INIT_ERROR = str(e)
     print(f"[aiagent_text.py] CRITICAL: No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
     # client permanece None
 
-MODEL_TO_USE = "gpt-4.1-mini"
+MODEL_TO_USE = "llama3-70b-8192"
 
 # ----- Herramientas y Funciones de Mapeo -----
 from buscarslot import process_appointment_request

@@ -17,10 +17,11 @@ import logging
 from time import perf_counter
 from typing import Dict, List, Any # Añadido Any para el tipado de retorno de handle_tool_execution
 from decouple import config
-from openai import OpenAI
+#from openai import OpenAI
 from selectevent import select_calendar_event_by_index
 from weather_utils import get_cancun_weather # <--- AÑADE ESTA LÍNEA
-
+from groq import Groq
+from types import SimpleNamespace
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
 LOG_LEVEL = logging.DEBUG # ⇢ INFO en prod.
@@ -34,7 +35,8 @@ logger = logging.getLogger("aiagent")
 # ──────────────────────── OPENAI CLIENT ───────────────────────────
 # Asegúrate que CHATGPT_SECRET_KEY esté en tu .env o configuración
 try:
-    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    #client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    client = Groq(api_key=config("GROQ_API_KEY"))
 except Exception as e:
     logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
     # Podrías querer que el sistema falle aquí si OpenAI es esencial.
@@ -237,118 +239,172 @@ TOOLS = [
 # ══════════════════ TOOL EXECUTOR ═════════════════════════════════
 # (Esta función se mantiene prácticamente igual, solo asegúrate que los nombres
 # de las funciones coincidan con los definidos en TOOLS y los imports)
-def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object de OpenAI
-    fn_name = tc.function.name
-    try:
-        args = json.loads(tc.function.arguments or "{}")
-    except json.JSONDecodeError:
-        logger.error(f"Error al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
-        return {"error": f"Argumentos inválidos para {fn_name}"}
-        
-    logger.debug("🛠️ Ejecutando herramienta: %s con args: %s", fn_name, args)
+def handle_tool_execution(tc: Any) -> Dict[str, Any]:
+    """
+    Ejecuta una herramienta, manejando de forma robusta tanto los objetos
+    estándar de la API como los diccionarios parseados desde texto.
+    """
+    fn_name = ""
+    arguments_str = "{}"
+    is_object = not isinstance(tc, dict)
 
     try:
+        if is_object:
+            # Flujo normal: la API devolvió un objeto ToolCall estándar
+            fn_name = tc.function.name
+            arguments_str = tc.function.arguments or "{}"
+        else:
+            # Flujo de corrección: la herramienta vino como texto y la parseamos a un dict
+            fn_name = tc.get("function", {}).get("name")
+            # En el JSON malformado, los argumentos vienen como "parameters"
+            arguments_dict = tc.get("parameters", {})
+            arguments_str = json.dumps(arguments_dict)
+
+        args = json.loads(arguments_str)
+        logger.debug("🛠️ Ejecutando herramienta: %s con args: %s", fn_name, args)
+
+        # Mapeo de funciones (sin cambios)
         if fn_name == "read_sheet_data":
             return {"data_consultorio": get_consultorio_data_from_cache()}
-        elif fn_name == "get_cancun_weather": # <--- AÑADE ESTA LÍNEA Y LA DE ABAJO
+        elif fn_name == "get_cancun_weather":
             return get_cancun_weather()
         elif fn_name == "process_appointment_request":
-            return buscarslot.process_appointment_request(**args) #
+            return buscarslot.process_appointment_request(**args)
         elif fn_name == "create_calendar_event":
             phone = args.get("phone", "")
-            if not (phone.isdigit() and len(phone) == 10): #
-                logger.warning(f"Teléfono inválido '{phone}' para crear evento. La IA debería haberlo validado.")
-                return {"error": "Teléfono inválido proporcionado para crear la cita. Debe tener 10 dígitos."}
-            return create_calendar_event(**args) #
+            if not (phone.isdigit() and len(phone) == 10):
+                return {"error": "Teléfono inválido. Debe tener 10 dígitos."}
+            return create_calendar_event(**args)
         elif fn_name == "edit_calendar_event":
-            return edit_calendar_event(**args) #
+            return edit_calendar_event(**args)
         elif fn_name == "delete_calendar_event":
-            return delete_calendar_event(**args) #
+            return delete_calendar_event(**args)
         elif fn_name == "search_calendar_event_by_phone":
-            return {"search_results": search_calendar_event_by_phone(**args)} #
+            return {"search_results": search_calendar_event_by_phone(**args)}
         elif fn_name == "detect_intent":
-            # Simplemente devuelve la intención detectada por la IA
-            # El system_prompt guiará al modelo sobre cómo actuar con esta información.
             return {"intent_detected": args.get("intention")}
         elif fn_name == "end_call":
             return {"call_ended_reason": args.get("reason", "unknown")}
         else:
-            logger.warning(f"Función {fn_name} no reconocida en handle_tool_execution.")
+            logger.warning(f"Función {fn_name} no reconocida.")
             return {"error": f"Función desconocida: {fn_name}"}
 
     except Exception as e:
         logger.exception("Error crítico durante la ejecución de la herramienta %s", fn_name)
         return {"error": f"Error interno al ejecutar {fn_name}: {str(e)}"}
 
-# ... (todo el código anterior, incluyendo la lista TOOLS y handle_tool_execution)
-
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
+async def generate_openai_response_main(history: List[Dict], model: str = "llama3-70b-8192") -> str:
     try:
-        full_conversation_history = generate_openai_prompt(list(history)) #
-
+        if not history or history[0].get("role") != "system":
+            full_conversation_history = generate_openai_prompt(list(history))
+        else:
+            full_conversation_history = list(history)
+        
         t1_start = perf_counter()
-        #logger.debug("OpenAI Unified Flow - Pase 1: Enviando a %s", model)
-
         if not client:
-            logger.error("Cliente OpenAI no inicializado. Abortando generate_openai_response_main.")
-            return "Lo siento, estoy teniendo problemas técnicos para conectarme. Por favor, intente más tarde."
+            logger.error("Cliente Groq no inicializado. Abortando.")
+            return "Lo siento, estoy teniendo problemas técnicos para conectarme."
 
         response_pase1 = client.chat.completions.create(
-            model=model,
-            messages=full_conversation_history,
-            tools=TOOLS, 
-            tool_choice="auto",
-            max_tokens=100, 
-            temperature=0.2, 
-            timeout=15, 
+            model=model, messages=full_conversation_history, tools=TOOLS, 
+            tool_choice="auto", max_tokens=150, temperature=0.2, timeout=15,
         ).choices[0].message
-
         logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
 
+        # --- Bloque de Intercepción y Corrección ---
+        if not response_pase1.tool_calls and response_pase1.content and response_pase1.content.strip().startswith('{'):
+            try:
+                parsed_content = json.loads(response_pase1.content)
+                if "tool_calls" in parsed_content and isinstance(parsed_content["tool_calls"], list):
+                    logger.warning("Se detectó una llamada a herramienta en el 'content'. Se va a procesar.")
+                    # Reemplazamos los tool_calls con los diccionarios parseados del texto
+                    response_pase1.tool_calls = parsed_content["tool_calls"]
+                    response_pase1.content = None # Limpiamos el contenido para que no se lea
+            except (json.JSONDecodeError, TypeError):
+                logger.debug("El 'content' parecía JSON pero no era válido. Se tratará como texto.")
+
+        # --- Flujo de Procesamiento Unificado ---
         if not response_pase1.tool_calls:
             logger.debug("OpenAI Unified Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
-        full_conversation_history.append(response_pase1.model_dump()) 
+        # Preparamos el historial para el segundo pase, asegurando que sea serializable
+        processed_tool_calls = []
+        for tc in response_pase1.tool_calls:
+            processed_tool_calls.append(tc if isinstance(tc, dict) else tc.model_dump())
 
+        assistant_message_for_history = {
+            "role": "assistant",
+            "content": response_pase1.content,
+            "tool_calls": processed_tool_calls
+        }
+        full_conversation_history.append(assistant_message_for_history)
+
+        # Ejecutamos las herramientas
         tool_messages_for_pase2 = []
-        for tool_call in response_pase1.tool_calls:
-            tool_call_id = tool_call.id
-            function_result = handle_tool_execution(tool_call)
+        for tool_call in response_pase1.tool_calls: # Iteramos sobre el objeto original (o dict)
+            tool_call_id = tool_call.id if not isinstance(tool_call, dict) else tool_call.get("id", "tool_from_content")
+            function_result = handle_tool_execution(tool_call) # La función robusta maneja ambos casos
 
             if function_result.get("call_ended_reason"):
-                logger.info("Solicitud de finalizar llamada recibida desde ejecución de herramienta: %s", function_result["call_ended_reason"])
                 return "__END_CALL__"
 
             tool_messages_for_pase2.append({
                 "tool_call_id": tool_call_id,
                 "role": "tool",
-                "name": tool_call.function.name,
-                "content": json.dumps(function_result), 
+                "name": (tool_call.function.name if not isinstance(tool_call, dict) else tool_call.get("function", {}).get("name")),
+                "content": json.dumps(function_result, ensure_ascii=False),
             })
-
+        
         full_conversation_history.extend(tool_messages_for_pase2)
 
+        # --- PASE 2: LLAMADA A LA IA CON RESULTADOS ---
         t2_start = perf_counter()
         logger.debug("OpenAI Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)
-
         response_pase2 = client.chat.completions.create(
-            model=model,
-            messages=full_conversation_history,
-            tools=TOOLS, 
-            tool_choice="auto",
-            max_tokens=100, 
-            temperature=0.2,
+            model=model, messages=full_conversation_history, tools=TOOLS,
+            tool_choice="auto", max_tokens=150, temperature=0.2,
         ).choices[0].message
+        
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
-
         logger.debug("OpenAI Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
         return response_pase2.content or "No tengo una respuesta en este momento."
 
     except Exception as e:
         logger.exception("generate_openai_response_main falló gravemente")
-        return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
+        return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar."
 
 
+async def generate_openai_response_streaming(history: List[Dict], model: str = "llama3-70b-8192"):
+    """Genera una respuesta usando streaming y va cediendo partes del texto."""
+    try:
+        if not history or history[0].get("role") != "system":
+            full_conversation_history = generate_openai_prompt(list(history))
+        else:
+            full_conversation_history = list(history)
+
+        if not client:
+            logger.error("Cliente Groq no inicializado. Abortando stream.")
+            return
+
+        response_stream = client.chat.completions.create(
+            model=model,
+            messages=full_conversation_history,
+            tools=TOOLS,
+            tool_choice="auto",
+            max_tokens=150,
+            temperature=0.2,
+            timeout=15,
+            stream=True,
+        )
+
+        for chunk in response_stream:
+            piece = chunk.choices[0].delta.content
+            if piece:
+                yield piece
+
+    except Exception as e:
+        logger.exception("generate_openai_response_streaming falló")
+        raise

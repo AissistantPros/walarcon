@@ -49,6 +49,8 @@ for noisy in (
     "uvicorn.error",
     "deepgram.clients.common.v1.abstract_async_websocket",
     "fastapi",
+    "groq._base_client",
+    "twilio.http_client",
 ):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
