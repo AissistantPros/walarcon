@@ -287,7 +287,17 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
 async def generate_openai_response_main(history: List[Dict], model: str = "llama3-70b-8192") -> str: #
     try:
-        full_conversation_history = generate_openai_prompt(list(history)) #
+                # --- LÓGICA DE PROMPT CORREGIDA ---
+        # Revisa si el historial ya tiene un prompt de sistema.
+        # Si no lo tiene (es el primer turno), lo genera completo.
+        # Si ya lo tiene, solo usa el historial como viene.
+        if not history or history[0].get("role") != "system":
+            # Es el primer turno o el historial no tiene system prompt, lo generamos.
+            full_conversation_history = generate_openai_prompt(list(history))
+        else:
+            # El historial ya contiene el system prompt, lo usamos directamente.
+            full_conversation_history = list(history)
+        # --- FIN DE LA CORRECCIÓN ---
 
         t1_start = perf_counter()
         #logger.debug("OpenAI Unified Flow - Pase 1: Enviando a %s", model)
