@@ -239,61 +239,64 @@ TOOLS = [
 # ══════════════════ TOOL EXECUTOR ═════════════════════════════════
 # (Esta función se mantiene prácticamente igual, solo asegúrate que los nombres
 # de las funciones coincidan con los definidos en TOOLS y los imports)
-def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object de OpenAI
-    fn_name = tc.function.name
-    try:
-        args = json.loads(tc.function.arguments or "{}")
-    except json.JSONDecodeError:
-        logger.error(f"Error al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
-        return {"error": f"Argumentos inválidos para {fn_name}"}
-        
-    logger.debug("🛠️ Ejecutando herramienta: %s con args: %s", fn_name, args)
+def handle_tool_execution(tc: Any) -> Dict[str, Any]:
+    """
+    Ejecuta una herramienta, manejando de forma robusta tanto los objetos
+    estándar de la API como los diccionarios parseados desde texto.
+    """
+    fn_name = ""
+    arguments_str = "{}"
+    is_object = not isinstance(tc, dict)
 
     try:
+        if is_object:
+            # Flujo normal: la API devolvió un objeto ToolCall estándar
+            fn_name = tc.function.name
+            arguments_str = tc.function.arguments or "{}"
+        else:
+            # Flujo de corrección: la herramienta vino como texto y la parseamos a un dict
+            fn_name = tc.get("function", {}).get("name")
+            # En el JSON malformado, los argumentos vienen como "parameters"
+            arguments_dict = tc.get("parameters", {})
+            arguments_str = json.dumps(arguments_dict)
+
+        args = json.loads(arguments_str)
+        logger.debug("🛠️ Ejecutando herramienta: %s con args: %s", fn_name, args)
+
+        # Mapeo de funciones (sin cambios)
         if fn_name == "read_sheet_data":
             return {"data_consultorio": get_consultorio_data_from_cache()}
-        elif fn_name == "get_cancun_weather": # <--- AÑADE ESTA LÍNEA Y LA DE ABAJO
+        elif fn_name == "get_cancun_weather":
             return get_cancun_weather()
         elif fn_name == "process_appointment_request":
-            return buscarslot.process_appointment_request(**args) #
+            return buscarslot.process_appointment_request(**args)
         elif fn_name == "create_calendar_event":
             phone = args.get("phone", "")
-            if not (phone.isdigit() and len(phone) == 10): #
-                logger.warning(f"Teléfono inválido '{phone}' para crear evento. La IA debería haberlo validado.")
-                return {"error": "Teléfono inválido proporcionado para crear la cita. Debe tener 10 dígitos."}
-            return create_calendar_event(**args) #
+            if not (phone.isdigit() and len(phone) == 10):
+                return {"error": "Teléfono inválido. Debe tener 10 dígitos."}
+            return create_calendar_event(**args)
         elif fn_name == "edit_calendar_event":
-            return edit_calendar_event(**args) #
+            return edit_calendar_event(**args)
         elif fn_name == "delete_calendar_event":
-            return delete_calendar_event(**args) #
+            return delete_calendar_event(**args)
         elif fn_name == "search_calendar_event_by_phone":
-            return {"search_results": search_calendar_event_by_phone(**args)} #
+            return {"search_results": search_calendar_event_by_phone(**args)}
         elif fn_name == "detect_intent":
-            # Simplemente devuelve la intención detectada por la IA
-            # El system_prompt guiará al modelo sobre cómo actuar con esta información.
             return {"intent_detected": args.get("intention")}
         elif fn_name == "end_call":
             return {"call_ended_reason": args.get("reason", "unknown")}
         else:
-            logger.warning(f"Función {fn_name} no reconocida en handle_tool_execution.")
+            logger.warning(f"Función {fn_name} no reconocida.")
             return {"error": f"Función desconocida: {fn_name}"}
 
     except Exception as e:
         logger.exception("Error crítico durante la ejecución de la herramienta %s", fn_name)
         return {"error": f"Error interno al ejecutar {fn_name}: {str(e)}"}
 
-# ... (todo el código anterior, incluyendo la lista TOOLS y handle_tool_execution)
-
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 # Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
 async def generate_openai_response_main(history: List[Dict], model: str = "llama3-70b-8192") -> str:
-    """
-    Genera una respuesta de la IA, manejando tanto respuestas de texto como
-    el uso de herramientas, incluyendo casos donde el modelo devuelve la
-    herramienta como un string de texto en lugar de en su campo designado.
-    """
     try:
-        # --- LÓGICA DE PROMPT ---
         if not history or history[0].get("role") != "system":
             full_conversation_history = generate_openai_prompt(list(history))
         else:
@@ -302,108 +305,73 @@ async def generate_openai_response_main(history: List[Dict], model: str = "llama
         t1_start = perf_counter()
         if not client:
             logger.error("Cliente Groq no inicializado. Abortando.")
-            return "Lo siento, estoy teniendo problemas técnicos para conectarme. Por favor, intente más tarde."
+            return "Lo siento, estoy teniendo problemas técnicos para conectarme."
 
-        # --- PASE 1: LLAMADA INICIAL A LA IA ---
         response_pase1 = client.chat.completions.create(
-            model=model,
-            messages=full_conversation_history,
-            tools=TOOLS, 
-            tool_choice="auto",
-            max_tokens=150, # Aumentado ligeramente por si acaso
-            temperature=0.2, 
-            timeout=15, 
+            model=model, messages=full_conversation_history, tools=TOOLS, 
+            tool_choice="auto", max_tokens=150, temperature=0.2, timeout=15,
         ).choices[0].message
-
         logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
-        
-        # --- INICIO DEL BLOQUE DE CORRECCIÓN ---
-        # Revisa si la IA escribió la herramienta en el 'content' en lugar de usar el campo 'tool_calls'.
+
+        # --- Bloque de Intercepción y Corrección ---
         if not response_pase1.tool_calls and response_pase1.content and response_pase1.content.strip().startswith('{'):
             try:
                 parsed_content = json.loads(response_pase1.content)
                 if "tool_calls" in parsed_content and isinstance(parsed_content["tool_calls"], list):
-                    logger.warning("Se detectó una llamada a herramienta en el 'content'. Reconstruyendo para procesar.")
-                    
-                    reconstructed_tool_calls = []
-                    for tc_dict in parsed_content["tool_calls"]:
-                        func_dict = tc_dict.get("function", {})
-                        
-                        # El manejador de herramientas espera los argumentos como un string JSON
-                        arguments_str = json.dumps(func_dict.get("parameters", {}))
-                        
-                        func_obj = SimpleNamespace(
-                            name=func_dict.get("name"),
-                            arguments=arguments_str
-                        )
-                        tool_call_obj = SimpleNamespace(
-                            id=tc_dict.get("id", "tool_from_content"),
-                            function=func_obj,
-                            type='function'
-                        )
-                        reconstructed_tool_calls.append(tool_call_obj)
-
-                    # Corregimos el objeto de respuesta para que el resto del código funcione como si la respuesta hubiera sido correcta
-                    response_pase1.tool_calls = reconstructed_tool_calls
-                    response_pase1.content = None # Limpiamos el contenido para que no se lea como texto
-            
+                    logger.warning("Se detectó una llamada a herramienta en el 'content'. Se va a procesar.")
+                    # Reemplazamos los tool_calls con los diccionarios parseados del texto
+                    response_pase1.tool_calls = parsed_content["tool_calls"]
+                    response_pase1.content = None # Limpiamos el contenido para que no se lea
             except (json.JSONDecodeError, TypeError):
-                logger.debug("El 'content' parecía JSON de herramienta pero no se pudo parsear. Se tratará como texto normal.")
-        # --- FIN DEL BLOQUE DE CORRECCIÓN ---
+                logger.debug("El 'content' parecía JSON pero no era válido. Se tratará como texto.")
 
-        # --- PROCESAMIENTO DE LA RESPUESTA (YA CORREGIDA) ---
-        
-        # Caso 1: No hay herramientas que llamar, es una respuesta de texto directa.
+        # --- Flujo de Procesamiento Unificado ---
         if not response_pase1.tool_calls:
             logger.debug("OpenAI Unified Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
-        # Caso 2: Hay herramientas que llamar.
-        # Añadir la decisión del asistente de usar herramientas al historial (usando la corrección anterior).
+        # Preparamos el historial para el segundo pase, asegurando que sea serializable
+        processed_tool_calls = []
+        for tc in response_pase1.tool_calls:
+            processed_tool_calls.append(tc if isinstance(tc, dict) else tc.model_dump())
+
         assistant_message_for_history = {
             "role": "assistant",
             "content": response_pase1.content,
-            "tool_calls": response_pase1.tool_calls
+            "tool_calls": processed_tool_calls
         }
         full_conversation_history.append(assistant_message_for_history)
 
-        # Ejecutar cada herramienta
+        # Ejecutamos las herramientas
         tool_messages_for_pase2 = []
-        for tool_call in response_pase1.tool_calls:
-            tool_call_id = tool_call.id
-            function_result = handle_tool_execution(tool_call)
+        for tool_call in response_pase1.tool_calls: # Iteramos sobre el objeto original (o dict)
+            tool_call_id = tool_call.id if not isinstance(tool_call, dict) else tool_call.get("id", "tool_from_content")
+            function_result = handle_tool_execution(tool_call) # La función robusta maneja ambos casos
 
             if function_result.get("call_ended_reason"):
-                logger.info("Solicitud de finalizar llamada recibida: %s", function_result["call_ended_reason"])
                 return "__END_CALL__"
 
             tool_messages_for_pase2.append({
                 "tool_call_id": tool_call_id,
                 "role": "tool",
-                "name": tool_call.function.name,
-                "content": json.dumps(function_result, ensure_ascii=False), 
+                "name": (tool_call.function.name if not isinstance(tool_call, dict) else tool_call.get("function", {}).get("name")),
+                "content": json.dumps(function_result, ensure_ascii=False),
             })
         
         full_conversation_history.extend(tool_messages_for_pase2)
 
-        # --- PASE 2: LLAMADA A LA IA CON LOS RESULTADOS DE LAS HERRAMIENTAS ---
+        # --- PASE 2: LLAMADA A LA IA CON RESULTADOS ---
         t2_start = perf_counter()
         logger.debug("OpenAI Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)
-
         response_pase2 = client.chat.completions.create(
-            model=model,
-            messages=full_conversation_history,
-            tools=TOOLS, 
-            tool_choice="auto",
-            max_tokens=150, 
-            temperature=0.2,
+            model=model, messages=full_conversation_history, tools=TOOLS,
+            tool_choice="auto", max_tokens=150, temperature=0.2,
         ).choices[0].message
         
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
         logger.debug("OpenAI Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
-        
         return response_pase2.content or "No tengo una respuesta en este momento."
 
     except Exception as e:
         logger.exception("generate_openai_response_main falló gravemente")
-        return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
+        return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar."

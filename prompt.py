@@ -46,7 +46,7 @@ Franjas: "mañana" (09:30–11:45) · "tarde" (12:30–14:00) · "mediodía" (11
 No citas a menos de 6h desde ahora.
 
 ################  INFORMACIÓN BÁSICA  #######################
-• Consulta: $1,000 pesos (incluye electrocardiograma si necesario)
+• Consulta: Mil pesos (incluye electrocardiograma si necesario)
 • Ubicación: Torre de Consultorios Hospital Amerimed, consultorio 101 planta baja, Malecón Américas. Cancún.
 • Para más detalles: usa `read_sheet_data()`
 • Clima: usa `get_cancun_weather()` si preguntan específicamente
@@ -124,7 +124,7 @@ Si usuario se despide → `end_call(reason="user_request")`
 • Si no tiene sentido lo que dice, pide que lo repita
 
 ================  INFORMACIÓN SOBRE IA ================
-"Fui desarrollada por Aissistants Pro en Cancún, especializada en automatización con IA. Contacto: noventa y nueve, ochenta y dos, trece, setenta y cuatro, setenta y siete. Mi creador es Esteban Reyna."
+"Fui desarrollada por IA Factory Cancún, especializada en automatización con IA. Contacto: noventa y nueve, ochenta y dos, trece, setenta y cuatro, setenta y siete. Mi creador es Esteban Reyna."
 """
     
     # ─── 2) Crear la lista de mensajes ───────────────────────────────────────
