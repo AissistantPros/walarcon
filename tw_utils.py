@@ -603,7 +603,7 @@ class TwilioWebSocketManager:
                 logger.debug(f"   STT_CALLBACK Cancelling existing pause timer...") # Log de cancelación está en la tarea
                 self.temporizador_pausa.cancel()
                 
-            logger.debug(f"⏱️ TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Reiniciando timer de pausa ({PAUSA_SIN_ACTIVIDAD_TIMEOUT}s).")
+            #logger.debug(f"⏱️ TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Reiniciando timer de pausa ({PAUSA_SIN_ACTIVIDAD_TIMEOUT}s).")
             self.temporizador_pausa = asyncio.create_task(self._intentar_enviar_si_pausa(), name=f"PausaTimer_{self.call_sid or id(self)}")
         else:
              logger.debug(f"🔇 TS:[{ahora_dt.strftime(LOG_TS_FORMAT)[:-3]}] STT_CALLBACK Recibido transcript vacío.")
@@ -623,7 +623,7 @@ class TwilioWebSocketManager:
         timeout_maximo = MAX_TIMEOUT_SIN_ACTIVIDAD
 
         try:
-            logger.debug(f"⏳ Esperando {tiempo_espera:.1f}s de pausa total...")
+            #logger.debug(f"⏳ Esperando {tiempo_espera:.1f}s de pausa total...")
             await asyncio.sleep(tiempo_espera)
             
             ts_sleep_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
@@ -639,7 +639,7 @@ class TwilioWebSocketManager:
                 return
 
             if not self.finales_acumulados:
-                logger.debug("⏸️ INTENTAR_ENVIAR: Timer cumplido, pero sin finales acumulados.")
+                #logger.debug("⏸️ INTENTAR_ENVIAR: Timer cumplido, pero sin finales acumulados.")
                 self.ultimo_evento_fue_parcial = False # Resetear por si acaso
                 return
 
@@ -860,7 +860,7 @@ class TwilioWebSocketManager:
         self.finales_acumulados.clear()
 
         # 3. Logs de limpieza
-        logger.info(f"[{log_prefix}] 🧹 Buffer de audio vaciado: {bytes_descartados} bytes descartados.")
+        logger.info(f"🧹 Buffer de audio vaciado: {bytes_descartados} bytes descartados.")
 
         # 4. Reset de timestamp de última frase final
         self.last_final_stt_timestamp = None
@@ -868,7 +868,7 @@ class TwilioWebSocketManager:
         # 5. Reactivar STT
         self.ignorar_stt = False
         self.tts_en_progreso = False
-        logger.info(f"[{log_prefix}] 🟢 STT reactivado (ignorar_stt=False).")
+        logger.info(f" 🟢 STT reactivado (ignorar_stt=False).")
 
         # 6. Cancelar cronómetro de timeout si existía
         if self.tts_timeout_task and not self.tts_timeout_task.done():
@@ -878,7 +878,7 @@ class TwilioWebSocketManager:
 
     async def _start_stall_detector(self):
         """Monitorea si el envío de chunks se detiene"""
-        logger.debug("🚦 Iniciando detector de stalls TTS...")
+        #logger.debug("🚦 Iniciando detector de stalls TTS...")
         while not self.call_ended and self.tts_en_progreso:
             ahora = self._now()
             if self.last_chunk_time and (ahora - self.last_chunk_time) > 0.3:  # 300ms
@@ -961,7 +961,7 @@ class TwilioWebSocketManager:
                 model=model_a_usar
             )
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
-            logger.info(f"⏱️ GPT completado en {gpt_duration_ms:.1f} ms")
+            logger.info(f"⏱️ LLM completado en {gpt_duration_ms:.1f} ms")
 
             if self.call_ended:
                 return

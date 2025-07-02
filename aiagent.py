@@ -280,10 +280,10 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
         logger.exception("Error crítico durante la ejecución de la herramienta %s", fn_name)
         return {"error": f"Error interno al ejecutar {fn_name}: {str(e)}"}
 
-# ... (todo el código anterior, incluyendo la lista TOOLS y handle_tool_execution)
+
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
-# Esta es ahora la ÚNICA función que necesitas para generar respuestas de OpenAI.
+
 async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
@@ -305,10 +305,10 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             timeout=15, 
         ).choices[0].message
 
-        logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
+        #logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
 
         if not response_pase1.tool_calls:
-            logger.debug("OpenAI Unified Flow - Pase 1: Respuesta directa de la IA: %s", response_pase1.content)
+            logger.debug("RESPUESTA IA - Pase 1: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
         full_conversation_history.append(response_pase1.model_dump()) 
