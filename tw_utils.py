@@ -952,7 +952,7 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "user", "content": user_text})
 
         try:
-            model_a_usar = config("GROQ_MODEL", default="llama-3.3-70b-versatile")
+            model_a_usar = config("GROQ_MODEL", default="deepseek-r1-distill-llama-70b")
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             start_gpt_call = self._now()
