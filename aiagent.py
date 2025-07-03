@@ -350,10 +350,16 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:  # tc es un ToolCall objec
 
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
-
 async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str:
     try:
+        # ==================== PASE 1: PROMPT INICIAL (System + Historial) ====================
         full_conversation_history = generate_openai_prompt(list(history))
+
+        logger.info("\n==== PROMPT ENVIADO A GPT (Pase 1 / Conversación) ====")
+        for idx, m in enumerate(full_conversation_history):
+            logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:600]}")  # Trunca para no saturar
+        logger.info("==== FIN PROMPT Pase 1 ====\n")
+
         t1_start = perf_counter()
 
         if not client:
@@ -387,8 +393,6 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
 
         logger.debug(f"🔗 Tool calls VÁLIDOS recibidos: {len(tool_calls_chunks)}")
 
-
-
         tool_calls = merge_tool_calls(tool_calls_chunks)
 
         response_pase1 = ChatCompletionMessage(
@@ -401,10 +405,20 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
 
         if not response_pase1.tool_calls:
             logger.debug("RESPUESTA IA - Pase 1: %s", response_pase1.content)
+            # Log respuesta final porque no hubo tool call
+            logger.info("\n==== RESPUESTA FINAL GPT ====\n%s\n==== FIN RESPUESTA ====", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
+        # Agrega la respuesta con tool_call al historial
         full_conversation_history.append(response_pase1.model_dump())
 
+        # ==================== PASE 2: PROMPT CON TOOL RESPONSE ====================
+        logger.info("\n==== PROMPT ENVIADO A GPT (Pase 2 / Tool Call) ====")
+        for idx, m in enumerate(full_conversation_history):
+            logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:600]}")  # Trunca para no saturar
+        logger.info("==== FIN PROMPT Pase 2 ====\n")
+
+        # Prepara los mensajes de herramientas para el segundo pase
         tool_messages_for_pase2 = []
         for tool_call in response_pase1.tool_calls:
             tool_call_id = tool_call.id
@@ -436,7 +450,9 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         ).choices[0].message
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
 
-        logger.debug("OpenAI Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
+        # ====== RESPUESTA FINAL LOG ======
+        logger.info("\n==== RESPUESTA FINAL GPT ====\n%s\n==== FIN RESPUESTA ====", response_pase2.content)
+
         return response_pase2.content or "No tengo una respuesta en este momento."
 
     except Exception as e:
