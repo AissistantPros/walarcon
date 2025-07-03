@@ -362,7 +362,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "llama
             messages=full_conversation_history,
             tools=TOOLS, 
             tool_choice="auto",
-            max_tokens=100, 
+            max_tokens=256, 
             temperature=0.2,
         ).choices[0].message
         logger.debug("🕒 Groq Unified Flow - Pase 2 completado en %s", _t(t2_start))
