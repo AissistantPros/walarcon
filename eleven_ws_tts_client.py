@@ -1,8 +1,8 @@
 """
-Cliente WebSocket de ElevenLabs TTS — v1
-========================================
+Cliente WebSocket de ElevenLabs TTS — v2 CORREGIDO
+=================================================
 • Reemplazo directo para DeepgramTTSSocketClient
-• Maneja threading correctamente usando asyncio.run_coroutine_threadsafe
+• Corregido según documentación oficial de ElevenLabs
 • Formato μ-law 8kHz nativo para Twilio
 • Misma interfaz que el cliente de Deepgram
 
@@ -93,20 +93,8 @@ class ElevenLabsWSClient:
                 self._ws = ws
                 logger.info("🟢 ElevenLabs WebSocket conectado")
                 
-                # Configurar formato de salida para μ-law 8kHz
-                config_message = {
-                    "xi_api_key": self.api_key,
-                    "voice_settings": self.voice_settings,
-                    "generation_config": {
-                        "chunk_length_schedule": [120, 160, 250, 290]
-                    },
-                    "output_format": {
-                        "container": "raw",
-                        "encoding": "ulaw_8000"
-                    }
-                }
-                
-                await ws.send(json.dumps(config_message))
+                # ✅ NO enviar mensaje de configuración inicial
+                # La conexión está lista para recibir mensajes de texto
                 
                 # Marcar como conectado
                 self._loop.call_soon_threadsafe(self._ws_open.set)
@@ -215,19 +203,20 @@ class ElevenLabsWSClient:
         self._is_speaking = True
 
         try:
-            # Enviar texto
+            # ✅ Mensaje según documentación oficial
             message = {
                 "text": text,
                 "voice_settings": self.voice_settings,
                 "generation_config": {
                     "chunk_length_schedule": [120, 160, 250, 290]
-                }
+                },
+                "output_format": "ulaw_8000"  # ✅ Directamente, no como objeto
             }
             
             await self._ws.send(json.dumps(message))
             logger.debug(f"📤 Texto enviado a ElevenLabs: {text[:50]}...")
 
-            # Enviar fin de input para iniciar generación
+            # ✅ Enviar EOS (End of Sequence) para finalizar
             await self._ws.send(json.dumps({"text": ""}))
 
             # Esperar primer chunk
