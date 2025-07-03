@@ -25,7 +25,7 @@ from deepgram_ws_tts_client import DeepgramTTSSocketClient
 from utils import terminar_llamada_twilio
 import utils
 from asyncio import run_coroutine_threadsafe
-
+import collections.abc
 
 # Tus importaciones de módulos locales
 try:
@@ -916,11 +916,10 @@ class TwilioWebSocketManager:
 
 
 
-
-
     async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
-        """Llama a GPT, valida respuesta, y delega el manejo de TTS."""
-        
+        """
+        Llama a GPT, valida respuesta, y delega el manejo de TTS **por chunks** si es streaming.
+        """
         if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
             logger.warning("⚠️ PROCESS_GPT Ignorado: llamada terminada o WS desconectado.")
             return
@@ -931,63 +930,74 @@ class TwilioWebSocketManager:
 
         logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
 
-
-
-        # ── PREPING: Asegurar que existe un WebSocket TTS listo ────────────
+        # PREP: Asegura WS de Deepgram TTS listo
         try:
             if (not hasattr(self, "dg_tts_client")
                     or self.dg_tts_client is None
-                    or self.dg_tts_client._ws_close.is_set()):   # ya se cerró
+                    or getattr(self.dg_tts_client, "_ws_close", None) and self.dg_tts_client._ws_close.is_set()):
                 from deepgram_ws_tts_client import DeepgramTTSSocketClient
                 self.dg_tts_client = DeepgramTTSSocketClient()
                 logger.debug("🔌 Deepgram TTS WS creado / recreado.")
-            # Si el WS sigue abierto, no hacemos nada: está listo.
         except Exception as e_prep:
             logger.error(f"❌ Error creando WebSocket Deepgram TTS: {e_prep}")
-
-
-
-
 
         self.conversation_history.append({"role": "user", "content": user_text})
 
         try:
             model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
-
             start_gpt_call = self._now()
+
             respuesta_gpt = await generate_openai_response_main(
                 history=mensajes_para_gpt,
                 model=model_a_usar
             )
+
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
             logger.info(f"⏱️ LLM completado en {gpt_duration_ms:.1f} ms")
 
             if self.call_ended:
                 return
 
-            if not respuesta_gpt or not isinstance(respuesta_gpt, str):
-                logger.error("❌ GPT devolvió una respuesta vacía o inválida.")
-                respuesta_gpt = "Disculpe, no pude procesar eso."
+            # --- STREAMING: si la respuesta es un async iterable ---
+            if isinstance(respuesta_gpt, collections.abc.AsyncIterable):
+                logger.info("🟢 Respuesta de GPT es STREAMING, enviando chunks a TTS en tiempo real.")
 
-            reply_cleaned = respuesta_gpt.strip()
+                texto_acumulado = ""
+                async for chunk in respuesta_gpt:
+                    # Puedes filtrar chunks vacíos/whitespace aquí
+                    chunk = chunk.strip()
+                    if not chunk:
+                        continue
+                    texto_acumulado += chunk
+
+                    # Manda el chunk a TTS (uno a la vez, sin esperar todo el texto)
+                    await self.handle_tts_response(chunk, last_final_ts)
+
+                reply_cleaned = texto_acumulado.strip()
+            else:
+                # --- LEGACY: respuesta completa (no streaming) ---
+                if not respuesta_gpt or not isinstance(respuesta_gpt, str):
+                    logger.error("❌ GPT devolvió una respuesta vacía o inválida.")
+                    respuesta_gpt = "Disculpe, no pude procesar eso."
+
+                reply_cleaned = respuesta_gpt.strip()
+                await self.handle_tts_response(reply_cleaned, last_final_ts)
+
+            # Añade al historial la respuesta completa, solo una vez
             self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
 
             if reply_cleaned == "__END_CALL__":
                 logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
                 self.finalizar_llamada_pendiente = True
-                # Lanza la corrutina de cierre con despedida y sale
                 asyncio.create_task(
                     utils.cierre_con_despedida(
                         manager=self,
                         reason="user_request",
-                        delay=7.0       # segundos de margen para que se reproduzca el TTS
+                        delay=7.0
                     )
                 )
                 return
-
-
-            await self.handle_tts_response(reply_cleaned, last_final_ts)
 
         except asyncio.CancelledError:
             logger.info("🚫 Tarea GPT cancelada.")

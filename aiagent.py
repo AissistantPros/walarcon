@@ -19,7 +19,9 @@ from typing import Dict, List, Any # Añadido Any para el tipado de retorno de h
 from decouple import config
 from openai import OpenAI
 from selectevent import select_calendar_event_by_index
-from weather_utils import get_cancun_weather # <--- AÑADE ESTA LÍNEA
+from weather_utils import get_cancun_weather
+#streaming gpt-4.1-mini
+from openai.types.chat.chat_completion_message import ChatCompletionMessage
 
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
@@ -284,26 +286,41 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
+async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str:
     try:
-        full_conversation_history = generate_openai_prompt(list(history)) #
-
+        full_conversation_history = generate_openai_prompt(list(history))
         t1_start = perf_counter()
-        #logger.debug("OpenAI Unified Flow - Pase 1: Enviando a %s", model)
 
         if not client:
             logger.error("Cliente OpenAI no inicializado. Abortando generate_openai_response_main.")
             return "Lo siento, estoy teniendo problemas técnicos para conectarme. Por favor, intente más tarde."
 
-        response_pase1 = client.chat.completions.create(
+        # ------- STREAMING PRIMER PASE -------
+        stream_response = client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
-            tools=TOOLS, 
+            tools=TOOLS,
             tool_choice="auto",
-            max_tokens=100, 
-            temperature=0.2, 
-            timeout=15, 
-        ).choices[0].message
+            max_tokens=100,
+            temperature=0.2,
+            timeout=15,
+            stream=True,
+        )
+
+        full_content = ""
+        tool_calls = None
+
+        for chunk in stream_response:
+            if chunk.choices[0].delta.content:
+                full_content += chunk.choices[0].delta.content
+            if chunk.choices[0].delta.tool_calls is not None:
+                tool_calls = chunk.choices[0].delta.tool_calls
+
+        response_pase1 = ChatCompletionMessage(
+            content=full_content,
+            tool_calls=tool_calls,
+            role="assistant",
+        )
 
         #logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
 
@@ -311,7 +328,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             logger.debug("RESPUESTA IA - Pase 1: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
-        full_conversation_history.append(response_pase1.model_dump()) 
+        full_conversation_history.append(response_pase1.model_dump())
 
         tool_messages_for_pase2 = []
         for tool_call in response_pase1.tool_calls:
@@ -326,7 +343,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
                 "tool_call_id": tool_call_id,
                 "role": "tool",
                 "name": tool_call.function.name,
-                "content": json.dumps(function_result), 
+                "content": json.dumps(function_result),
             })
 
         full_conversation_history.extend(tool_messages_for_pase2)
@@ -337,9 +354,9 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         response_pase2 = client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
-            tools=TOOLS, 
+            tools=TOOLS,
             tool_choice="auto",
-            max_tokens=100, 
+            max_tokens=100,
             temperature=0.2,
         ).choices[0].message
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
@@ -350,5 +367,3 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
     except Exception as e:
         logger.exception("generate_openai_response_main falló gravemente")
         return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
-
-
