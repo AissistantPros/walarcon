@@ -1,6 +1,6 @@
 # tw_utils.py
 """
-WebSocket manager para Twilio <-> Deepgram <-> GPT
+WebSocket manager para Twilio <-> ElevenLabs <-> GPT
 ----------------------------------------------------------------
 Maneja la lógica de acumulación de transcripciones, interacción con GPT,
 TTS, y el control del flujo de la llamada, incluyendo la gestión de timeouts
@@ -21,7 +21,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 from state_store import session_state
 from eleven_http_client import send_tts_http_to_twilio
-from deepgram_ws_tts_client import DeepgramTTSSocketClient
+from eleven_ws_tts_client import ElevenLabsWSClient
 from utils import terminar_llamada_twilio
 import utils
 from asyncio import run_coroutine_threadsafe
@@ -77,7 +77,7 @@ class TwilioWebSocketManager:
         self.tts_timeout_task: Optional[asyncio.Task] = None
         self.audio_espera_task: Optional[asyncio.Task] = None
         self.finalizar_llamada_pendiente = False
-        self.dg_tts_client = DeepgramTTSSocketClient()
+        self.dg_tts_client = None # Será inicializado más adelante
         self.call_sid: str = "" 
         self.stream_sid: Optional[str] = None 
         self.call_ended: bool = False
@@ -198,13 +198,13 @@ class TwilioWebSocketManager:
         self._reset_state_for_new_call() 
 
 
-        # --- Crear el cliente Deepgram TTS WebSocket (una sola vez) ---
+        # --- Crear el cliente Eleven Labs TTS WebSocket (una sola vez) ---
         try:
-            from deepgram_ws_tts_client import DeepgramTTSSocketClient
-            self.dg_tts_client = DeepgramTTSSocketClient()
-            logger.debug("🔌 Deepgram TTS WS abierto al iniciar la llamada.")
+            from eleven_ws_tts_client import ElevenLabsWSClient
+            self.dg_tts_client = ElevenLabsWSClient()
+            logger.debug("🔌 Elabs TTS WS abierto al iniciar la llamada.")
         except Exception as e_ws_init:
-            logger.error(f"❌ No se pudo abrir el WS de Deepgram TTS: {e_ws_init}")
+            logger.error(f"❌ No se pudo abrir el WS de Elabs TTS: {e_ws_init}")
             self.dg_tts_client = None  # Se creará on-demand en el bloque de saludo
 
 
@@ -301,7 +301,7 @@ class TwilioWebSocketManager:
                         "streamSid": self.stream_sid
                     }))
 
-                    # ▶️ Enviar TTS (Deepgram WS primero, ElevenLabs fallback)
+                    # ▶️ Enviar TTS (ElevenLabs WS primero, ElevenLabs HTTP fallback)
                     async def _send_greet_chunk(chunk: bytes) -> None:
                         await self.websocket.send_text(json.dumps({
                             "event": "media",
@@ -317,9 +317,9 @@ class TwilioWebSocketManager:
                     try:
                         # Si aún no existe el cliente, créalo (caso de error previo)
                         if not getattr(self, "dg_tts_client", None):
-                            from deepgram_ws_tts_client import DeepgramTTSSocketClient
-                            self.dg_tts_client = DeepgramTTSSocketClient()
-                            logger.debug("🔌 Deepgram TTS WS creado / recreado.")
+                            from eleven_ws_tts_client import ElevenLabsWSClient
+                            self.dg_tts_client = ElevenLabsWSClient()
+                            logger.debug("🔌 ElevenLabs TTS WS creado / recreado.")
 
                         ok = await self.dg_tts_client.speak(
                             greeting_text,
@@ -329,7 +329,7 @@ class TwilioWebSocketManager:
                         )
 
                         if not ok:
-                            raise RuntimeError("Deepgram tardó en dar el primer chunk")
+                            raise RuntimeError("ElevenLabs WS tardó en dar el primer chunk")
                         else:
                             # INICIAR DETECTOR DE STALLS PARA EL SALUDO
                             self.stall_detector_task = asyncio.create_task(
@@ -337,18 +337,18 @@ class TwilioWebSocketManager:
                             )
 
                     except Exception as e_dg_greet:
-                        logger.error(f"Deepgram TTS falló en saludo: {e_dg_greet}. Usando ElevenLabs.")
+                        logger.error(f"ElevenLabs WS falló en saludo: {e_dg_greet}. Usando ElevenLabs HTTP.")
                         
-                        # ── 1) Cerrar con seguridad el WS de Deepgram si sigue abierto ─────────
+                        # ── 1) Cerrar con seguridad el WS de ElevenLabs si sigue abierto ─────────
                         try:
                             if getattr(self, "dg_tts_client", None):
                                 await self.dg_tts_client.close()          # cierre limpio
                                 self.dg_tts_client = None                 # se recreará luego
                         except Exception as e_close:
-                            logger.debug(f"DG TTS WS ya cerrado o falló al cerrar: {e_close}")
+                            logger.debug(f"ElevenLabs TTS WS ya cerrado o falló al cerrar: {e_close}")
 
                         # ── 2) Fallback a ElevenLabs (HTTP) ────────────────────────────────────
-                        logger.info("🔴 Fallback (saludo): Deepgram no entregó audio a tiempo → se llama ElevenLabs.")
+                        logger.info("🔴 Fallback (saludo): Elabs WS no entregó audio a tiempo → se llama ElevenLabs HTTP.")
                         await send_tts_http_to_twilio(
                             text=greeting_text,
                             stream_sid=self.stream_sid,
@@ -388,7 +388,7 @@ class TwilioWebSocketManager:
                                 self.audio_buffer_twilio.append(decoded_payload)
                                 self.audio_buffer_current_bytes += chunk_size
                                 logger.debug(
-                                    f"🎙️ Audio bufferizado (Deepgram inactivo). "
+                                    f"🎙️ Audio bufferizado (STT inactivo). "
                                     f"Tamaño total: {self.audio_buffer_current_bytes} bytes."
                                 )
                             else:
@@ -398,7 +398,7 @@ class TwilioWebSocketManager:
                     try:
                         await self.stt_streamer.send_audio(decoded_payload)
                     except Exception as e_send_audio:
-                        logger.error(f"❌ Error enviando audio a Deepgram: {e_send_audio}")
+                        logger.error(f"❌ Error enviando audio a STT: {e_send_audio}")
 
 
 
@@ -935,11 +935,11 @@ class TwilioWebSocketManager:
             if (not hasattr(self, "dg_tts_client")
                     or self.dg_tts_client is None
                     or getattr(self.dg_tts_client, "_ws_close", None) and self.dg_tts_client._ws_close.is_set()):
-                from deepgram_ws_tts_client import DeepgramTTSSocketClient
-                self.dg_tts_client = DeepgramTTSSocketClient()
-                logger.debug("🔌 Deepgram TTS WS creado / recreado.")
+                from eleven_ws_tts_client import ElevenLabsWSClient
+                self.dg_tts_client = ElevenLabsWSClient()
+                logger.debug("🔌 ElevenLabs TTS WS creado / recreado.")
         except Exception as e_prep:
-            logger.error(f"❌ Error creando WebSocket Deepgram TTS: {e_prep}")
+            logger.error(f"❌ Error creando WebSocket ElevenLabs TTS: {e_prep}")
 
         self.conversation_history.append({"role": "user", "content": user_text})
 
@@ -1013,7 +1013,7 @@ class TwilioWebSocketManager:
 
 
     async def handle_tts_response(self, texto: str, last_final_ts: Optional[float]):
-        """Convierte respuesta GPT a TTS con Deepgram WS + fallback a ElevenLabs"""
+        """Convierte respuesta GPT a TTS con ElevenLabs WS + fallback a ElevenLabs HTTP"""
         if self.call_ended:
             logger.warning("🔇 handle_tts_response abortado: llamada terminada.")
             return
@@ -1043,7 +1043,7 @@ class TwilioWebSocketManager:
                 "streamSid": self.stream_sid
             }))
 
-            # ── 4️⃣  Envía el TTS a Twilio (Deepgram WS + fallback) ────────────
+            # ── 4️⃣  Envía el TTS a Twilio (ElevenLabs WS + fallback) ────────────
             ts_tts_start = self._now()
 
             # REEMPLAZA LA FUNCIÓN _send_chunk CON ESTA VERSIÓN:
@@ -1067,7 +1067,7 @@ class TwilioWebSocketManager:
                 )
 
                 if not ok:
-                    raise RuntimeError("Deepgram tardó demasiado en dar el primer chunk")
+                    raise RuntimeError("ElevenLabs WS tardó demasiado en dar el primer chunk")
 
                 # INICIAR DETECTOR DE STALLS PARA LA RESPUESTA
                 self.stall_detector_task = asyncio.create_task(
@@ -1076,12 +1076,12 @@ class TwilioWebSocketManager:
 
                 ts_tts_end = self._now()
                 logger.info(
-                    f"📦 Deepgram WS TTS→Twilio emitido en {(ts_tts_end - ts_tts_start) * 1000:.1f} ms"
+                    f"📦 ElevenLabs WS TTS→Twilio emitido en {(ts_tts_end - ts_tts_start) * 1000:.1f} ms"
                 )
 
             except Exception as e_dg:
-                logger.error(f"Deepgram WS falló: {e_dg}. Cambiando a ElevenLabs.")
-                logger.info("🔴 Fallback (respuesta): Deepgram no entregó audio a tiempo → se llama ElevenLabs.")
+                logger.error(f"ElevenLabs WS falló: {e_dg}. Cambiando a ElevenLabs HTTP.")
+                logger.info("🔴 Fallback (respuesta): ElevenLabs WS no entregó audio a tiempo → se llama ElevenLabs HTTP.")
                 ts_tts_start = self._now()
                 await send_tts_http_to_twilio(
                     text=texto,
@@ -1090,9 +1090,9 @@ class TwilioWebSocketManager:
                 )
                 ts_tts_end = self._now()
                 logger.info(
-                    f"📦 ElevenLabs TTS→Twilio emitido en {(ts_tts_end - ts_tts_start) * 1000:.1f} ms"
+                    f"📦 ElevenLabs HTTP TTS→Twilio emitido en {(ts_tts_end - ts_tts_start) * 1000:.1f} ms"
                 )
-                # Con ElevenLabs no hay cierre de WS, reactivamos STT aquí mismo
+                # Con ElevenLabs HTTP no hay cierre de WS, reactivamos STT aquí mismo
                 await self._reactivar_stt_despues_de_envio()
 
         except asyncio.CancelledError:
@@ -1180,7 +1180,7 @@ class TwilioWebSocketManager:
                 return
 
             # Ya no se arranca el feeder de silencio aquí.
-            # El keepalive de Deepgram se manejará por el SDK.
+            # El keepalive de ElevenLabs se manejará por el SDK.
 
             self.is_speaking = True
             CHUNK = 160                               # 20 ms @ 8 kHz μ-law
@@ -1209,7 +1209,7 @@ class TwilioWebSocketManager:
 
                 logger.info(f"🔊 PLAY_AUDIO Fin reproducción. Enviados {total_sent} bytes.")
             finally:
-                # Ya no se detiene el feeder de silencio aquí.
+                # Ya no se necesita manejo de silencio aquí.
                 self.is_speaking = False
                 self.last_activity_ts = self._now()
 
@@ -1324,7 +1324,7 @@ class TwilioWebSocketManager:
                         pass # Ignorar para no bloquear shutdown
                 setattr(self, attr_name, None) # Limpiar la referencia (ej. self.temporizador_pausa = None)
 
-            # --- Cerrar Deepgram streamer explícitamente ---
+            # --- Cerrar STT streamer explícitamente ---
             if self.stt_streamer:
                 logger.debug("   SHUTDOWN: Llamando a stt_streamer.close() explícitamente...")
                 try:
@@ -1336,7 +1336,7 @@ class TwilioWebSocketManager:
                     self.stt_streamer = None
 
 
-            # --- Cerrar Deepgram TTS streamer explícitamente ---
+            # --- Cerrar ElevenLabs TTS streamer explícitamente ---
             if getattr(self, "dg_tts_client", None):
                 try:
                     await self.dg_tts_client.close()   # cierre limpio

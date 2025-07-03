@@ -441,7 +441,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         logger.debug("OpenAI Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)
 
         response_pase2 = client.chat.completions.create(
-            model="gpt-4.1-nano",
+            model=model,
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
