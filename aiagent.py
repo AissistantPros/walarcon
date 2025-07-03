@@ -445,7 +445,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
-            max_tokens=50,
+            max_tokens=100,
             temperature=0.1,
         ).choices[0].message
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
