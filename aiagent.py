@@ -284,7 +284,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 
-async def generate_openai_response_main(history: List[Dict], model: str = "deepseek-r1-distill-llama-70b") -> str: # CAMBIO: Modelo por defecto de Groq
+async def generate_openai_response_main(history: List[Dict], model: str = "llama-3.3-70b-versatile") -> str: # CAMBIO: Modelo por defecto de Groq
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
 
@@ -304,7 +304,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "deeps
             messages=full_conversation_history,
             tools=TOOLS, 
             tool_choice="auto",
-            max_tokens=100, 
+            max_tokens=256, 
             temperature=0.2, 
             timeout=15, 
         ).choices[0].message
