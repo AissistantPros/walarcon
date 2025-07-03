@@ -89,7 +89,7 @@ class ElevenLabsWSClient:
         try:
             logger.debug(f"🔌 Conectando a ElevenLabs WebSocket: {url}")
             
-            async with websockets.connect(url, extra_headers=headers) as ws:
+            async with websockets.connect(url, additional_headers=headers) as ws:
                 self._ws = ws
                 logger.info("🟢 ElevenLabs WebSocket conectado")
                 
