@@ -929,7 +929,7 @@ class TwilioWebSocketManager:
             logger.warning("⚠️ PROCESS_GPT Texto de usuario vacío, saltando.")
             return
 
-        logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
+        logger.info(f"🗣️ Mensaje para Groq: '{user_text}'")
 
 
 
@@ -952,7 +952,7 @@ class TwilioWebSocketManager:
         self.conversation_history.append({"role": "user", "content": user_text})
 
         try:
-            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
+            model_a_usar = config("GROQ_MODEL", default="llama-3.1-70b-versatile")
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             start_gpt_call = self._now()
@@ -961,13 +961,13 @@ class TwilioWebSocketManager:
                 model=model_a_usar
             )
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
-            logger.info(f"⏱️ LLM completado en {gpt_duration_ms:.1f} ms")
+            logger.info(f"⏱️ Groq completado en {gpt_duration_ms:.1f} ms")
 
             if self.call_ended:
                 return
 
             if not respuesta_gpt or not isinstance(respuesta_gpt, str):
-                logger.error("❌ GPT devolvió una respuesta vacía o inválida.")
+                logger.error("❌ GroQ devolvió una respuesta vacía o inválida.")
                 respuesta_gpt = "Disculpe, no pude procesar eso."
 
             reply_cleaned = respuesta_gpt.strip()
@@ -990,7 +990,7 @@ class TwilioWebSocketManager:
             await self.handle_tts_response(reply_cleaned, last_final_ts)
 
         except asyncio.CancelledError:
-            logger.info("🚫 Tarea GPT cancelada.")
+            logger.info("🚫 Tarea GroQ cancelada.")
         except Exception as e:
             logger.error(f"❌ Error en process_gpt_response: {e}", exc_info=True)
             await self.handle_tts_response("Lo siento, ocurrió un error técnico.", last_final_ts)

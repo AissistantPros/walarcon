@@ -3,7 +3,7 @@
 """
 aiagent – motor de decisión para la asistente telefónica
 ────────────────────────────────────────────────────────
-• Único modelo → (o el que estés usando)
+• MIGRADO A GROQ con Llama 3.1 70B
 • Flujos main / edit / delete con redirecciones internas
 • Nueva "súper herramienta" process_appointment_request
 • Métricas de latencia (🕒 ms) en todos los pases Chat-GPT
@@ -17,7 +17,7 @@ import logging
 from time import perf_counter
 from typing import Dict, List, Any # Añadido Any para el tipado de retorno de handle_tool_execution
 from decouple import config
-from openai import OpenAI
+from groq import Groq  # CAMBIO: Importar Groq en lugar de OpenAI
 from selectevent import select_calendar_event_by_index
 from weather_utils import get_cancun_weather # <--- AÑADE ESTA LÍNEA
 
@@ -31,14 +31,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("aiagent")
 
-# ──────────────────────── OPENAI CLIENT ───────────────────────────
-# Asegúrate que CHATGPT_SECRET_KEY esté en tu .env o configuración
+# ──────────────────────── GROQ CLIENT ─────────────────────────────
+# CAMBIO: Configurar cliente Groq en lugar de OpenAI
 try:
-    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    client = Groq(api_key=config("GROQ_API_KEY"))  # CAMBIO: Usar GROQ_API_KEY
 except Exception as e:
-    logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
-    # Podrías querer que el sistema falle aquí si OpenAI es esencial.
-    # raise SystemExit("Fallo al inicializar OpenAI client.") from e # Descomenta para fallar
+    logger.critical(f"No se pudo inicializar el cliente Groq. Verifica GROQ_API_KEY: {e}")
+    # Podrías querer que el sistema falle aquí si Groq es esencial.
+    # raise SystemExit("Fallo al inicializar Groq client.") from e # Descomenta para fallar
 
 # ────────────────── IMPORTS DE TOOLS DE NEGOCIO ───────────────────
 import buscarslot
@@ -101,8 +101,8 @@ TOOLS = [
                     "fixed_weekday_param": {"type": "string", "description": "Día de la semana solicitado por el usuario (ej. 'lunes', 'martes'). Opcional."},
                     "explicit_time_preference_param": {"type": "string", "description": "Preferencia explícita de franja horaria como 'mañana', 'tarde' o 'mediodia', si el usuario la indica claramente. Opcional.", "enum": ["mañana", "tarde", "mediodia"]},
                     "is_urgent_param": {"type": "boolean", "description": "Poner a True si el usuario indica urgencia o quiere la cita 'lo más pronto posible', 'cuanto antes', etc. Esto priorizará la búsqueda inmediata. Opcional, default False."},
-                    "more_late_param": {"type": "boolean", "description": "Cuando el usuario pide ‘más tarde’ después de ofrecerle un horario. Opcional."},
-                    "more_early_param": {"type": "boolean", "description": "Cuando el usuario pide ‘más temprano’ después de ofrecerle un horario. Opcional."}
+                    "more_late_param": {"type": "boolean", "description": "Cuando el usuario pide 'más tarde' después de ofrecerle un horario. Opcional."},
+                    "more_early_param": {"type": "boolean", "description": "Cuando el usuario pide 'más temprano' después de ofrecerle un horario. Opcional."}
                 },
                 "required": ["user_query_for_date_time"]
             }
@@ -237,7 +237,7 @@ TOOLS = [
 # ══════════════════ TOOL EXECUTOR ═════════════════════════════════
 # (Esta función se mantiene prácticamente igual, solo asegúrate que los nombres
 # de las funciones coincidan con los definidos en TOOLS y los imports)
-def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object de OpenAI
+def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object de Groq
     fn_name = tc.function.name
     try:
         args = json.loads(tc.function.arguments or "{}")
@@ -284,15 +284,15 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str: #
+async def generate_openai_response_main(history: List[Dict], model: str = "llama-3.1-70b-versatile") -> str: # CAMBIO: Modelo por defecto de Groq
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
 
         t1_start = perf_counter()
-        #logger.debug("OpenAI Unified Flow - Pase 1: Enviando a %s", model)
+        #logger.debug("Groq Unified Flow - Pase 1: Enviando a %s", model)  # CAMBIO: Groq en lugar de OpenAI
 
         if not client:
-            logger.error("Cliente OpenAI no inicializado. Abortando generate_openai_response_main.")
+            logger.error("Cliente Groq no inicializado. Abortando generate_openai_response_main.")  # CAMBIO: Groq en lugar de OpenAI
             return "Lo siento, estoy teniendo problemas técnicos para conectarme. Por favor, intente más tarde."
 
         response_pase1 = client.chat.completions.create(
@@ -305,13 +305,32 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             timeout=15, 
         ).choices[0].message
 
-        #logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
+        #logger.debug("🕒 Groq Unified Flow - Pase 1 completado en %s", _t(t1_start))  # CAMBIO: Groq en lugar de OpenAI
 
         if not response_pase1.tool_calls:
             logger.debug("RESPUESTA IA - Pase 1: %s", response_pase1.content)
             return response_pase1.content or "No he podido procesar su solicitud en este momento."
 
-        full_conversation_history.append(response_pase1.model_dump()) 
+        # CAMBIO: Groq puede requerir conversión a dict diferente
+        response_pase1_dict = {
+            "role": "assistant",
+            "content": response_pase1.content,
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                } for tc in response_pase1.tool_calls
+            ]
+        } if response_pase1.tool_calls else {
+            "role": "assistant",
+            "content": response_pase1.content
+        }
+        
+        full_conversation_history.append(response_pase1_dict)
 
         tool_messages_for_pase2 = []
         for tool_call in response_pase1.tool_calls:
@@ -332,7 +351,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         full_conversation_history.extend(tool_messages_for_pase2)
 
         t2_start = perf_counter()
-        logger.debug("OpenAI Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)
+        logger.debug("Groq Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)  # CAMBIO: Groq en lugar de OpenAI
 
         response_pase2 = client.chat.completions.create(
             model=model,
@@ -342,13 +361,11 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             max_tokens=100, 
             temperature=0.2,
         ).choices[0].message
-        logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
+        logger.debug("🕒 Groq Unified Flow - Pase 2 completado en %s", _t(t2_start))
 
-        logger.debug("OpenAI Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)
+        logger.debug("Groq Unified Flow - Pase 2: Respuesta final de la IA: %s", response_pase2.content)  # CAMBIO: Groq en lugar de OpenAI
         return response_pase2.content or "No tengo una respuesta en este momento."
 
     except Exception as e:
         logger.exception("generate_openai_response_main falló gravemente")
         return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
-
-
