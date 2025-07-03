@@ -372,8 +372,8 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
-            max_tokens=50,
-            temperature=0.2,
+            max_tokens=100,
+            temperature=0.3,
             timeout=15,
             stream=True,
         )
@@ -415,7 +415,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         # ==================== PASE 2: PROMPT CON TOOL RESPONSE ====================
         logger.info("\n==== PROMPT ENVIADO A GPT (Pase 2 / Tool Call) ====")
         for idx, m in enumerate(full_conversation_history):
-            logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:600]}")  # Trunca para no saturar
+            logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:150]}")  # Trunca para no saturar
         logger.info("==== FIN PROMPT Pase 2 ====\n")
 
         # Prepara los mensajes de herramientas para el segundo pase
