@@ -298,7 +298,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:  # tc es un ToolCall objec
     try:
         args = json.loads(tc.function.arguments or "{}")
     except json.JSONDecodeError:
-        logger.error(f"Error al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
+        logger.error(f"Error, al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
         return {"error": f"Argumentos inválidos para {fn_name}"}
 
     # Validación PRO de argumentos requeridos
