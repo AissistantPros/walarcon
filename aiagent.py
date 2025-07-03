@@ -23,8 +23,7 @@ from weather_utils import get_cancun_weather
 #streaming gpt-4.1-mini
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.chat import ChatCompletionMessageToolCall
-from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
-
+from openai.types.chat.chat_completion_message_tool_call import Function, ChatCompletionMessageToolCall
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
 LOG_LEVEL = logging.DEBUG # ⇢ INFO en prod.
@@ -66,35 +65,47 @@ def _t(start: float) -> str:
 
 def merge_tool_calls(tool_calls_chunks):
     """
-    Junta y convierte tool_calls recibidos en streaming,
-    descartando los que no tengan id, type y function.name.
+    Junta tool_calls fragmentadas en streaming usando su 'index' y concatena sus argumentos.
     """
     if not tool_calls_chunks:
         return None
 
-    merged = []
+    tool_calls_by_index = {}
     for tc in tool_calls_chunks:
-        # Si ya es instancia, pasa, si es dict o model_dump, también, pero valida campos clave:
-        # Si es dict, asegúrate de tener todo lo necesario:
-        if isinstance(tc, dict):
-            if not tc.get("id") or not tc.get("type") or not tc.get("function") or not tc["function"].get("name"):
-                continue  # salta incompletos
-            merged.append(tc)
-        elif hasattr(tc, "model_dump"):
-            d = tc.model_dump()
-            if not d.get("id") or not d.get("type") or not d.get("function") or not d["function"].get("name"):
-                continue
-            merged.append(d)
-        else:
-            d = tc.__dict__
-            if not d.get("id") or not d.get("type") or not d.get("function") or not d["function"].get("name"):
-                continue
-            merged.append(d)
+        # Obtén el índice del fragmento
+        index = getattr(tc, "index", None)
+        if index is None:
+            # Si no tiene index, asígnale uno secuencial (fallback paranoico)
+            index = len(tool_calls_by_index)
+        if index not in tool_calls_by_index:
+            tool_calls_by_index[index] = {
+                "id": "",
+                "type": "function",
+                "function": {"name": "", "arguments": ""}
+            }
+        # ID
+        if getattr(tc, "id", None):
+            tool_calls_by_index[index]["id"] = tc.id
+        # Nombre de función
+        if getattr(tc, "function", None) and getattr(tc.function, "name", None):
+            tool_calls_by_index[index]["function"]["name"] = tc.function.name
+        # Acumula arguments (pueden venir partidos)
+        if getattr(tc, "function", None) and getattr(tc.function, "arguments", None):
+            tool_calls_by_index[index]["function"]["arguments"] += tc.function.arguments
 
-    # Convierte a ChatCompletionMessageToolCall solo los válidos
-    return [ChatCompletionMessageToolCall(**tc) if not isinstance(tc, ChatCompletionMessageToolCall) else tc for tc in merged]
-
-
+    merged = []
+    for data in tool_calls_by_index.values():
+        # Solo si ya tenemos todo lo necesario
+        if data["id"] and data["function"]["name"]:
+            merged.append(ChatCompletionMessageToolCall(
+                id=data["id"],
+                type="function",
+                function=Function(
+                    name=data["function"]["name"],
+                    arguments=data["function"]["arguments"]
+                )
+            ))
+    return merged
 
 
 
@@ -282,14 +293,25 @@ TOOLS = [
 # ══════════════════ TOOL EXECUTOR ═════════════════════════════════
 # (Esta función se mantiene prácticamente igual, solo asegúrate que los nombres
 # de las funciones coincidan con los definidos en TOOLS y los imports)
-def handle_tool_execution(tc: Any) -> Dict[str, Any]: # tc es un ToolCall object de OpenAI
+def handle_tool_execution(tc: Any) -> Dict[str, Any]:  # tc es un ToolCall object de OpenAI
     fn_name = tc.function.name
     try:
         args = json.loads(tc.function.arguments or "{}")
     except json.JSONDecodeError:
         logger.error(f"Error al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
         return {"error": f"Argumentos inválidos para {fn_name}"}
-        
+
+    # Validación PRO de argumentos requeridos
+    required_params = next(
+        (tool["function"].get("parameters", {}).get("required", [])
+         for tool in TOOLS if tool["function"]["name"] == fn_name),
+        []
+    )
+    missing = [p for p in required_params if p not in args]
+    if missing:
+        logger.error(f"Faltan parámetros requeridos para {fn_name}: {', '.join(missing)}")
+        return {"error": f"Missing required parameters: {', '.join(missing)}"}
+
     logger.debug("🛠️ Ejecutando herramienta: %s con args: %s", fn_name, args)
 
     try:
@@ -358,11 +380,10 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
                 full_content += chunk.choices[0].delta.content
             if chunk.choices[0].delta.tool_calls is not None:
                 for tc in chunk.choices[0].delta.tool_calls:
-                    # FILTRA solo los tool_calls con datos completos (mínimo id, type, function, function.name)
-                    if tc and getattr(tc, "id", None) and getattr(tc, "function", None) \
-                        and getattr(tc.function, "name", None) and getattr(tc, "type", None):
-                        tool_calls_chunks.append(tc)
-
+                    # Si el índice no viene, asígnalo (muy raro, pero por si acaso)
+                    if not hasattr(tc, "index"):
+                        tc.index = len(tool_calls_chunks)
+                    tool_calls_chunks.append(tc)
 
         logger.debug(f"🔗 Tool calls VÁLIDOS recibidos: {len(tool_calls_chunks)}")
 
