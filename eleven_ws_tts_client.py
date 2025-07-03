@@ -119,6 +119,33 @@ class ElevenLabsWSClient:
             self._loop.call_soon_threadsafe(self._ws_close.set)
             logger.info("🔒 ElevenLabs WebSocket cerrado")
 
+    def _clean_mp3_headers(self, audio_bytes: bytes) -> bytes:
+        """Remueve headers ID3 del MP3, manteniendo solo datos de audio"""
+        if audio_bytes[:3] == b"ID3":
+            # Header ID3v2: ID3 + version(2) + flags(1) + size(4)
+            if len(audio_bytes) >= 10:
+                # Los bytes 6-9 contienen el tamaño del header ID3
+                size_bytes = audio_bytes[6:10]
+                # Decodificar tamaño syncsafe (7 bits por byte)
+                header_size = 0
+                for b in size_bytes:
+                    header_size = (header_size << 7) | (b & 0x7F)
+                header_size += 10  # Añadir los 10 bytes del header básico
+                
+                if len(audio_bytes) > header_size:
+                    logger.debug(f"🧹 Removiendo header ID3 de {header_size} bytes")
+                    return audio_bytes[header_size:]
+                else:
+                    logger.warning(f"⚠️ Header ID3 más grande que el audio ({header_size} vs {len(audio_bytes)})")
+                    return audio_bytes
+            else:
+                logger.warning("⚠️ Header ID3 incompleto")
+                return audio_bytes
+        
+        # Si no hay header ID3, devolver como está
+        return audio_bytes
+        """Procesa mensajes del WebSocket"""
+        
     async def _handle_message(self, data: dict):
         """Procesa mensajes del WebSocket"""
         
@@ -129,15 +156,18 @@ class ElevenLabsWSClient:
                 try:
                     audio_bytes = base64.b64decode(audio_b64)
                     
-                    # 🔍 DIAGNÓSTICO: Verificar formato de audio
-                    if audio_bytes[:3] == b"ID3" or audio_bytes[:2] == b"\xff\xfb":
-                        logger.error(f"❌ PROBLEMA: ElevenLabs envió MP3 en lugar de μ-law! Primeros bytes: {audio_bytes[:10]}")
-                        return
+                    # 🧹 LIMPIEZA: Remover headers en lugar de conversión completa
+                    if audio_bytes[:3] == b"ID3":
+                        logger.debug(f"🧹 Removiendo headers ID3 de audio ({len(audio_bytes)} bytes)")
+                        audio_bytes = self._clean_mp3_headers(audio_bytes)
+                    elif audio_bytes[:2] == b"\xff\xfb":
+                        logger.debug(f"✅ MP3 sin headers ID3, usando directamente ({len(audio_bytes)} bytes)")
+                        # Audio MP3 sin headers ID3, usar directamente
                     elif audio_bytes[:4] == b"RIFF":
-                        logger.error(f"❌ PROBLEMA: ElevenLabs envió WAV en lugar de μ-law! Primeros bytes: {audio_bytes[:10]}")
-                        return
+                        logger.debug("🧹 Removiendo header WAV de 44 bytes")
+                        audio_bytes = audio_bytes[44:]  # Quitar header WAV
                     else:
-                        logger.info(f"✅ Audio recibido parece ser μ-law. Primeros bytes: {audio_bytes[:10]}")
+                        logger.debug(f"✅ Audio en formato directo: {len(audio_bytes)} bytes")
                     
                     # Marcar primer chunk si aplica
                     if self._first_chunk and not self._first_chunk.is_set():
@@ -153,10 +183,10 @@ class ElevenLabsWSClient:
                         else:
                             self._loop.call_soon_threadsafe(self._user_chunk, audio_bytes)
                     
-                    logger.debug(f"🔊 Chunk de audio: {len(audio_bytes)} bytes")
+                    logger.debug(f"🔊 Chunk μ-law enviado: {len(audio_bytes)} bytes")
                     
                 except Exception as e:
-                    logger.error(f"❌ Error decodificando audio: {e}")
+                    logger.error(f"❌ Error procesando audio: {e}")
 
         # Fin de stream
         if data.get("isFinal", False):
