@@ -129,6 +129,16 @@ class ElevenLabsWSClient:
                 try:
                     audio_bytes = base64.b64decode(audio_b64)
                     
+                    # 🔍 DIAGNÓSTICO: Verificar formato de audio
+                    if audio_bytes[:3] == b"ID3" or audio_bytes[:2] == b"\xff\xfb":
+                        logger.error(f"❌ PROBLEMA: ElevenLabs envió MP3 en lugar de μ-law! Primeros bytes: {audio_bytes[:10]}")
+                        return
+                    elif audio_bytes[:4] == b"RIFF":
+                        logger.error(f"❌ PROBLEMA: ElevenLabs envió WAV en lugar de μ-law! Primeros bytes: {audio_bytes[:10]}")
+                        return
+                    else:
+                        logger.info(f"✅ Audio recibido parece ser μ-law. Primeros bytes: {audio_bytes[:10]}")
+                    
                     # Marcar primer chunk si aplica
                     if self._first_chunk and not self._first_chunk.is_set():
                         self._loop.call_soon_threadsafe(self._first_chunk.set)
