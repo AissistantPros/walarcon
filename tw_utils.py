@@ -943,7 +943,7 @@ class TwilioWebSocketManager:
                 logger.debug("🔌 Deepgram TTS WS creado / recreado.")
             # Si el WS sigue abierto, no hacemos nada: está listo.
         except Exception as e_prep:
-            logger.error(f"❌ Error creando WebSocket Deepgram TTS: {e_prep}")
+            logger.error(f"❌ Error. creando WebSocket Deepgram TTS: {e_prep}")
 
 
 
