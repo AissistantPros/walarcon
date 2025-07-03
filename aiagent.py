@@ -372,7 +372,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
-            max_tokens=100,
+            max_tokens=50,
             temperature=0.2,
             timeout=15,
             stream=True,
@@ -441,12 +441,12 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         logger.debug("OpenAI Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)
 
         response_pase2 = client.chat.completions.create(
-            model=model,
+            model="gpt-4.1-nano",
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
-            max_tokens=100,
-            temperature=0.2,
+            max_tokens=50,
+            temperature=0.1,
         ).choices[0].message
         logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
 
