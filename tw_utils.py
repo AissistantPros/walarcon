@@ -953,11 +953,11 @@ class TwilioWebSocketManager:
 
         try:
             model_a_usar = config("GROQ_MODEL", default="deepseek-r1-distill-llama-70b")
-            mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
+            #mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
 
             start_gpt_call = self._now()
             respuesta_gpt = await generate_openai_response_main(
-                history=mensajes_para_gpt,
+                history=self.conversation_history,
                 model=model_a_usar
             )
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000

@@ -288,6 +288,10 @@ async def generate_openai_response_main(history: List[Dict], model: str = "deeps
     try:
         full_conversation_history = generate_openai_prompt(list(history)) #
 
+        logger.debug("DEBUG mensajes: %s", full_conversation_history)
+
+
+
         t1_start = perf_counter()
         #logger.debug("Groq Unified Flow - Pase 1: Enviando a %s", model)  # CAMBIO: Groq en lugar de OpenAI
 
