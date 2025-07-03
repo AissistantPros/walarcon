@@ -22,6 +22,7 @@ from selectevent import select_calendar_event_by_index
 from weather_utils import get_cancun_weather
 #streaming gpt-4.1-mini
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
+from openai.types.chat import ChatCompletionMessageToolCall
 
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
@@ -57,6 +58,38 @@ from prompt import generate_openai_prompt # Asegúrate que el nombre del archivo
 def _t(start: float) -> str:
     """Devuelve el tiempo transcurrido desde *start* en ms formateado."""
     return f"{(perf_counter() - start) * 1_000:6.1f} ms"
+
+
+
+
+
+def merge_tool_calls(tool_calls_chunks):
+    """
+    Convierte y junta los tool_calls de OpenAI (que llegan en partes durante streaming)
+    en una lista de dicts o modelos compatibles con pydantic.
+    """
+    if not tool_calls_chunks:
+        return None
+    merged = []
+    for tc in tool_calls_chunks:
+        if isinstance(tc, dict):
+            merged.append(tc)
+        elif hasattr(tc, 'model_dump'):
+            merged.append(tc.model_dump())
+        else:
+            merged.append(tc.__dict__)
+    # Convierte todo a ChatCompletionMessageToolCall, por si acaso
+    return [ChatCompletionMessageToolCall(**tc) if not isinstance(tc, ChatCompletionMessageToolCall) else tc for tc in merged]
+
+
+
+
+
+
+
+
+
+
 
 
 # ══════════════════ UNIFIED TOOLS DEFINITION ══════════════════════
@@ -308,13 +341,20 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         )
 
         full_content = ""
-        tool_calls = None
+        tool_calls_chunks = []
 
         for chunk in stream_response:
             if chunk.choices[0].delta.content:
                 full_content += chunk.choices[0].delta.content
             if chunk.choices[0].delta.tool_calls is not None:
-                tool_calls = chunk.choices[0].delta.tool_calls
+                # Acumula TODOS los tool_calls que vayan llegando
+                tool_calls_chunks.extend(chunk.choices[0].delta.tool_calls)
+
+
+        logger.debug(f"🔗 Tool calls recibidas: {len(tool_calls_chunks)}")
+
+
+        tool_calls = merge_tool_calls(tool_calls_chunks)
 
         response_pase1 = ChatCompletionMessage(
             content=full_content,
