@@ -23,6 +23,7 @@ from weather_utils import get_cancun_weather
 #streaming gpt-4.1-mini
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.chat import ChatCompletionMessageToolCall
+from openai.types.chat.chat_completion_message_tool_call import ChatCompletionMessageToolCall
 
 
 # ────────────────────── CONFIG LOGGING ────────────────────────────
@@ -65,24 +66,33 @@ def _t(start: float) -> str:
 
 def merge_tool_calls(tool_calls_chunks):
     """
-    Convierte y junta los tool_calls de OpenAI (que llegan en partes durante streaming)
-    en una lista de dicts o modelos compatibles con pydantic.
+    Junta y convierte tool_calls recibidos en streaming,
+    descartando los que no tengan id, type y function.name.
     """
     if not tool_calls_chunks:
         return None
+
     merged = []
     for tc in tool_calls_chunks:
+        # Si ya es instancia, pasa, si es dict o model_dump, también, pero valida campos clave:
+        # Si es dict, asegúrate de tener todo lo necesario:
         if isinstance(tc, dict):
+            if not tc.get("id") or not tc.get("type") or not tc.get("function") or not tc["function"].get("name"):
+                continue  # salta incompletos
             merged.append(tc)
-        elif hasattr(tc, 'model_dump'):
-            merged.append(tc.model_dump())
+        elif hasattr(tc, "model_dump"):
+            d = tc.model_dump()
+            if not d.get("id") or not d.get("type") or not d.get("function") or not d["function"].get("name"):
+                continue
+            merged.append(d)
         else:
-            merged.append(tc.__dict__)
-    # Convierte todo a ChatCompletionMessageToolCall, por si acaso
+            d = tc.__dict__
+            if not d.get("id") or not d.get("type") or not d.get("function") or not d["function"].get("name"):
+                continue
+            merged.append(d)
+
+    # Convierte a ChatCompletionMessageToolCall solo los válidos
     return [ChatCompletionMessageToolCall(**tc) if not isinstance(tc, ChatCompletionMessageToolCall) else tc for tc in merged]
-
-
-
 
 
 
@@ -347,11 +357,15 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             if chunk.choices[0].delta.content:
                 full_content += chunk.choices[0].delta.content
             if chunk.choices[0].delta.tool_calls is not None:
-                # Acumula TODOS los tool_calls que vayan llegando
-                tool_calls_chunks.extend(chunk.choices[0].delta.tool_calls)
+                for tc in chunk.choices[0].delta.tool_calls:
+                    # FILTRA solo los tool_calls con datos completos (mínimo id, type, function, function.name)
+                    if tc and getattr(tc, "id", None) and getattr(tc, "function", None) \
+                        and getattr(tc.function, "name", None) and getattr(tc, "type", None):
+                        tool_calls_chunks.append(tc)
 
 
-        logger.debug(f"🔗 Tool calls recibidas: {len(tool_calls_chunks)}")
+        logger.debug(f"🔗 Tool calls VÁLIDOS recibidos: {len(tool_calls_chunks)}")
+
 
 
         tool_calls = merge_tool_calls(tool_calls_chunks)
