@@ -53,6 +53,12 @@ from crearcita import create_calendar_event
 from editarcita import edit_calendar_event # Asumo que estas existen
 from eliminarcita import delete_calendar_event # Asumo que estas existen
 
+
+
+from prompt import generate_minimal_prompt
+
+
+
 # prompt dinámico (system)
 from prompt import generate_openai_prompt # Asegúrate que el nombre del archivo prompt.py sea correcto
 
@@ -450,13 +456,8 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         )
         
         # Mensajes mínimos para segunda llamada
-        minimal_messages = [
-            {"role": "system", "content": "Eres Dany, asistente del Dr. Wilfrido Alarcón, Cardiólogo en Cancún. "
-            "Basándote en los resultados de las herramientas, da una respuesta clara y breve. Máximo 25 palabras. "
-            "Habla de usted. Usa palabras completas, no números Por ejemplo: 'noventa y ocho, ochenta y dos, trece, setenta y cuatro, setenta y siete'."},
-            {"role": "user", "content": history[-1]["content"]},
-            response_pase1.model_dump()
-        ]
+        minimal_messages = generate_minimal_prompt(history[-1]["content"])
+        minimal_messages.append(response_pase1.model_dump())
         
         # Ejecutar herramientas
         for tool_call in response_pase1.tool_calls:
