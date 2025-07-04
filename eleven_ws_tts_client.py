@@ -83,7 +83,8 @@ class ElevenLabsWSClient:
 
     async def _run_websocket(self):
         """Maneja la conexión WebSocket"""
-        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}"
+        # ✅ Especificar formato en URL como hace el HTTP
+        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000"
         headers = {"xi-api-key": self.api_key}
 
         try:
@@ -243,14 +244,13 @@ class ElevenLabsWSClient:
         self._is_speaking = True
 
         try:
-            # ✅ Mensaje según documentación oficial
+            # ✅ Mensaje SIN output_format (ya está en URL)
             message = {
                 "text": text,
                 "voice_settings": self.voice_settings,
                 "generation_config": {
                     "chunk_length_schedule": [120, 160, 250, 290]
-                },
-                "output_format": "ulaw_8000"  # ✅ Directamente, no como objeto
+                }
             }
             
             await self._ws.send(json.dumps(message))

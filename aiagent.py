@@ -355,10 +355,10 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         # ==================== PASE 1: PROMPT INICIAL (System + Historial) ====================
         full_conversation_history = generate_openai_prompt(list(history))
 
-        logger.info("\n==== PROMPT ENVIADO A GPT (Pase 1 / Conversación) ====")
-        for idx, m in enumerate(full_conversation_history):
-            logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:600]}")  # Trunca para no saturar
-        logger.info("==== FIN PROMPT Pase 1 ====\n")
+        #logger.info("\n==== PROMPT ENVIADO A GPT (Pase 1 / Conversación) ====")
+        #for idx, m in enumerate(full_conversation_history):
+         #   logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:600]}")  # Trunca para no saturar
+        #logger.info("==== FIN PROMPT Pase 1 ====\n")
 
         t1_start = perf_counter()
 
@@ -413,10 +413,10 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         full_conversation_history.append(response_pase1.model_dump())
 
         # ==================== PASE 2: PROMPT CON TOOL RESPONSE ====================
-        logger.info("\n==== PROMPT ENVIADO A GPT (Pase 2 / Tool Call) ====")
-        for idx, m in enumerate(full_conversation_history):
-            logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:150]}")  # Trunca para no saturar
-        logger.info("==== FIN PROMPT Pase 2 ====\n")
+        #logger.info("\n==== PROMPT ENVIADO A GPT (Pase 2 / Tool Call) ====")
+        #for idx, m in enumerate(full_conversation_history):
+         #   logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:150]}")  # Trunca para no saturar
+        #logger.info("==== FIN PROMPT Pase 2 ====\n")
 
         # Prepara los mensajes de herramientas para el segundo pase
         tool_messages_for_pase2 = []
