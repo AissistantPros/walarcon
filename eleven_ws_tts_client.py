@@ -33,7 +33,7 @@ class ElevenLabsWSClient:
         *,
         api_key: str | None = None,
         voice_id: str | None = None,
-        model_id: str = "eleven_turbo_v2_5",  # ✅ Modelo más rápido
+        model_id: str = "eleven_multilingual_v2",  
     ) -> None:
         # API key: ELEVEN_LABS_API_KEY > parámetro
         self.api_key = api_key or os.getenv("ELEVEN_LABS_API_KEY")
@@ -74,7 +74,7 @@ class ElevenLabsWSClient:
             "stability": 0.75,
             "style": 0.45,
             "use_speaker_boost": False,
-            "speed": 1.1,
+            "speed": 1.2,
         }
 
         # Iniciar conexión WebSocket REUTILIZABLE
