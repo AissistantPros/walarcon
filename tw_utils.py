@@ -692,7 +692,7 @@ class TwilioWebSocketManager:
         ahora_pc = self._now()
         if hasattr(self, "last_final_stt_timestamp"):
             delta_ms = (ahora_pc - self.last_final_stt_timestamp) * 1000
-            logger.info(f"⏱️ Latencia entre último is_final y llamada a GPT: {delta_ms:.1f} ms")
+            logger.info(f"⏱️ [LATENCIA-1] STT final → GPT call: {delta_ms:.1f} ms")
 
         await self._activar_modo_ignorar_stt()
         await self._iniciar_tarea_gpt(mensaje, self.last_final_stt_timestamp)
@@ -947,7 +947,8 @@ class TwilioWebSocketManager:
             model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
             mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
             start_gpt_call = self._now()
-
+            logger.info(f"⏱️ [LATENCIA-2-START] GPT llamada iniciada para: '{user_text[:30]}...'")
+            
             respuesta_gpt = await generate_openai_response_main(
                 history=mensajes_para_gpt,
                 model=model_a_usar
@@ -964,7 +965,15 @@ class TwilioWebSocketManager:
                 logger.info("🟢 Respuesta de GPT es STREAMING, enviando chunks a TTS en tiempo real.")
 
                 texto_acumulado = ""
+                first_chunk_sent = False
                 async for chunk in respuesta_gpt:
+                    if not first_chunk_sent:
+                        first_chunk_time = self._now()
+                        delta_ms = (first_chunk_time - start_gpt_call) * 1000
+                        logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
+                        first_chunk_sent = True
+                    
+                    logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → enviando a TTS")
                     # Puedes filtrar chunks vacíos/whitespace aquí
                     chunk = chunk.strip()
                     if not chunk:
@@ -1044,6 +1053,7 @@ class TwilioWebSocketManager:
             }))
 
             # ── 4️⃣  Envía el TTS a Twilio (ElevenLabs WS + fallback) ────────────
+            logger.info(f"⏱️ [LATENCIA-3-START] TTS request iniciado para: '{texto[:30]}...'")
             ts_tts_start = self._now()
 
             # REEMPLAZA LA FUNCIÓN _send_chunk CON ESTA VERSIÓN:

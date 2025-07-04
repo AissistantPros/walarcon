@@ -14,6 +14,7 @@ import asyncio
 import json
 import os
 import base64
+import time
 import websockets
 from typing import Awaitable, Callable, Optional
 import logging
@@ -172,9 +173,12 @@ class ElevenLabsWSClient:
                     
                     # Marcar primer chunk si aplica
                     if self._first_chunk and not self._first_chunk.is_set():
+                        first_audio_time = time.perf_counter()
+                        if hasattr(self, '_send_time'):
+                            delta_ms = (first_audio_time - self._send_time) * 1000
+                            logger.info(f"⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: {delta_ms:.1f} ms")
                         self._loop.call_soon_threadsafe(self._first_chunk.set)
-                        logger.info("🟢 ElevenLabs: primer chunk recibido")
-                    
+                        
                     # Enviar chunk al callback
                     if self._user_chunk:
                         if asyncio.iscoroutinefunction(self._user_chunk):
@@ -253,8 +257,9 @@ class ElevenLabsWSClient:
                 }
             }
             
+            self._send_time = time.perf_counter() 
             await self._ws.send(json.dumps(message))
-            logger.debug(f"📤 Texto enviado a ElevenLabs: {text[:50]}...")
+            logger.info(f"⏱️ [LATENCIA-4-START] EL WS texto enviado: {len(text)} chars")
 
             # ✅ Enviar EOS (End of Sequence) para finalizar
             await self._ws.send(json.dumps({"text": ""}))

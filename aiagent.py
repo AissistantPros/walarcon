@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 from time import perf_counter
+import time
 from typing import Dict, List, Any # Añadido Any para el tipado de retorno de handle_tool_execution
 from decouple import config
 from openai import OpenAI
@@ -351,6 +352,10 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:  # tc es un ToolCall objec
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str:
+    start_gpt_time = time.perf_counter()
+    logger.info(f"⏱️ [LATENCIA-2] GPT llamada iniciada")
+
+
     try:
         # ==================== PASE 1: PROMPT INICIAL (System + Historial) ====================
         full_conversation_history = generate_openai_prompt(list(history))
