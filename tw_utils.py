@@ -990,7 +990,7 @@ class TwilioWebSocketManager:
                 self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
                 
                 # ✅ Procesar chunks de GPT con buffer inteligente para ElevenLabs
-                MIN_CHUNK_LEN = 50  # o 30 o 50, como te guste
+                MIN_CHUNK_LEN = 60  # o 30 o 50, como te guste
                 PUNCTUATION = (".", ",", "?", "!", ";", ":")  # puedes agregar más si quieres
 
                 buffer_tts = ""
