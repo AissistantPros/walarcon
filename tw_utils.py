@@ -915,6 +915,8 @@ class TwilioWebSocketManager:
 
 
 
+
+
     async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
         """
         Llama a GPT, valida respuesta, y delega el manejo de TTS **por chunks** si es streaming.
@@ -929,15 +931,16 @@ class TwilioWebSocketManager:
 
         logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
 
-        # PREP: Asegura WS de ElevenLabs TTS listo UNA SOLA VEZ
+        # PREP: Asegura WS de ElevenLabs TTS listo (modo legacy para respuestas completas)
         try:
-            if (not hasattr(self, "dg_tts_client") or self.dg_tts_client is None):
+            if (not hasattr(self, "dg_tts_client")
+                    or self.dg_tts_client is None
+                    or getattr(self.dg_tts_client, "_ws_close", None) and self.dg_tts_client._ws_close.is_set()):
                 from eleven_ws_tts_client import ElevenLabsWSClient
                 self.dg_tts_client = ElevenLabsWSClient()
-                logger.debug("🔌 ElevenLabs TTS WS creado")
+                logger.debug("🔌 ElevenLabs TTS WS creado (modo legacy)")
         except Exception as e_prep:
             logger.error(f"❌ Error creando WebSocket ElevenLabs TTS: {e_prep}")
-            self.dg_tts_client = None
 
         self.conversation_history.append({"role": "user", "content": user_text})
 
@@ -953,7 +956,7 @@ class TwilioWebSocketManager:
             )
 
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
-            logger.info(f"⏱️ LLM duración total: {gpt_duration_ms:.1f} ms")
+            logger.info(f"⏱️ LLM completado en {gpt_duration_ms:.1f} ms")
 
             if self.call_ended:
                 return
@@ -962,10 +965,14 @@ class TwilioWebSocketManager:
             if isinstance(respuesta_gpt, collections.abc.AsyncIterable):
                 logger.info("🟢 Respuesta de GPT es STREAMING, enviando chunks optimizados a TTS")
 
-                # Verificar que TTS cliente existe
-                if not self.dg_tts_client:
-                    logger.error("❌ No hay cliente TTS disponible")
-                    return
+                texto_acumulado = ""
+                first_chunk_sent = False
+                
+                # ✅ STREAMING OPTIMIZADO: Configurar TTS una sola vez
+                if not getattr(self, "dg_tts_client", None):
+                    from eleven_ws_tts_client import ElevenLabsWSClient
+                    self.dg_tts_client = ElevenLabsWSClient()
+                    logger.debug("🔌 ElevenLabs TTS WS creado para streaming")
                 
                 # Configurar callbacks TTS
                 async def _send_chunk(chunk: bytes):
@@ -983,20 +990,12 @@ class TwilioWebSocketManager:
                 self.dg_tts_client._user_chunk = _send_chunk
                 self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
                 
-                # ✅ CONFIGURACIÓN CORREGIDA del buffer
-                MIN_CHUNK_LEN = 15  # Más sensible para respuestas cortas
-                # Regex mejorado que detecta mejor los límites de frases
-                END_OF_SENTENCE = re.compile(
-                    r'([.!?]+["\']?\s+|'  # Puntos finales
-                    r'[,;:]+\s+|'  # Comas y similares
-                    r'\s+(?:y|o|pero|entonces|después|luego|aunque|porque|cuando|si|que|para)\s+)',  # Conectores
-                    re.IGNORECASE
-                )
+                # ✅ Procesar chunks de GPT con buffer inteligente para ElevenLabs
+                MIN_CHUNK_LEN = 20  # Ajusta si tienes frases muy cortas
+                END_OF_SENTENCE = re.compile(r'([.!?,;:]+["\']?\s+|(?<=[a-z])\s+(?:y|o|pero|entonces|después|luego|aunque|porque|cuando|si|que)\s+)', re.IGNORECASE)
 
                 buffer_tts = ""
                 texto_acumulado = ""
-                first_chunk_sent = False
-                last_was_space = False
 
                 async for chunk in respuesta_gpt:
                     if not first_chunk_sent:
@@ -1005,69 +1004,41 @@ class TwilioWebSocketManager:
                         logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
                         first_chunk_sent = True
 
-                    # No hacer strip() del chunk, puede tener espacios importantes
+                    chunk = chunk.strip()
                     if not chunk:
                         continue
 
-                    # 🔍 LOG para debug
-                    logger.debug(f"📝 Chunk raw de GPT: '{chunk}' (len={len(chunk)})")
-
-                    # IMPORTANTE: Manejar espacios correctamente
-                    # Si el chunk anterior no terminó en espacio y este no empieza con espacio, agregar uno
-                    if (texto_acumulado and 
-                        not texto_acumulado.endswith(' ') and 
-                        not chunk.startswith(' ') and
-                        not last_was_space):
-                        texto_acumulado += " "
-                        buffer_tts += " "
-                    
                     texto_acumulado += chunk
                     buffer_tts += chunk
-                    last_was_space = chunk.endswith(' ')
-                    
-                    logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → buffer")
-                    logger.debug(f"📝 Buffer actual: '{buffer_tts}' (len={len(buffer_tts)})")
+                    logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → buffer inteligente")
 
-                    # Buscar puntos de corte naturales
-                    while len(buffer_tts) >= MIN_CHUNK_LEN:
-                        match = END_OF_SENTENCE.search(buffer_tts, MIN_CHUNK_LEN)
+                    # Busca el final de la frase en el buffer
+                    while True:
+                        match = END_OF_SENTENCE.search(buffer_tts)
                         if match:
                             split_at = match.end()
-                            sentence = buffer_tts[:split_at].strip()
-                            
-                            if sentence:  # Solo enviar si hay contenido
-                                logger.info(f"📤 Enviando a TTS: '{sentence[:50]}...' ({len(sentence)} chars)")
-                                sent = await self.dg_tts_client.add_text_chunk(sentence)
-                                if not sent:
-                                    logger.warning("⚠️ Fallo al enviar chunk a ElevenLabs")
-                            
-                            buffer_tts = buffer_tts[split_at:].lstrip()
+                            sentence = buffer_tts[:split_at]
+                            sent = await self.dg_tts_client.add_text_chunk(sentence.strip())
+                            if sent:
+                                logger.debug(f"📤 Chunk enviado a ElevenLabs: '{sentence[:40]}...' ({len(sentence)} chars)")
+                            buffer_tts = buffer_tts[split_at:]
                         else:
-                            # Si el buffer es muy largo sin puntuación, forzar envío
-                            if len(buffer_tts) > 100:
-                                # Buscar el último espacio para no cortar palabras
-                                last_space = buffer_tts.rfind(' ', 0, 80)
-                                if last_space > MIN_CHUNK_LEN:
-                                    sentence = buffer_tts[:last_space].strip()
-                                    if sentence:
-                                        logger.info(f"📤 Forzando envío (largo): '{sentence[:50]}...' ({len(sentence)} chars)")
-                                        await self.dg_tts_client.add_text_chunk(sentence)
-                                    buffer_tts = buffer_tts[last_space:].lstrip()
-                                else:
-                                    break
-                            else:
-                                break
+                            break
 
-                # Enviar lo que quede en el buffer
+                # Al final, manda cualquier resto (para no dejarlo colgado)
                 if buffer_tts.strip():
-                    logger.info(f"📤 Enviando resto final: '{buffer_tts.strip()[:50]}...' ({len(buffer_tts.strip())} chars)")
                     await self.dg_tts_client.add_text_chunk(buffer_tts.strip())
 
-                # ✅ Finalizar stream
+                # ✅ Finalizar stream con flush
                 await self.dg_tts_client.finalize_stream()
 
                 reply_cleaned = texto_acumulado.strip()
-                logger.info(f"💬 Respuesta completa acumulada: '{reply_cleaned[:100]}...' (total: {len(reply_cleaned)} chars)")
+
+
+
+
+
+
                 
             else:
                 # --- LEGACY: respuesta completa (no streaming) ---
@@ -1076,13 +1047,11 @@ class TwilioWebSocketManager:
                     respuesta_gpt = "Disculpe, no pude procesar eso."
 
                 reply_cleaned = respuesta_gpt.strip()
-                logger.info(f"💬 Respuesta completa (no-stream): '{reply_cleaned[:100]}...' (total: {len(reply_cleaned)} chars)")
                 await self.handle_tts_response(reply_cleaned, last_final_ts)
 
-            # Añade al historial la respuesta completa
+            # Añade al historial la respuesta completa, solo una vez
             self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
 
-            # Verificar si es comando de fin de llamada
             if reply_cleaned == "__END_CALL__":
                 logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
                 self.finalizar_llamada_pendiente = True
@@ -1100,6 +1069,7 @@ class TwilioWebSocketManager:
         except Exception as e:
             logger.error(f"❌ Error en process_gpt_response: {e}", exc_info=True)
             await self.handle_tts_response("Lo siento, ocurrió un error técnico.", last_final_ts)
+
 
 
 
