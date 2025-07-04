@@ -998,32 +998,33 @@ class TwilioWebSocketManager:
                 texto_acumulado = ""
 
                 async for chunk in respuesta_gpt:
-                    if not first_chunk_sent:
-                        first_chunk_time = self._now()
-                        delta_ms = (first_chunk_time - start_gpt_call) * 1000
-                        logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
-                        first_chunk_sent = True
-
-                    chunk = chunk.strip()
-                    if not chunk:
-                        continue
-
+                    buffer_tts += chunk  # ¡NO uses strip aquí!
                     texto_acumulado += chunk
-                    buffer_tts += chunk
-                    logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → buffer inteligente")
 
-                    # Busca el final de la frase en el buffer
+                    logger.info(f"🟡 Buffer actual para TTS: '{buffer_tts[-60:]}'")  # Últimos 60 chars, para ver si hay pegotes/espacios raros
+
+                    # Procesa frases completas para enviar al TTS
                     while True:
                         match = END_OF_SENTENCE.search(buffer_tts)
                         if match:
                             split_at = match.end()
                             sentence = buffer_tts[:split_at]
-                            sent = await self.dg_tts_client.add_text_chunk(sentence.strip())
-                            if sent:
-                                logger.debug(f"📤 Chunk enviado a ElevenLabs: '{sentence[:40]}...' ({len(sentence)} chars)")
+                            sentence_clean = sentence.strip()
+                            if sentence_clean:
+                                logger.info(f"📤 Enviando a ElevenLabs: '{sentence_clean}'")
+                                await self.dg_tts_client.add_text_chunk(sentence_clean)
                             buffer_tts = buffer_tts[split_at:]
                         else:
                             break
+
+                # Al final, manda cualquier resto (pero solo si tiene texto)
+                final_clean = buffer_tts.strip()
+                if final_clean:
+                    logger.info(f"📤 (final) Enviando resto a ElevenLabs: '{final_clean}'")
+                    await self.dg_tts_client.add_text_chunk(final_clean)
+
+
+
 
                 # Al final, manda cualquier resto (para no dejarlo colgado)
                 if buffer_tts.strip():
