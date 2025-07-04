@@ -33,7 +33,7 @@ class ElevenLabsWSClient:
         *,
         api_key: str | None = None,
         voice_id: str | None = None,
-        model_id: str = "eleven_multilingual_v2",  # ✅ Modelo más rápido
+        model_id: str = "eleven_turbo_v2_5",  # ✅ Modelo más rápido
     ) -> None:
         # API key: ELEVEN_LABS_API_KEY > parámetro
         self.api_key = api_key or os.getenv("ELEVEN_LABS_API_KEY")
@@ -73,7 +73,7 @@ class ElevenLabsWSClient:
         self.voice_settings = {
             "stability": 0.75,
             "style": 0.45,
-            "use_speaker_boost": True,
+            "use_speaker_boost": False,
             "speed": 1.1,
         }
 
@@ -87,7 +87,7 @@ class ElevenLabsWSClient:
     async def _run_websocket(self):
         """Maneja la conexión WebSocket persistente"""
         # ✅ URL optimizada con parámetros de latencia máxima
-        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=1"
+        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=4"
         headers = {"xi-api-key": self.api_key}
 
         try:

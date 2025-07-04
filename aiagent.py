@@ -12,6 +12,7 @@ aiagent – motor de decisión para la asistente telefónica
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from time import perf_counter
@@ -353,7 +354,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:  # tc es un ToolCall objec
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini"):
     """
-    Versión que devuelve async generator para streaming real a ElevenLabs
+    Versión con UNA SOLA llamada a GPT - texto y herramientas juntos
     """
     start_gpt_time = time.perf_counter()
     logger.info(f"⏱️ [LATENCIA-2] GPT llamada iniciada")
@@ -366,13 +367,13 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             yield "Lo siento, estoy teniendo problemas técnicos para conectarme."
             return
 
-        # PRIMER PASE
+        # UNA SOLA LLAMADA - GPT procesa TODO de una vez
         stream_response = client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
-            max_tokens=100,
+            max_tokens=150,
             temperature=0.3,
             timeout=15,
             stream=True,
@@ -381,7 +382,9 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         full_content = ""
         tool_calls_chunks = []
         first_chunk = True
-
+        pending_tool_results = []
+        
+        # Procesar el stream completo
         for chunk in stream_response:
             if chunk.choices[0].delta.content:
                 content = chunk.choices[0].delta.content
@@ -392,7 +395,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
                     logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
                     first_chunk = False
                 
-                # YIELD STREAMING: Enviar chunk inmediatamente
+                # YIELD inmediato para TTS
                 yield content
                 
             if chunk.choices[0].delta.tool_calls is not None:
@@ -401,51 +404,23 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
                         tc.index = len(tool_calls_chunks)
                     tool_calls_chunks.append(tc)
 
-        tool_calls = merge_tool_calls(tool_calls_chunks)
-        
-        # Si hay tool calls, procesar normalmente
-        if tool_calls:
-            response_pase1 = ChatCompletionMessage(
-                content=full_content,
-                tool_calls=tool_calls,
-                role="assistant",
-            )
+        # Si GPT decidió usar herramientas, las ejecutamos
+        if tool_calls_chunks:
+            tool_calls = merge_tool_calls(tool_calls_chunks)
             
-            full_conversation_history.append(response_pase1.model_dump())
-            
-            # Ejecutar tools
-            tool_messages_for_pase2 = []
-            for tool_call in response_pase1.tool_calls:
-                tool_call_id = tool_call.id
+            # Ejecutar las herramientas
+            for tool_call in tool_calls:
                 function_result = handle_tool_execution(tool_call)
-
+                
                 if function_result.get("call_ended_reason"):
                     yield "__END_CALL__"
                     return
+                
+                # En lugar de hacer otra llamada, GPT ya nos dio la respuesta!
+                # Solo logeamos el resultado de la herramienta
+                logger.info(f"🔧 Herramienta {tool_call.function.name} ejecutada: {json.dumps(function_result)[:100]}...")
 
-                tool_messages_for_pase2.append({
-                    "tool_call_id": tool_call_id,
-                    "role": "tool",
-                    "name": tool_call.function.name,
-                    "content": json.dumps(function_result),
-                })
-
-            full_conversation_history.extend(tool_messages_for_pase2)
-
-            # SEGUNDO PASE (con streaming también)
-            stream_response_2 = client.chat.completions.create(
-                model=model,
-                messages=full_conversation_history,
-                tools=TOOLS,
-                tool_choice="auto",
-                max_tokens=100,
-                temperature=0.1,
-                stream=True,
-            )
-
-            for chunk in stream_response_2:
-                if chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
+        # ¡NO HAY SEGUNDA LLAMADA! GPT ya procesó todo en una sola pasada
 
     except Exception as e:
         logger.exception("generate_openai_response_main falló")

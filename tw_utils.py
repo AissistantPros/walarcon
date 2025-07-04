@@ -48,9 +48,9 @@ logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuev
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .35
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .30
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
-LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 100 # Umbral para mensaje de espera
+LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 50 # Umbral para mensaje de espera
 HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
           
 
@@ -992,7 +992,7 @@ class TwilioWebSocketManager:
                 
                 # ✅ Procesar chunks de GPT con buffer inteligente para ElevenLabs
                 MIN_CHUNK_LEN = 30  # Ajusta si tienes frases muy cortas
-                END_OF_SENTENCE = re.compile(r'([.!?…]+["\']?\s+)')  # Frase completa
+                END_OF_SENTENCE = re.compile(r'([.!?,;:]+["\']?\s+|(?<=[a-z])\s+(?:y|o|pero|entonces|después|luego|aunque|porque|cuando|si|que)\s+)', re.IGNORECASE)
 
                 buffer_tts = ""
                 texto_acumulado = ""
