@@ -1,9 +1,9 @@
 """
-Cliente WebSocket de ElevenLabs TTS — v3 OPTIMIZADO
-==================================================
-• Estrategia basada en RAG de ElevenLabs para latencia mínima
+Cliente WebSocket de ElevenLabs TTS — v3 OPTIMIZADO con auto_mode
+==============================================================
+• Estrategia basada en auto_mode de ElevenLabs para latencia mínima
 • Modelo eleven_flash_v2_5 + auto_mode + optimize_streaming_latency
-• Acumulación inteligente de chunks de GPT
+• Envío directo de chunks sin buffer manual
 • Reutilización de conexión WebSocket
 
 """
@@ -26,7 +26,7 @@ EndCallback = Callable[[], Awaitable[None]]
 
 
 class ElevenLabsWSClient:
-    """Cliente optimizado para TTS streaming con latencia mínima."""
+    """Cliente optimizado para TTS streaming con latencia mínima usando auto_mode."""
 
     def __init__(
         self,
@@ -77,10 +77,6 @@ class ElevenLabsWSClient:
             "speed": 1.2,
         }
 
-        # ✅ Buffer para acumular texto inteligentemente
-        self._text_buffer = ""
-        self._buffer_word_count = 0
-
         # Iniciar conexión WebSocket REUTILIZABLE
         self._start_connection()
 
@@ -90,8 +86,8 @@ class ElevenLabsWSClient:
 
     async def _run_websocket(self):
         """Maneja la conexión WebSocket persistente"""
-        # ✅ URL optimizada con parámetros de latencia
-        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=1"
+        # ✅ URL optimizada con parámetros de latencia máxima
+        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=4"
         headers = {"xi-api-key": self.api_key}
 
         try:
@@ -101,12 +97,13 @@ class ElevenLabsWSClient:
                 self._ws = ws
                 logger.info("🟢 ElevenLabs WebSocket conectado (reutilizable)")
                 
-                # ✅ Configuración inicial con auto_mode
+                # ✅ Configuración inicial con auto_mode (EL maneja chunks automáticamente)
                 config_message = {
+                    "text": " ",  # Texto inicial vacío
+                    "voice_settings": self.voice_settings,
                     "generation_config": {
-                        "auto_mode": True,  # ✅ Gestión automática de chunks
-                    },
-                    "voice_settings": self.voice_settings
+                        "auto_mode": True  # EL decide cuándo enviar audio
+                    }
                 }
                 
                 await ws.send(json.dumps(config_message))
@@ -223,77 +220,35 @@ class ElevenLabsWSClient:
 
     async def add_text_chunk(self, text_chunk: str) -> bool:
         """
-        Añade texto al buffer inteligente. Se envía cuando alcanza ~10-15 palabras.
-        
-        Args:
-            text_chunk: Fragmento de texto de GPT streaming
-            
-        Returns:
-            True si se envió texto a ElevenLabs, False si se bufferizó
+        Envía chunks directamente a EL con auto_mode (sin buffer manual).
         """
         if not self._ws:
             logger.error("❌ WebSocket no disponible para chunk")
             return False
 
-        # Añadir al buffer
-        self._text_buffer += text_chunk + " "
-        words = self._text_buffer.split()
-        self._buffer_word_count = len(words)
-        
-        # ✅ Enviar cuando tengamos suficientes palabras O encontremos fin de frase
-        should_send = (
-            self._buffer_word_count >= 12 or  # 12+ palabras
-            text_chunk.endswith(('.', '!', '?', ':')) or  # Fin de frase
-            text_chunk.endswith(',') and self._buffer_word_count >= 6  # Coma + 6+ palabras
-        )
-        
-        if should_send:
-            return await self._flush_buffer()
-        else:
-            logger.debug(f"📝 Buffer: {self._buffer_word_count} palabras - esperando más texto")
-            return False
-
-    async def _flush_buffer(self, is_final: bool = False) -> bool:
-        """Envía el buffer acumulado a ElevenLabs"""
-        if not self._text_buffer.strip():
+        if not text_chunk.strip():
             return False
             
         try:
-            message = {
-                "text": self._text_buffer.strip(),
-                "voice_settings": self.voice_settings
-            }
+            message = {"text": text_chunk.strip()}
             
-            if is_final:
-                message["flush"] = True
-                logger.info(f"📤 FINAL flush: '{self._text_buffer.strip()[:40]}...' ({self._buffer_word_count} palabras)")
-            else:
-                logger.info(f"📤 Buffer enviado: '{self._text_buffer.strip()[:40]}...' ({self._buffer_word_count} palabras)")
+            logger.info(f"📤 Chunk directo a EL: '{text_chunk.strip()[:40]}...' ({len(text_chunk.strip())} chars)")
             
             self._send_time = time.perf_counter()
             await self._ws.send(json.dumps(message))
             
-            # Limpiar buffer
-            self._text_buffer = ""
-            self._buffer_word_count = 0
-            
             return True
             
         except Exception as e:
-            logger.error(f"❌ Error enviando buffer: {e}")
+            logger.error(f"❌ Error enviando chunk directo: {e}")
             return False
 
     async def finalize_stream(self) -> bool:
         """
-        Finaliza el stream enviando cualquier texto restante + flush + EOS.
+        Finaliza el stream enviando EOS (End of Sequence).
         """
         try:
-            # 1. Enviar buffer restante con flush
-            if self._text_buffer.strip():
-                await self._flush_buffer(is_final=True)
-                await asyncio.sleep(0.1)  # Pequeña pausa
-            
-            # 2. Enviar EOS (End of Sequence)
+            # Enviar EOS (End of Sequence)
             await self._ws.send(json.dumps({"text": ""}))
             logger.debug("📤 EOS enviado")
             
@@ -334,13 +289,10 @@ class ElevenLabsWSClient:
         self._is_speaking = True
 
         try:
-            # Mensaje completo con auto_mode (para compatibilidad)
+            # Mensaje completo sin auto_mode (usando chunk_length_schedule)
             message = {
                 "text": text,
-                "voice_settings": self.voice_settings,
-                "generation_config": {
-                    "auto_mode": True
-                }
+                "voice_settings": self.voice_settings
             }
             
             self._send_time = time.perf_counter()

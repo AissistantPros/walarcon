@@ -351,27 +351,22 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:  # tc es un ToolCall objec
 
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
-async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini") -> str:
+async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini"):
+    """
+    Versión que devuelve async generator para streaming real a ElevenLabs
+    """
     start_gpt_time = time.perf_counter()
     logger.info(f"⏱️ [LATENCIA-2] GPT llamada iniciada")
 
-
     try:
-        # ==================== PASE 1: PROMPT INICIAL (System + Historial) ====================
         full_conversation_history = generate_openai_prompt(list(history))
 
-        #logger.info("\n==== PROMPT ENVIADO A GPT (Pase 1 / Conversación) ====")
-        #for idx, m in enumerate(full_conversation_history):
-         #   logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:600]}")  # Trunca para no saturar
-        #logger.info("==== FIN PROMPT Pase 1 ====\n")
-
-        t1_start = perf_counter()
-
         if not client:
-            logger.error("Cliente OpenAI no inicializado. Abortando generate_openai_response_main.")
-            return "Lo siento, estoy teniendo problemas técnicos para conectarme. Por favor, intente más tarde."
+            logger.error("Cliente OpenAI no inicializado.")
+            yield "Lo siento, estoy teniendo problemas técnicos para conectarme."
+            return
 
-        # ------- STREAMING PRIMER PASE -------
+        # PRIMER PASE
         stream_response = client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
@@ -385,81 +380,73 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
 
         full_content = ""
         tool_calls_chunks = []
+        first_chunk = True
 
         for chunk in stream_response:
             if chunk.choices[0].delta.content:
-                full_content += chunk.choices[0].delta.content
+                content = chunk.choices[0].delta.content
+                full_content += content
+                
+                if first_chunk:
+                    delta_ms = (time.perf_counter() - start_gpt_time) * 1000
+                    logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
+                    first_chunk = False
+                
+                # YIELD STREAMING: Enviar chunk inmediatamente
+                yield content
+                
             if chunk.choices[0].delta.tool_calls is not None:
                 for tc in chunk.choices[0].delta.tool_calls:
-                    # Si el índice no viene, asígnalo (muy raro, pero por si acaso)
                     if not hasattr(tc, "index"):
                         tc.index = len(tool_calls_chunks)
                     tool_calls_chunks.append(tc)
 
-        logger.debug(f"🔗 Tool calls VÁLIDOS recibidos: {len(tool_calls_chunks)}")
-
         tool_calls = merge_tool_calls(tool_calls_chunks)
+        
+        # Si hay tool calls, procesar normalmente
+        if tool_calls:
+            response_pase1 = ChatCompletionMessage(
+                content=full_content,
+                tool_calls=tool_calls,
+                role="assistant",
+            )
+            
+            full_conversation_history.append(response_pase1.model_dump())
+            
+            # Ejecutar tools
+            tool_messages_for_pase2 = []
+            for tool_call in response_pase1.tool_calls:
+                tool_call_id = tool_call.id
+                function_result = handle_tool_execution(tool_call)
 
-        response_pase1 = ChatCompletionMessage(
-            content=full_content,
-            tool_calls=tool_calls,
-            role="assistant",
-        )
+                if function_result.get("call_ended_reason"):
+                    yield "__END_CALL__"
+                    return
 
-        #logger.debug("🕒 OpenAI Unified Flow - Pase 1 completado en %s", _t(t1_start))
+                tool_messages_for_pase2.append({
+                    "tool_call_id": tool_call_id,
+                    "role": "tool",
+                    "name": tool_call.function.name,
+                    "content": json.dumps(function_result),
+                })
 
-        if not response_pase1.tool_calls:
-            logger.debug("RESPUESTA IA - Pase 1: %s", response_pase1.content)
-            # Log respuesta final porque no hubo tool call
-            logger.info("\n==== RESPUESTA FINAL GPT ====\n%s\n==== FIN RESPUESTA ====", response_pase1.content)
-            return response_pase1.content or "No he podido procesar su solicitud en este momento."
+            full_conversation_history.extend(tool_messages_for_pase2)
 
-        # Agrega la respuesta con tool_call al historial
-        full_conversation_history.append(response_pase1.model_dump())
+            # SEGUNDO PASE (con streaming también)
+            stream_response_2 = client.chat.completions.create(
+                model=model,
+                messages=full_conversation_history,
+                tools=TOOLS,
+                tool_choice="auto",
+                max_tokens=100,
+                temperature=0.1,
+                stream=True,
+            )
 
-        # ==================== PASE 2: PROMPT CON TOOL RESPONSE ====================
-        #logger.info("\n==== PROMPT ENVIADO A GPT (Pase 2 / Tool Call) ====")
-        #for idx, m in enumerate(full_conversation_history):
-         #   logger.info(f"[{idx}] {m['role'].upper()}: {m['content'][:150]}")  # Trunca para no saturar
-        #logger.info("==== FIN PROMPT Pase 2 ====\n")
-
-        # Prepara los mensajes de herramientas para el segundo pase
-        tool_messages_for_pase2 = []
-        for tool_call in response_pase1.tool_calls:
-            tool_call_id = tool_call.id
-            function_result = handle_tool_execution(tool_call)
-
-            if function_result.get("call_ended_reason"):
-                logger.info("Solicitud de finalizar llamada recibida desde ejecución de herramienta: %s", function_result["call_ended_reason"])
-                return "__END_CALL__"
-
-            tool_messages_for_pase2.append({
-                "tool_call_id": tool_call_id,
-                "role": "tool",
-                "name": tool_call.function.name,
-                "content": json.dumps(function_result),
-            })
-
-        full_conversation_history.extend(tool_messages_for_pase2)
-
-        t2_start = perf_counter()
-        logger.debug("OpenAI Unified Flow - Pase 2: Enviando a %s con resultados de herramientas.", model)
-
-        response_pase2 = client.chat.completions.create(
-            model=model,
-            messages=full_conversation_history,
-            tools=TOOLS,
-            tool_choice="auto",
-            max_tokens=100,
-            temperature=0.1,
-        ).choices[0].message
-        logger.debug("🕒 OpenAI Unified Flow - Pase 2 completado en %s", _t(t2_start))
-
-        # ====== RESPUESTA FINAL LOG ======
-        logger.info("\n==== RESPUESTA FINAL GPT ====\n%s\n==== FIN RESPUESTA ====", response_pase2.content)
-
-        return response_pase2.content or "No tengo una respuesta en este momento."
+            for chunk in stream_response_2:
+                if chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
 
     except Exception as e:
-        logger.exception("generate_openai_response_main falló gravemente")
-        return "Lo siento mucho, estoy experimentando un problema técnico y no puedo continuar. Por favor, intente llamar más tarde."
+        logger.exception("generate_openai_response_main falló")
+        yield "Lo siento, estoy experimentando un problema técnico."

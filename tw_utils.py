@@ -1013,6 +1013,12 @@ class TwilioWebSocketManager:
                 await self.dg_tts_client.finalize_stream()
                 
                 reply_cleaned = texto_acumulado.strip()
+
+
+
+
+
+                
             else:
                 # --- LEGACY: respuesta completa (no streaming) ---
                 if not respuesta_gpt or not isinstance(respuesta_gpt, str):
