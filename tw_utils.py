@@ -12,6 +12,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import time
 import os
 from datetime import datetime 
@@ -990,8 +991,8 @@ class TwilioWebSocketManager:
                 self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
                 
                 # ✅ Procesar chunks de GPT con buffer inteligente para ElevenLabs
-                MIN_CHUNK_LEN = 50  # o 30 o 50, como te guste
-                PUNCTUATION = (".", ",", "?", "!", ";", ":")  # puedes agregar más si quieres
+                MIN_CHUNK_LEN = 30  # Ajusta si tienes frases muy cortas
+                END_OF_SENTENCE = re.compile(r'([.!?…]+["\']?\s+)')  # Frase completa
 
                 buffer_tts = ""
                 texto_acumulado = ""
@@ -1011,25 +1012,20 @@ class TwilioWebSocketManager:
                     buffer_tts += chunk
                     logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → buffer inteligente")
 
-                    while len(buffer_tts) >= MIN_CHUNK_LEN:
-                        # Buscar el último espacio o puntuación antes del final del buffer
-                        last_cut = max(
-                            buffer_tts.rfind(" "), 
-                            *(buffer_tts.rfind(p) for p in PUNCTUATION)
-                        )
-                        if last_cut == -1:
-                            # No se encontró espacio ni puntuación, espera más texto
+                    # Busca el final de la frase en el buffer
+                    while True:
+                        match = END_OF_SENTENCE.search(buffer_tts)
+                        if match:
+                            split_at = match.end()
+                            sentence = buffer_tts[:split_at]
+                            sent = await self.dg_tts_client.add_text_chunk(sentence.strip())
+                            if sent:
+                                logger.debug(f"📤 Chunk enviado a ElevenLabs: '{sentence[:40]}...' ({len(sentence)} chars)")
+                            buffer_tts = buffer_tts[split_at:]
+                        else:
                             break
 
-                        # Mandar solo hasta el corte
-                        safe_chunk = buffer_tts[:last_cut+1]
-                        sent = await self.dg_tts_client.add_text_chunk(safe_chunk.strip())
-                        if sent:
-                            logger.debug(f"📤 Chunk enviado a ElevenLabs: '{safe_chunk[:40]}...' ({len(safe_chunk)} chars)")
-                        # Dejar lo que sobre para el siguiente ciclo
-                        buffer_tts = buffer_tts[last_cut+1:]
-
-                # Al final, manda lo que falte
+                # Al final, manda cualquier resto (para no dejarlo colgado)
                 if buffer_tts.strip():
                     await self.dg_tts_client.add_text_chunk(buffer_tts.strip())
 
@@ -1037,6 +1033,9 @@ class TwilioWebSocketManager:
                 await self.dg_tts_client.finalize_stream()
 
                 reply_cleaned = texto_acumulado.strip()
+
+
+
 
 
 
