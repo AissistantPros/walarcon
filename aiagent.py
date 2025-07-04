@@ -354,7 +354,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:  # tc es un ToolCall objec
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4.1-mini"):
     """
-    Versión con UNA SOLA llamada a GPT - texto y herramientas juntos
+    Versión con modelo dual: 4.1-mini para decisiones, 4.1-nano para formatear respuestas
     """
     start_gpt_time = time.perf_counter()
     logger.info(f"⏱️ [LATENCIA-2] GPT llamada iniciada")
@@ -362,14 +362,33 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
     try:
         full_conversation_history = generate_openai_prompt(list(history))
 
+
+
+        # 🔍 LOG: Ver el prompt completo
+        logger.info("="*50)
+        logger.info("📋 PROMPT COMPLETO PARA GPT:")
+        for i, msg in enumerate(full_conversation_history):
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')[:200] + '...' if len(msg.get('content', '')) > 200 else msg.get('content', '')
+            logger.info(f"  [{i}] {role}: {content}")
+        logger.info(f"📏 Total mensajes: {len(full_conversation_history)}")
+        logger.info(f"📏 Caracteres totales: {sum(len(str(m)) for m in full_conversation_history)}")
+        logger.info("="*50)
+
+
+
+
+
+
+
         if not client:
             logger.error("Cliente OpenAI no inicializado.")
             yield "Lo siento, estoy teniendo problemas técnicos para conectarme."
             return
 
-        # UNA SOLA LLAMADA - GPT procesa TODO de una vez
+        # PRIMERA LLAMADA - Modelo inteligente para decisiones complejas
         stream_response = client.chat.completions.create(
-            model=model,
+            model=model,  # gpt-4.1-mini (inteligente)
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
@@ -382,9 +401,8 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         full_content = ""
         tool_calls_chunks = []
         first_chunk = True
-        pending_tool_results = []
         
-        # Procesar el stream completo
+        # Procesar stream
         for chunk in stream_response:
             if chunk.choices[0].delta.content:
                 content = chunk.choices[0].delta.content
@@ -395,7 +413,6 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
                     logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
                     first_chunk = False
                 
-                # YIELD inmediato para TTS
                 yield content
                 
             if chunk.choices[0].delta.tool_calls is not None:
@@ -404,23 +421,103 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
                         tc.index = len(tool_calls_chunks)
                     tool_calls_chunks.append(tc)
 
-        # Si GPT decidió usar herramientas, las ejecutamos
-        if tool_calls_chunks:
-            tool_calls = merge_tool_calls(tool_calls_chunks)
-            
-            # Ejecutar las herramientas
-            for tool_call in tool_calls:
-                function_result = handle_tool_execution(tool_call)
-                
-                if function_result.get("call_ended_reason"):
-                    yield "__END_CALL__"
-                    return
-                
-                # En lugar de hacer otra llamada, GPT ya nos dio la respuesta!
-                # Solo logeamos el resultado de la herramienta
-                logger.info(f"🔧 Herramienta {tool_call.function.name} ejecutada: {json.dumps(function_result)[:100]}...")
 
-        # ¡NO HAY SEGUNDA LLAMADA! GPT ya procesó todo en una sola pasada
+        # 🔍 LOG: Respuesta del primer pase
+        logger.info(f"💬 GPT RESPUESTA PASE 1: '{full_content}'")
+
+
+        # Si NO hay herramientas, terminamos
+        if not tool_calls_chunks:
+            logger.info("✅ Respuesta sin herramientas - una sola llamada")
+            return
+
+        # Si HAY herramientas, procesarlas
+        tool_calls = merge_tool_calls(tool_calls_chunks)
+        
+
+        # 🔍 LOG: Herramientas detectadas
+        logger.info(f"🔧 HERRAMIENTAS DETECTADAS: {len(tool_calls)}")
+        for tc in tool_calls:
+            logger.info(f"  - {tc.function.name}: {tc.function.arguments}")
+
+
+
+
+        response_pase1 = ChatCompletionMessage(
+            content=full_content,
+            tool_calls=tool_calls,
+            role="assistant",
+        )
+        
+        # Mensajes mínimos para segunda llamada
+        minimal_messages = [
+            {"role": "system", "content": "Eres Dany, asistente del Dr. Wilfrido Alarcón, Cardiólogo en Cancún. "
+            "Basándote en los resultados de las herramientas, da una respuesta clara y breve. Máximo 25 palabras. "
+            "Habla de usted. Usa palabras completas, no números Por ejemplo: 'noventa y ocho, ochenta y dos, trece, setenta y cuatro, setenta y siete'."},
+            {"role": "user", "content": history[-1]["content"]},
+            response_pase1.model_dump()
+        ]
+        
+        # Ejecutar herramientas
+        for tool_call in response_pase1.tool_calls:
+            tool_call_id = tool_call.id
+            function_result = handle_tool_execution(tool_call)
+
+
+            # 🔍 LOG: Resultado de herramienta
+            logger.info(f"📊 RESULTADO {tool_call.function.name}: {json.dumps(function_result, ensure_ascii=False)[:200]}...")
+
+
+
+            if function_result.get("call_ended_reason"):
+                yield "__END_CALL__"
+                return
+
+            minimal_messages.append({
+                "tool_call_id": tool_call_id,
+                "role": "tool", 
+                "name": tool_call.function.name,
+                "content": json.dumps(function_result),
+            })
+
+
+
+        # 🔍 LOG: Mensajes para segunda llamada
+        logger.info("="*50)
+        logger.info("📋 MENSAJES PARA SEGUNDA LLAMADA:")
+        for i, msg in enumerate(minimal_messages):
+            role = msg.get('role', 'unknown')
+            content = str(msg.get('content', ''))[:100] + '...' if len(str(msg.get('content', ''))) > 100 else msg.get('content', '')
+            logger.info(f"  [{i}] {role}: {content}")
+        logger.info(f"📏 Total mensajes pase 2: {len(minimal_messages)}")
+        logger.info("="*50)
+
+
+
+
+
+
+        # SEGUNDA LLAMADA - Modelo RÁPIDO solo para formatear
+        fast_model = "gpt-4.1-nano"  # ¡El más rápido!
+        logger.info(f"🏃 Segunda llamada con modelo rápido: {fast_model}")
+        
+        stream_response_2 = client.chat.completions.create(
+            model=fast_model,  # ¡Modelo súper rápido!
+            messages=minimal_messages,
+            max_tokens=150,
+            temperature=0.1,
+            stream=True,
+        )
+
+        second_response = ""
+        for chunk in stream_response_2:
+            if chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                second_response += content
+                yield content
+        
+        # 🔍 LOG: Respuesta final
+        logger.info(f"💬 GPT RESPUESTA FINAL: '{second_response}'")
 
     except Exception as e:
         logger.exception("generate_openai_response_main falló")
