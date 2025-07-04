@@ -989,7 +989,13 @@ class TwilioWebSocketManager:
                 self.dg_tts_client._user_chunk = _send_chunk
                 self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
                 
-                # ✅ Procesar chunks de GPT
+                # ✅ Procesar chunks de GPT con buffer inteligente para ElevenLabs
+                MIN_CHUNK_LEN = 30  # Puedes subir/bajar este número según tus pruebas (20-40 es típico)
+                PUNCTUATION = (".", ",", "?", "!", ";", ":")
+
+                buffer_tts = ""
+                texto_acumulado = ""
+
                 async for chunk in respuesta_gpt:
                     if not first_chunk_sent:
                         first_chunk_time = self._now()
@@ -1002,18 +1008,27 @@ class TwilioWebSocketManager:
                         continue
                     
                     texto_acumulado += chunk
+                    buffer_tts += chunk
                     logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → buffer inteligente")
                     
-                    # ✅ Enviar al buffer inteligente de ElevenLabs
-                    sent = await self.dg_tts_client.add_text_chunk(chunk)
-                    if sent:
-                        logger.debug("📤 Chunk enviado a ElevenLabs por buffer automático")
+                    # 🚦 Solo enviar a ElevenLabs si hay suficiente texto o un delimitador
+                    if (
+                        len(buffer_tts) >= MIN_CHUNK_LEN
+                        or (buffer_tts and buffer_tts[-1] in PUNCTUATION)
+                    ):
+                        sent = await self.dg_tts_client.add_text_chunk(buffer_tts)
+                        if sent:
+                            logger.debug(f"📤 Chunk enviado a ElevenLabs: '{buffer_tts[:40]}...' ({len(buffer_tts)} chars)")
+                        buffer_tts = ""
+                
+                # 🧹 Al terminar, manda lo que quedó pendiente en el buffer (si hay algo)
+                if buffer_tts.strip():
+                    await self.dg_tts_client.add_text_chunk(buffer_tts)
 
                 # ✅ Finalizar stream con flush
                 await self.dg_tts_client.finalize_stream()
                 
                 reply_cleaned = texto_acumulado.strip()
-
 
 
 
