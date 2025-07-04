@@ -74,7 +74,7 @@ class ElevenLabsWSClient:
             "stability": 0.75,
             "style": 0.45,
             "use_speaker_boost": True,
-            "speed": 1.2,
+            "speed": 1.1,
         }
 
         # Iniciar conexión WebSocket REUTILIZABLE
@@ -87,7 +87,7 @@ class ElevenLabsWSClient:
     async def _run_websocket(self):
         """Maneja la conexión WebSocket persistente"""
         # ✅ URL optimizada con parámetros de latencia máxima
-        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=3"
+        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=2"
         headers = {"xi-api-key": self.api_key}
 
         try:
