@@ -949,7 +949,7 @@ class TwilioWebSocketManager:
             start_gpt_call = self._now()
             logger.info(f"⏱️ [LATENCIA-2-START] GPT llamada iniciada para: '{user_text[:30]}...'")
             
-            respuesta_gpt = await generate_openai_response_main(
+            respuesta_gpt = generate_openai_response_main(
                 history=mensajes_para_gpt,
                 model=model_a_usar
             )
