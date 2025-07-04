@@ -930,14 +930,14 @@ class TwilioWebSocketManager:
 
         logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
 
-        # PREP: Asegura WS de Deepgram TTS listo
+        # PREP: Asegura WS de ElevenLabs TTS listo (modo legacy para respuestas completas)
         try:
             if (not hasattr(self, "dg_tts_client")
                     or self.dg_tts_client is None
                     or getattr(self.dg_tts_client, "_ws_close", None) and self.dg_tts_client._ws_close.is_set()):
                 from eleven_ws_tts_client import ElevenLabsWSClient
                 self.dg_tts_client = ElevenLabsWSClient()
-                logger.debug("🔌 ElevenLabs TTS WS creado / recreado.")
+                logger.debug("🔌 ElevenLabs TTS WS creado (modo legacy)")
         except Exception as e_prep:
             logger.error(f"❌ Error creando WebSocket ElevenLabs TTS: {e_prep}")
 
@@ -962,10 +962,34 @@ class TwilioWebSocketManager:
 
             # --- STREAMING: si la respuesta es un async iterable ---
             if isinstance(respuesta_gpt, collections.abc.AsyncIterable):
-                logger.info("🟢 Respuesta de GPT es STREAMING, enviando chunks a TTS en tiempo real.")
+                logger.info("🟢 Respuesta de GPT es STREAMING, enviando chunks optimizados a TTS")
 
                 texto_acumulado = ""
                 first_chunk_sent = False
+                
+                # ✅ STREAMING OPTIMIZADO: Configurar TTS una sola vez
+                if not getattr(self, "dg_tts_client", None):
+                    from eleven_ws_tts_client import ElevenLabsWSClient
+                    self.dg_tts_client = ElevenLabsWSClient()
+                    logger.debug("🔌 ElevenLabs TTS WS creado para streaming")
+                
+                # Configurar callbacks TTS
+                async def _send_chunk(chunk: bytes):
+                    await self.websocket.send_text(json.dumps({
+                        "event": "media",
+                        "streamSid": self.stream_sid,
+                        "media": {"payload": base64.b64encode(chunk).decode()},
+                    }))
+                    self.last_chunk_time = self._now()
+
+                # Esperar conexión WS
+                await asyncio.wait_for(self.dg_tts_client._ws_open.wait(), timeout=5.0)
+                
+                self.dg_tts_client._first_chunk = asyncio.Event()
+                self.dg_tts_client._user_chunk = _send_chunk
+                self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
+                
+                # ✅ Procesar chunks de GPT
                 async for chunk in respuesta_gpt:
                     if not first_chunk_sent:
                         first_chunk_time = self._now()
@@ -973,16 +997,21 @@ class TwilioWebSocketManager:
                         logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
                         first_chunk_sent = True
                     
-                    logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → enviando a TTS")
-                    # Puedes filtrar chunks vacíos/whitespace aquí
                     chunk = chunk.strip()
                     if not chunk:
                         continue
+                    
                     texto_acumulado += chunk
+                    logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → buffer inteligente")
+                    
+                    # ✅ Enviar al buffer inteligente de ElevenLabs
+                    sent = await self.dg_tts_client.add_text_chunk(chunk)
+                    if sent:
+                        logger.debug("📤 Chunk enviado a ElevenLabs por buffer automático")
 
-                    # Manda el chunk a TTS (uno a la vez, sin esperar todo el texto)
-                    await self.handle_tts_response(chunk, last_final_ts)
-
+                # ✅ Finalizar stream con flush
+                await self.dg_tts_client.finalize_stream()
+                
                 reply_cleaned = texto_acumulado.strip()
             else:
                 # --- LEGACY: respuesta completa (no streaming) ---

@@ -1,10 +1,10 @@
 """
-Cliente WebSocket de ElevenLabs TTS — v2 CORREGIDO
-=================================================
-• Reemplazo directo para DeepgramTTSSocketClient
-• Corregido según documentación oficial de ElevenLabs
-• Formato μ-law 8kHz nativo para Twilio
-• Misma interfaz que el cliente de Deepgram
+Cliente WebSocket de ElevenLabs TTS — v3 OPTIMIZADO
+==================================================
+• Estrategia basada en RAG de ElevenLabs para latencia mínima
+• Modelo eleven_flash_v2_5 + auto_mode + optimize_streaming_latency
+• Acumulación inteligente de chunks de GPT
+• Reutilización de conexión WebSocket
 
 """
 
@@ -14,8 +14,8 @@ import asyncio
 import json
 import os
 import base64
-import time
 import websockets
+import time
 from typing import Awaitable, Callable, Optional
 import logging
 
@@ -26,14 +26,14 @@ EndCallback = Callable[[], Awaitable[None]]
 
 
 class ElevenLabsWSClient:
-    """Cliente único para TTS en streaming vía WebSocket con ElevenLabs."""
+    """Cliente optimizado para TTS streaming con latencia mínima."""
 
     def __init__(
         self,
         *,
         api_key: str | None = None,
         voice_id: str | None = None,
-        model_id: str = "eleven_multilingual_v2",
+        model_id: str = "eleven_flash_v2_5",  # ✅ Modelo más rápido
     ) -> None:
         # API key: ELEVEN_LABS_API_KEY > parámetro
         self.api_key = api_key or os.getenv("ELEVEN_LABS_API_KEY")
@@ -50,7 +50,7 @@ class ElevenLabsWSClient:
         # Loop principal donde despacharemos callbacks
         self._loop = asyncio.get_running_loop()
 
-        # WebSocket connection
+        # WebSocket connection - REUTILIZABLE
         self._ws = None
         self._ws_task = None
 
@@ -66,8 +66,10 @@ class ElevenLabsWSClient:
         # Control de estado
         self._is_speaking = False
         self._should_close = False
+        self._chunk_counter = 0
+        self._send_time = 0.0
 
-        # Configuración de voz (misma que HTTP)
+        # ✅ Configuración optimizada según RAG
         self.voice_settings = {
             "stability": 0.75,
             "style": 0.45,
@@ -75,28 +77,40 @@ class ElevenLabsWSClient:
             "speed": 1.2,
         }
 
-        # Iniciar conexión WebSocket
+        # ✅ Buffer para acumular texto inteligentemente
+        self._text_buffer = ""
+        self._buffer_word_count = 0
+
+        # Iniciar conexión WebSocket REUTILIZABLE
         self._start_connection()
 
     def _start_connection(self):
-        """Inicia la conexión WebSocket en background"""
+        """Inicia la conexión WebSocket reutilizable"""
         self._ws_task = asyncio.create_task(self._run_websocket())
 
     async def _run_websocket(self):
-        """Maneja la conexión WebSocket"""
-        # ✅ Especificar formato en URL como hace el HTTP
-        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000"
+        """Maneja la conexión WebSocket persistente"""
+        # ✅ URL optimizada con parámetros de latencia
+        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=1"
         headers = {"xi-api-key": self.api_key}
 
         try:
-            logger.debug(f"🔌 Conectando a ElevenLabs WebSocket: {url}")
+            logger.debug(f"🔌 Conectando a ElevenLabs WebSocket optimizado: {url}")
             
             async with websockets.connect(url, additional_headers=headers) as ws:
                 self._ws = ws
-                logger.info("🟢 ElevenLabs WebSocket conectado")
+                logger.info("🟢 ElevenLabs WebSocket conectado (reutilizable)")
                 
-                # ✅ NO enviar mensaje de configuración inicial
-                # La conexión está lista para recibir mensajes de texto
+                # ✅ Configuración inicial con auto_mode
+                config_message = {
+                    "generation_config": {
+                        "auto_mode": True,  # ✅ Gestión automática de chunks
+                    },
+                    "voice_settings": self.voice_settings
+                }
+                
+                await ws.send(json.dumps(config_message))
+                logger.debug("⚙️ Configuración auto_mode enviada")
                 
                 # Marcar como conectado
                 self._loop.call_soon_threadsafe(self._ws_open.set)
@@ -146,8 +160,7 @@ class ElevenLabsWSClient:
         
         # Si no hay header ID3, devolver como está
         return audio_bytes
-        """Procesa mensajes del WebSocket"""
-        
+
     async def _handle_message(self, data: dict):
         """Procesa mensajes del WebSocket"""
         
@@ -158,13 +171,12 @@ class ElevenLabsWSClient:
                 try:
                     audio_bytes = base64.b64decode(audio_b64)
                     
-                    # 🧹 LIMPIEZA: Remover headers en lugar de conversión completa
+                    # 🧹 LIMPIEZA: Remover headers si es necesario
                     if audio_bytes[:3] == b"ID3":
                         logger.debug(f"🧹 Removiendo headers ID3 de audio ({len(audio_bytes)} bytes)")
                         audio_bytes = self._clean_mp3_headers(audio_bytes)
                     elif audio_bytes[:2] == b"\xff\xfb":
                         logger.debug(f"✅ MP3 sin headers ID3, usando directamente ({len(audio_bytes)} bytes)")
-                        # Audio MP3 sin headers ID3, usar directamente
                     elif audio_bytes[:4] == b"RIFF":
                         logger.debug("🧹 Removiendo header WAV de 44 bytes")
                         audio_bytes = audio_bytes[44:]  # Quitar header WAV
@@ -174,11 +186,11 @@ class ElevenLabsWSClient:
                     # Marcar primer chunk si aplica
                     if self._first_chunk and not self._first_chunk.is_set():
                         first_audio_time = time.perf_counter()
-                        if hasattr(self, '_send_time'):
+                        if hasattr(self, '_send_time') and self._send_time > 0:
                             delta_ms = (first_audio_time - self._send_time) * 1000
                             logger.info(f"⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: {delta_ms:.1f} ms")
                         self._loop.call_soon_threadsafe(self._first_chunk.set)
-                        
+                    
                     # Enviar chunk al callback
                     if self._user_chunk:
                         if asyncio.iscoroutinefunction(self._user_chunk):
@@ -209,6 +221,88 @@ class ElevenLabsWSClient:
 
     # ─────────────────────────────────── API pública ────────────────────────────────────
 
+    async def add_text_chunk(self, text_chunk: str) -> bool:
+        """
+        Añade texto al buffer inteligente. Se envía cuando alcanza ~10-15 palabras.
+        
+        Args:
+            text_chunk: Fragmento de texto de GPT streaming
+            
+        Returns:
+            True si se envió texto a ElevenLabs, False si se bufferizó
+        """
+        if not self._ws:
+            logger.error("❌ WebSocket no disponible para chunk")
+            return False
+
+        # Añadir al buffer
+        self._text_buffer += text_chunk + " "
+        words = self._text_buffer.split()
+        self._buffer_word_count = len(words)
+        
+        # ✅ Enviar cuando tengamos suficientes palabras O encontremos fin de frase
+        should_send = (
+            self._buffer_word_count >= 12 or  # 12+ palabras
+            text_chunk.endswith(('.', '!', '?', ':')) or  # Fin de frase
+            text_chunk.endswith(',') and self._buffer_word_count >= 6  # Coma + 6+ palabras
+        )
+        
+        if should_send:
+            return await self._flush_buffer()
+        else:
+            logger.debug(f"📝 Buffer: {self._buffer_word_count} palabras - esperando más texto")
+            return False
+
+    async def _flush_buffer(self, is_final: bool = False) -> bool:
+        """Envía el buffer acumulado a ElevenLabs"""
+        if not self._text_buffer.strip():
+            return False
+            
+        try:
+            message = {
+                "text": self._text_buffer.strip(),
+                "voice_settings": self.voice_settings
+            }
+            
+            if is_final:
+                message["flush"] = True
+                logger.info(f"📤 FINAL flush: '{self._text_buffer.strip()[:40]}...' ({self._buffer_word_count} palabras)")
+            else:
+                logger.info(f"📤 Buffer enviado: '{self._text_buffer.strip()[:40]}...' ({self._buffer_word_count} palabras)")
+            
+            self._send_time = time.perf_counter()
+            await self._ws.send(json.dumps(message))
+            
+            # Limpiar buffer
+            self._text_buffer = ""
+            self._buffer_word_count = 0
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error enviando buffer: {e}")
+            return False
+
+    async def finalize_stream(self) -> bool:
+        """
+        Finaliza el stream enviando cualquier texto restante + flush + EOS.
+        """
+        try:
+            # 1. Enviar buffer restante con flush
+            if self._text_buffer.strip():
+                await self._flush_buffer(is_final=True)
+                await asyncio.sleep(0.1)  # Pequeña pausa
+            
+            # 2. Enviar EOS (End of Sequence)
+            await self._ws.send(json.dumps({"text": ""}))
+            logger.debug("📤 EOS enviado")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error finalizando stream: {e}")
+            return False
+
     async def speak(
         self,
         text: str,
@@ -218,16 +312,8 @@ class ElevenLabsWSClient:
         timeout_first_chunk: float = 1.0,
     ) -> bool:
         """
-        Envía texto para convertir a voz.
-        
-        Args:
-            text: Texto a convertir
-            on_chunk: Callback para cada chunk de audio
-            on_end: Callback al finalizar (opcional)
-            timeout_first_chunk: Timeout para el primer chunk
-            
-        Returns:
-            True si el primer chunk llegó a tiempo, False si timeout
+        API compatible con versión anterior para texto completo.
+        Para streaming real usar add_text_chunk() + finalize_stream()
         """
         
         # Esperar conexión
@@ -248,20 +334,20 @@ class ElevenLabsWSClient:
         self._is_speaking = True
 
         try:
-            # ✅ Mensaje SIN output_format (ya está en URL)
+            # Mensaje completo con auto_mode (para compatibilidad)
             message = {
                 "text": text,
                 "voice_settings": self.voice_settings,
                 "generation_config": {
-                    "chunk_length_schedule": [120, 160, 250, 290]
+                    "auto_mode": True
                 }
             }
             
-            self._send_time = time.perf_counter() 
+            self._send_time = time.perf_counter()
             await self._ws.send(json.dumps(message))
-            logger.info(f"⏱️ [LATENCIA-4-START] EL WS texto enviado: {len(text)} chars")
+            logger.info(f"⏱️ [LATENCIA-4-START] EL WS texto enviado: {len(text)} chars (modo legacy)")
 
-            # ✅ Enviar EOS (End of Sequence) para finalizar
+            # Enviar EOS
             await self._ws.send(json.dumps({"text": ""}))
 
             # Esperar primer chunk
