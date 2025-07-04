@@ -87,7 +87,7 @@ class ElevenLabsWSClient:
     async def _run_websocket(self):
         """Maneja la conexión WebSocket persistente"""
         # ✅ URL optimizada con parámetros de latencia máxima
-        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=3"
+        url = f"wss://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}/stream-input?model_id={self.model_id}&output_format=ulaw_8000&optimize_streaming_latency=4"
         headers = {"xi-api-key": self.api_key}
 
         try:

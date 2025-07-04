@@ -990,8 +990,8 @@ class TwilioWebSocketManager:
                 self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
                 
                 # ✅ Procesar chunks de GPT con buffer inteligente para ElevenLabs
-                MIN_CHUNK_LEN = 50  # Puedes subir/bajar este número según tus pruebas (20-40 es típico)
-                PUNCTUATION = (".", ",", "?", "!", ";", ":")
+                MIN_CHUNK_LEN = 40  # o 30 o 50, como te guste
+                PUNCTUATION = (".", ",", "?", "!", ";", ":")  # puedes agregar más si quieres
 
                 buffer_tts = ""
                 texto_acumulado = ""
@@ -1002,34 +1002,41 @@ class TwilioWebSocketManager:
                         delta_ms = (first_chunk_time - start_gpt_call) * 1000
                         logger.info(f"⏱️ [LATENCIA-2-FIRST] GPT primer chunk: {delta_ms:.1f} ms")
                         first_chunk_sent = True
-                    
+
                     chunk = chunk.strip()
                     if not chunk:
                         continue
-                    
+
                     texto_acumulado += chunk
                     buffer_tts += chunk
                     logger.info(f"⏱️ [LATENCIA-6] GPT chunk: {len(chunk)} chars → buffer inteligente")
-                    
-                    # 🚦 Solo enviar a ElevenLabs si hay suficiente texto o un delimitador
-                    if (
-                        len(buffer_tts) >= MIN_CHUNK_LEN
-                        or (buffer_tts and buffer_tts[-1] in PUNCTUATION)
-                    ):
-                        sent = await self.dg_tts_client.add_text_chunk(buffer_tts)
+
+                    while len(buffer_tts) >= MIN_CHUNK_LEN:
+                        # Buscar el último espacio o puntuación antes del final del buffer
+                        last_cut = max(
+                            buffer_tts.rfind(" "), 
+                            *(buffer_tts.rfind(p) for p in PUNCTUATION)
+                        )
+                        if last_cut == -1:
+                            # No se encontró espacio ni puntuación, espera más texto
+                            break
+
+                        # Mandar solo hasta el corte
+                        safe_chunk = buffer_tts[:last_cut+1]
+                        sent = await self.dg_tts_client.add_text_chunk(safe_chunk.strip())
                         if sent:
-                            logger.debug(f"📤 Chunk enviado a ElevenLabs: '{buffer_tts[:40]}...' ({len(buffer_tts)} chars)")
-                        buffer_tts = ""
-                
-                # 🧹 Al terminar, manda lo que quedó pendiente en el buffer (si hay algo)
+                            logger.debug(f"📤 Chunk enviado a ElevenLabs: '{safe_chunk[:40]}...' ({len(safe_chunk)} chars)")
+                        # Dejar lo que sobre para el siguiente ciclo
+                        buffer_tts = buffer_tts[last_cut+1:]
+
+                # Al final, manda lo que falte
                 if buffer_tts.strip():
-                    await self.dg_tts_client.add_text_chunk(buffer_tts)
+                    await self.dg_tts_client.add_text_chunk(buffer_tts.strip())
 
                 # ✅ Finalizar stream con flush
                 await self.dg_tts_client.finalize_stream()
-                
-                reply_cleaned = texto_acumulado.strip()
 
+                reply_cleaned = texto_acumulado.strip()
 
 
 
