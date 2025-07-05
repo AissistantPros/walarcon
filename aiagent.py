@@ -398,8 +398,8 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
             messages=full_conversation_history,
             tools=TOOLS,
             tool_choice="auto",
-            max_tokens=150,
-            temperature=0.3,
+            max_tokens=100,
+            temperature=0.2,
             timeout=15,
             stream=True,
         )
@@ -505,8 +505,8 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
         stream_response_2 = client.chat.completions.create(
             model=fast_model,  # ¡Modelo súper rápido!
             messages=minimal_messages,
-            max_tokens=150,
-            temperature=0.1,
+            max_tokens=100,
+            temperature=0.2,
             stream=True,
         )
 
