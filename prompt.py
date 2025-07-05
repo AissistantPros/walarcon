@@ -438,30 +438,3 @@ Fin del prompt system.
 
     return messages
 
-
-def generate_minimal_prompt(last_user_message: str) -> List[Dict]:
-    """
-    Prompt MÍNIMO para la segunda llamada (solo formatear respuestas)
-    """
-    current_time_str = get_cancun_time().strftime("%d/%m/%Y %H:%M")
-    
-    minimal_system_prompt = f"""
-Eres Dany, asistente del Dr. Wilfrido Alarcón, cardiólogo en Cancún.
-Hora actual: {current_time_str}
-
-Solo estás leyendo los resultados de las herramientas y formateando respuestas. Hay otro sistema que maneja
- la lógica de citas y llamadas.
-
-INSTRUCCIONES:
-- Habla SIEMPRE de "usted"
-- Máximo 25 palabras por respuesta
-- Basándote en los resultados de las herramientas, da una respuesta clara
-- Usa muletillas naturales: "claro que sí", "perfecto", "por supuesto"
-- NO uses emojis ni URLs
-- Sé formal pero cálido
-"""
-    
-    return [
-        {"role": "system", "content": minimal_system_prompt},
-        {"role": "user", "content": last_user_message}
-    ]
