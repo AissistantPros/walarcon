@@ -58,7 +58,7 @@ HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta corre
 
 CALL_MAX_DURATION = 600 
 CALL_SILENCE_TIMEOUT = 30 
-GOODBYE_PHRASE = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
+GOODBYE_PHRASE = "Fue un placer atenderle. ¡Hasta luego!"
 TEST_MODE_NO_GPT = False # <--- Poner en True para pruebas sin GPT
 
 CURRENT_CALL_MANAGER: Optional[object] = None
@@ -1048,7 +1048,7 @@ class TwilioWebSocketManager:
                     utils.cierre_con_despedida(
                         manager=self,
                         reason="user_request",
-                        delay=7.0
+                        delay=5.0
                     )
                 )
                 return
