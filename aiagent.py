@@ -499,7 +499,7 @@ async def generate_openai_response_main(history: List[Dict], model: str = "gpt-4
 
 
         # SEGUNDA LLAMADA - Modelo RÁPIDO solo para formatear
-        fast_model = "gpt-4.1-nano"  # ¡El más rápido!
+        fast_model = "gpt-4.1-mini"  # ¡El más rápido!
         logger.info(f"🏃 Segunda llamada con modelo rápido: {fast_model}")
         
         stream_response_2 = client.chat.completions.create(
