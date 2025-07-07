@@ -50,6 +50,8 @@ for noisy in (
     "deepgram.clients.common.v1.abstract_async_websocket",
     "fastapi",
     "twilio.http_client",
+    "eleven_ws_tts_client",
+    "deepgram_stt_streamer",
 ):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 

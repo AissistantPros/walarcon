@@ -915,142 +915,144 @@ class TwilioWebSocketManager:
 
 
 
-    async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
+    async def process_gpt_response(
+        self,
+        user_text: str,
+        last_final_ts: Optional[float],
+    ):
         """
-        Maneja el flujo completo:
-        - Llama a GPT con el historial y modo actual.
-        - La propia IA ejecuta internamente las tools (incl. set_mode).
-        - Gestiona TTS por chunks (streaming) o respuesta completa.
-        - Agrega respuestas al historial y resetea modo cuando corresponda.
+        Orquestador principal de la interacción con GPT:
+
+        1.  Valida estado de la llamada y agrega el mensaje del usuario al historial.
+        2.  Invoca a `generate_openai_response_main` con el modo **actual**.
+            (Esa función ya ejecuta cualquier tool, incluida `set_mode`).
+        3.  Convierte la respuesta de la IA (streaming o completa) en audio con
+            ElevenLabs, respetando la segmentación por frases.
+        4.  Actualiza `conversation_history`, ajusta `self.modo` si la tool
+            `set_mode` lo modificó y gestiona fin de llamada / reseteo de modo.
         """
-        # ── validaciones preliminares ──────────────────────────────────────────
+
+        # ── ❶ Comprobaciones rápidas ────────────────────────────────────────────
         if self.call_ended or not self.websocket or \
         self.websocket.client_state != WebSocketState.CONNECTED:
-            logger.warning("⚠️ PROCESS_GPT ignorado: llamada terminada / WS cerrado.")
+            logger.warning("⚠️ PROCESS_GPT ignorado: llamada terminada / WS cerrado")
             return
         if not user_text:
-            logger.warning("⚠️ PROCESS_GPT texto vacío, saltando.")
+            logger.warning("⚠️ PROCESS_GPT texto vacío; abortando")
             return
 
-        logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
+        logger.info(f"🗣️ Usuario → GPT: “{user_text}”")
         self.conversation_history.append({"role": "user", "content": user_text})
 
-        # asegúrate de tener atributo modo
+        # ── ❷ Asegura atributo y cliente TTS ────────────────────────────────────
         if not hasattr(self, "modo"):
-            self.modo = None
+            self.modo = None  # modo “BASE” implícito
 
-        # ── prepara/re-abre WS de ElevenLabs si hace falta ────────────────────
         try:
-            if (not getattr(self, "dg_tts_client", None)
-                    or getattr(self.dg_tts_client, "_ws_close", None)
-                    and self.dg_tts_client._ws_close.is_set()):
+            if (not getattr(self, "dg_tts_client", None) or
+                    getattr(self.dg_tts_client, "_ws_close", None) and
+                    self.dg_tts_client._ws_close.is_set()):
                 from eleven_ws_tts_client import ElevenLabsWSClient
                 self.dg_tts_client = ElevenLabsWSClient()
-                logger.debug("🔌 ElevenLabs TTS WS creado (legacy)")
-        except Exception as e_prep:
-            logger.error(f"❌ Error creando WS ElevenLabs: {e_prep}")
-
-        # ── genera prompt y llama a GPT (UNA sola salida) ─────────────────────
-        mensajes_para_gpt = generate_openai_prompt(self.conversation_history, modo=self.modo)
-
-        try:
-            start_gpt_call = self._now()
-            respuesta_gpt = generate_openai_response_main(
-                history=mensajes_para_gpt,
-                model=config("CHATGPT_MODEL", default="gpt-4.1-mini"),
-            )
-            logger.info("⏱️ LLM completado en %.1f ms",
-                        (self._now() - start_gpt_call) * 1000)
-
-            if self.call_ended:
-                return
-
-            # ── STREAMING ────────────────────────────────────────────────────
-            reply_cleaned = ""
-            if isinstance(respuesta_gpt, collections.abc.AsyncIterable):
-                logger.info("🟢 Respuesta GPT es STREAMING, enviando chunks optimizados a TTS")
-                buffer_tts = ""
-                texto_acumulado = ""
-
-                # asegura WS listo
-                if not getattr(self, "dg_tts_client", None):
-                    from eleven_ws_tts_client import ElevenLabsWSClient
-                    self.dg_tts_client = ElevenLabsWSClient()
-                    logger.debug("🔌 ElevenLabs TTS WS creado para streaming")
-
-                async def _send_chunk(chunk: bytes):
-                    await self.websocket.send_text(json.dumps({
-                        "event": "media",
-                        "streamSid": self.stream_sid,
-                        "media": {"payload": base64.b64encode(chunk).decode()},
-                    }))
-                    self.last_chunk_time = self._now()
-
-                await asyncio.wait_for(self.dg_tts_client._ws_open.wait(), timeout=5.0)
-                self.dg_tts_client._first_chunk = asyncio.Event()
-                self.dg_tts_client._user_chunk = _send_chunk
-                self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
-
-                END_OF_SENTENCE = re.compile(
-                    r'([.!?,;:]+["\']?\s+|(?<=[a-z])\s+(?:y|o|pero|entonces|después|luego|aunque|porque|cuando|si|que)\s+)',
-                    re.IGNORECASE
-                )
-
-                async for chunk in respuesta_gpt:
-                    buffer_tts += chunk
-                    texto_acumulado += chunk
-                    logger.info(f"🟡 Buffer TTS: '{buffer_tts[-60:]}'")
-
-                    while True:
-                        m = END_OF_SENTENCE.search(buffer_tts)
-                        if not m:
-                            break
-                        sentence = buffer_tts[:m.end()].strip()
-                        if sentence:
-                            logger.info(f"📤 → ElevenLabs: '{sentence}'")
-                            await self.dg_tts_client.add_text_chunk(sentence)
-                        buffer_tts = buffer_tts[m.end():]
-
-                final_clean = buffer_tts.strip()
-                if final_clean:
-                    logger.info(f"📤 (final) → ElevenLabs: '{final_clean}'")
-                    await self.dg_tts_client.add_text_chunk(final_clean)
-
-                await self.dg_tts_client.finalize_stream()
-                reply_cleaned = texto_acumulado.strip()
-
-            # ── RESPUESTA COMPLETA ───────────────────────────────────────────
-            else:
-                if not respuesta_gpt or not isinstance(respuesta_gpt, str):
-                    logger.error("❌ GPT devolvió vacío/incorrecto.")
-                    respuesta_gpt = "Disculpe, no pude procesar eso."
-                reply_cleaned = respuesta_gpt.strip()
-                await self.handle_tts_response(reply_cleaned, last_final_ts)
-
-            # ── historial, fin de llamada, reset modo ────────────────────────
-            self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
-
-            if reply_cleaned == "__END_CALL__":
-                logger.info("🔚 end_call recibido — colgando con despedida")
-                self.finalizar_llamada_pendiente = True
-                asyncio.create_task(
-                    utils.cierre_con_despedida(self, reason="user_request", delay=5.0)
-                )
-                return
-
-            if self.modo and "¿Le puedo ayudar en algo más?" in reply_cleaned:
-                self.modo = None
-                logger.info("🔄 Modo reseteado a BASE")
-
-        except asyncio.CancelledError:
-            logger.info("🚫 Tarea GPT cancelada.")
+                logger.debug("🔌 ElevenLabs WS creado (legacy)")
         except Exception as e:
-            logger.error("❌ Error en process_gpt_response: %s", e, exc_info=True)
-            await self.handle_tts_response(
-                "Lo siento, ocurrió un error técnico.", last_final_ts
+            logger.error("❌ Error creando WS ElevenLabs: %s", e)
+
+        # ── ❸ Llamada a GPT  (la IA ejecuta tools internamente) ────────────────
+        start = self._now()
+        gpt_response = generate_openai_response_main(
+            history=self.conversation_history,
+            modo=self.modo,
+            model=config("CHATGPT_MODEL", default="gpt-4.1-mini"),
+        )
+        logger.info("⏱️ LLM completado en %.1f ms", (self._now() - start) * 1000)
+
+        # ── ❹ Streaming vs respuesta completa  → TTS ───────────────────────────
+        reply_cleaned = ""
+
+        if isinstance(gpt_response, collections.abc.AsyncIterable):
+            # —— STR﻿EAMING ————————————————————————————————————————————————
+            logger.info("🟢 Respuesta GPT vía streaming")
+
+            async def _send_chunk_to_twilio(chunk: bytes):
+                await self.websocket.send_text(json.dumps({
+                    "event": "media",
+                    "streamSid": self.stream_sid,
+                    "media": {"payload": base64.b64encode(chunk).decode()},
+                }))
+                self.last_chunk_time = self._now()
+
+            # pre-para ElevenLabs en modo streaming
+            await asyncio.wait_for(self.dg_tts_client._ws_open.wait(), timeout=5.0)
+            self.dg_tts_client._first_chunk = asyncio.Event()
+            self.dg_tts_client._user_chunk = _send_chunk_to_twilio
+            self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
+
+            SENTENCE_END = re.compile(
+                r'([.!?,;:]+["\']?\s+|(?<=[a-záéíóúü])\s+'
+                r'(?:y|o|pero|entonces|después|luego|aunque|porque|cuando|si|que)\s+)',
+                flags=re.IGNORECASE
             )
 
+            buffer, texto_acumulado = "", ""
+            async for chunk in gpt_response:
+                buffer += chunk
+                texto_acumulado += chunk
+                #logger.info("🟡 Buffer TTS: '%s'", buffer[-60:])
 
+                while True:
+                    m = SENTENCE_END.search(buffer)
+                    if not m:
+                        break
+                    sentence = buffer[:m.end()].strip()
+                    if sentence:
+                        logger.info("📤 → ElevenLabs: '%s'", sentence)
+                        await self.dg_tts_client.add_text_chunk(sentence)
+                    buffer = buffer[m.end():]
+
+            # envía cola final
+            final_part = buffer.strip()
+            if final_part:
+                logger.info("📤 (final) → ElevenLabs: '%s'", final_part)
+                await self.dg_tts_client.add_text_chunk(final_part)
+
+            await self.dg_tts_client.finalize_stream()
+            reply_cleaned = texto_acumulado.strip()
+
+        else:
+            # —— respuesta completa ————————————————————————————————
+            reply_cleaned = (gpt_response or "").strip()
+            if not reply_cleaned:
+                reply_cleaned = "Disculpe, ocurrió un error técnico."
+            await self.handle_tts_response(reply_cleaned, last_final_ts)
+
+        # ── ❺ Agrega respuesta y detecta cambios de modo (set_mode) ────────────
+        self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
+
+        # Examina mensajes recién agregados por la IA con role="tool"
+        for msg in reversed(self.conversation_history):
+            if msg.get("role") == "tool":
+                try:
+                    payload = json.loads(msg.get("content", "{}"))
+                    if "new_mode" in payload:
+                        self.modo = payload["new_mode"]
+                        logger.info("🔁 Modo actualizado por tool → %s", self.modo)
+                        break
+                except Exception:
+                    pass
+
+        # ── ❻ Fin de llamada o reseteo de modo ────────────────────────────────
+        if reply_cleaned == "__END_CALL__":
+            logger.info("🔚 IA solicitó colgar — agendando despedida")
+            self.finalizar_llamada_pendiente = True
+            asyncio.create_task(
+                utils.cierre_con_despedida(self, reason="user_request", delay=5.0)
+            )
+            return
+
+        if self.modo and "¿Le puedo ayudar en algo más?" in reply_cleaned:
+            self.modo = None
+            logger.info("🔄 Modo reseteado a BASE")
 
 
 
