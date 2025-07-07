@@ -966,7 +966,6 @@ class TwilioWebSocketManager:
             respuesta_gpt, tools_pedidas = generate_openai_response_main(
                 history=mensajes_para_gpt,
                 model=model_a_usar,
-                return_tools=True  # <-- Debes tener este flag en tu función
             )
 
             gpt_duration_ms = (self._now() - start_gpt_call) * 1000
