@@ -915,84 +915,64 @@ class TwilioWebSocketManager:
 
 
 
-
-
     async def process_gpt_response(self, user_text: str, last_final_ts: Optional[float]):
         """
         Maneja el flujo completo:
         - Llama a GPT con el historial y modo actual.
-        - Ejecuta las tools solicitadas por la IA (incluida set_mode).
-        - Si set_mode es llamada, cambia el modo.
+        - La propia IA ejecuta internamente las tools (incl. set_mode).
         - Gestiona TTS por chunks (streaming) o respuesta completa.
-        - Agrega respuestas al historial.
-        - Resetea modo cuando termina el flujo.
+        - Agrega respuestas al historial y resetea modo cuando corresponda.
         """
-        if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
-            logger.warning("⚠️ PROCESS_GPT Ignorado: llamada terminada o WS desconectado.")
+        # ── validaciones preliminares ──────────────────────────────────────────
+        if self.call_ended or not self.websocket or \
+        self.websocket.client_state != WebSocketState.CONNECTED:
+            logger.warning("⚠️ PROCESS_GPT ignorado: llamada terminada / WS cerrado.")
             return
-
         if not user_text:
-            logger.warning("⚠️ PROCESS_GPT Texto de usuario vacío, saltando.")
+            logger.warning("⚠️ PROCESS_GPT texto vacío, saltando.")
             return
 
         logger.info(f"🗣️ Mensaje para GPT: '{user_text}'")
         self.conversation_history.append({"role": "user", "content": user_text})
 
-        # Asegura que exista atributo 'modo'
+        # asegúrate de tener atributo modo
         if not hasattr(self, "modo"):
             self.modo = None
 
-        # PREP: Prepara el cliente ElevenLabs TTS si es necesario (modo legacy)
+        # ── prepara/re-abre WS de ElevenLabs si hace falta ────────────────────
         try:
-            if (not hasattr(self, "dg_tts_client")
-                    or self.dg_tts_client is None
-                    or getattr(self.dg_tts_client, "_ws_close", None) and self.dg_tts_client._ws_close.is_set()):
+            if (not getattr(self, "dg_tts_client", None)
+                    or getattr(self.dg_tts_client, "_ws_close", None)
+                    and self.dg_tts_client._ws_close.is_set()):
                 from eleven_ws_tts_client import ElevenLabsWSClient
                 self.dg_tts_client = ElevenLabsWSClient()
-                logger.debug("🔌 ElevenLabs TTS WS creado (modo legacy)")
+                logger.debug("🔌 ElevenLabs TTS WS creado (legacy)")
         except Exception as e_prep:
-            logger.error(f"❌ Error creando WebSocket ElevenLabs TTS: {e_prep}")
+            logger.error(f"❌ Error creando WS ElevenLabs: {e_prep}")
 
-        # ====================== NUEVA GESTIÓN DE MODO (solo IA) =========================
-        # NUNCA cambies el modo por palabras clave aquí. Pásale el modo actual al prompt.
+        # ── genera prompt y llama a GPT (UNA sola salida) ─────────────────────
         mensajes_para_gpt = generate_openai_prompt(self.conversation_history, modo=self.modo)
 
         try:
-            model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
             start_gpt_call = self._now()
-            logger.info(f"⏱️ [LATENCIA-2-START] GPT llamada iniciada para: '{user_text[:30]}...'")
-
-            # ---- 1. Llama a GPT y obtén respuesta + tools pedidas ----
-            respuesta_gpt, tools_pedidas = generate_openai_response_main(
+            respuesta_gpt = generate_openai_response_main(
                 history=mensajes_para_gpt,
-                model=model_a_usar,
+                model=config("CHATGPT_MODEL", default="gpt-4.1-mini"),
             )
-
-            gpt_duration_ms = (self._now() - start_gpt_call) * 1000
-            logger.info(f"⏱️ LLM completado en {gpt_duration_ms:.1f} ms")
+            logger.info("⏱️ LLM completado en %.1f ms",
+                        (self._now() - start_gpt_call) * 1000)
 
             if self.call_ended:
                 return
 
-            # ---- 2. Ejecuta tools pedidas por la IA (incluida set_mode) ----
-            tools_resultados = []
-            for tool_call in tools_pedidas:
-                result = handle_tool_execution(tool_call)
-                tools_resultados.append(result)
-                # Si la tool set_mode pidió cambio de modo
-                if "new_mode" in result:
-                    self.modo = result["new_mode"]
-                    logger.info(f"🔁 Modo cambiado por tool set_mode a: {self.modo}")
-
-            # ---- 3. TTS: Procesa respuesta GPT (streaming o completa) ----
+            # ── STREAMING ────────────────────────────────────────────────────
             reply_cleaned = ""
             if isinstance(respuesta_gpt, collections.abc.AsyncIterable):
-                # STREAMING: envía por chunks a TTS
-                logger.info("🟢 Respuesta de GPT es STREAMING, enviando chunks optimizados a TTS")
+                logger.info("🟢 Respuesta GPT es STREAMING, enviando chunks optimizados a TTS")
                 buffer_tts = ""
                 texto_acumulado = ""
 
-                # Prepara TTS streaming si hace falta
+                # asegura WS listo
                 if not getattr(self, "dg_tts_client", None):
                     from eleven_ws_tts_client import ElevenLabsWSClient
                     self.dg_tts_client = ElevenLabsWSClient()
@@ -1011,74 +991,70 @@ class TwilioWebSocketManager:
                 self.dg_tts_client._user_chunk = _send_chunk
                 self.dg_tts_client._user_end = self._reactivar_stt_despues_de_envio
 
-                # Buffer inteligente: por frases
                 END_OF_SENTENCE = re.compile(
-                    r'([.!?,;:]+["\']?\s+|(?<=[a-z])\s+(?:y|o|pero|entonces|después|luego|aunque|porque|cuando|si|que)\s+)', re.IGNORECASE
+                    r'([.!?,;:]+["\']?\s+|(?<=[a-z])\s+(?:y|o|pero|entonces|después|luego|aunque|porque|cuando|si|que)\s+)',
+                    re.IGNORECASE
                 )
-                buffer_tts = ""
-                texto_acumulado = ""
 
                 async for chunk in respuesta_gpt:
                     buffer_tts += chunk
                     texto_acumulado += chunk
-                    logger.info(f"🟡 Buffer actual para TTS: '{buffer_tts[-60:]}'")
-                    while True:
-                        match = END_OF_SENTENCE.search(buffer_tts)
-                        if match:
-                            split_at = match.end()
-                            sentence = buffer_tts[:split_at].strip()
-                            if sentence:
-                                logger.info(f"📤 Enviando a ElevenLabs: '{sentence}'")
-                                await self.dg_tts_client.add_text_chunk(sentence)
-                            buffer_tts = buffer_tts[split_at:]
-                        else:
-                            break
+                    logger.info(f"🟡 Buffer TTS: '{buffer_tts[-60:]}'")
 
-                # Envía lo que falte al final
+                    while True:
+                        m = END_OF_SENTENCE.search(buffer_tts)
+                        if not m:
+                            break
+                        sentence = buffer_tts[:m.end()].strip()
+                        if sentence:
+                            logger.info(f"📤 → ElevenLabs: '{sentence}'")
+                            await self.dg_tts_client.add_text_chunk(sentence)
+                        buffer_tts = buffer_tts[m.end():]
+
                 final_clean = buffer_tts.strip()
                 if final_clean:
-                    logger.info(f"📤 (final) Enviando resto a ElevenLabs: '{final_clean}'")
+                    logger.info(f"📤 (final) → ElevenLabs: '{final_clean}'")
                     await self.dg_tts_client.add_text_chunk(final_clean)
 
                 await self.dg_tts_client.finalize_stream()
                 reply_cleaned = texto_acumulado.strip()
 
+            # ── RESPUESTA COMPLETA ───────────────────────────────────────────
             else:
-                # Respuesta completa (no streaming)
                 if not respuesta_gpt or not isinstance(respuesta_gpt, str):
-                    logger.error("❌ GPT devolvió una respuesta vacía o inválida.")
+                    logger.error("❌ GPT devolvió vacío/incorrecto.")
                     respuesta_gpt = "Disculpe, no pude procesar eso."
                 reply_cleaned = respuesta_gpt.strip()
                 await self.handle_tts_response(reply_cleaned, last_final_ts)
 
-            # ---- 4. Añade respuesta completa al historial ----
+            # ── historial, fin de llamada, reset modo ────────────────────────
             self.conversation_history.append({"role": "assistant", "content": reply_cleaned})
 
-            # ---- 5. Cuelga si la IA lo pide ----
             if reply_cleaned == "__END_CALL__":
-                logger.info("🔚 end_call recibido: se enviará despedida y luego se colgará.")
+                logger.info("🔚 end_call recibido — colgando con despedida")
                 self.finalizar_llamada_pendiente = True
                 asyncio.create_task(
-                    utils.cierre_con_despedida(
-                        manager=self,
-                        reason="user_request",
-                        delay=5.0
-                    )
+                    utils.cierre_con_despedida(self, reason="user_request", delay=5.0)
                 )
                 return
 
-            # ---- 6. Resetea modo si terminó el flujo (opcional, puedes también solo por tool) ----
-            if hasattr(self, "modo") and self.modo is not None:
-                # Cambia esta lógica si tienes alguna tool o señal para terminar el modo
-                if reply_cleaned.strip() == "__END_CALL__" or "¿Le puedo ayudar en algo más?" in reply_cleaned:
-                    self.modo = None
-                    logger.info("🔄 Modo reseteado a: BASE")
+            if self.modo and "¿Le puedo ayudar en algo más?" in reply_cleaned:
+                self.modo = None
+                logger.info("🔄 Modo reseteado a BASE")
 
         except asyncio.CancelledError:
             logger.info("🚫 Tarea GPT cancelada.")
         except Exception as e:
-            logger.error(f"❌ Error en process_gpt_response: {e}", exc_info=True)
-            await self.handle_tts_response("Lo siento, ocurrió un error técnico.", last_final_ts)
+            logger.error("❌ Error en process_gpt_response: %s", e, exc_info=True)
+            await self.handle_tts_response(
+                "Lo siento, ocurrió un error técnico.", last_final_ts
+            )
+
+
+
+
+
+
 
 
 
