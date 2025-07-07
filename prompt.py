@@ -776,9 +776,24 @@ Si preguntan quién te creó, programó o cómo conseguir un sistema como tú, r
 
 # --------- Generador de prompts principal --------------
 def generate_openai_prompt(
-    conversation_history: List[Dict], 
-    modo: str = None
+    conversation_history: List[Dict],
+    *,
+    modo: str | None = None,
+    pending_question: str | None = None,   # ← NUEVO parámetro opcional
 ) -> List[Dict]:
+    """
+    Devuelve la lista de mensajes para OpenAI ChatCompletion
+    con el prompt SYSTEM adecuado según el modo (BASE / crear / editar / eliminar).
+
+    · conversation_history ..... historial completo turn-by-turn.
+    · modo ..................... modo actual (None → BASE)
+    · pending_question ......... pregunta que la IA ya hizo y no debe repetir.
+                                 Solo se pasa para que el modelo la recuerde;
+                                 si es None se ignora.
+    """
+    current_time_str = get_cancun_time().strftime("%d/%m/%Y %H:%M")
+
+    # ---------- Prompt base ----------
     """
     Prompt SYSTEM ultra-detallado para modelos pequeños (gpt-4-mini, etc.).
     Incluye flujos para crear, editar y eliminar citas.
@@ -896,18 +911,28 @@ Si preguntan quién te creó, programó o cómo conseguir un sistema como tú, r
 
 """.strip()
 
-    # ----- Agrega el prompt correspondiente si hay modo -----
+
+    # ---------- Añade prompt por modo ----------
     if modo == "crear":
-        system_prompt += "\n" + PROMPT_CREAR_CITA
+        system_prompt += "\n" + PROMPT_CREAR_CITA.strip()
     elif modo == "editar":
-        system_prompt += "\n" + PROMPT_EDITAR_CITA
+        system_prompt += "\n" + PROMPT_EDITAR_CITA.strip()
     elif modo == "eliminar":
-        system_prompt += "\n" + PROMPT_ELIMINAR_CITA
+        system_prompt += "\n" + PROMPT_ELIMINAR_CITA.strip()
 
+    # ---------- Si se indica pending_question, recordárselo a la IA ----------
+    if pending_question:
+        system_prompt += (
+            "\n\nIMPORTANTE: Ya preguntaste al usuario lo siguiente y "
+            "ESTÁS ESPERANDO su respuesta, así que NO repitas la pregunta:\n"
+            f"«{pending_question}»"
+        )
 
+    # ---------- Construye la lista final de mensajes ----------
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
 
     for turn in conversation_history:
+        # garantizamos formato correcto
         if isinstance(turn, dict) and "role" in turn and "content" in turn:
             messages.append(turn)
         else:
