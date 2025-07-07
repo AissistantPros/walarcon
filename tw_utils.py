@@ -944,11 +944,32 @@ class TwilioWebSocketManager:
 
         self.conversation_history.append({"role": "user", "content": user_text})
 
+        # ========== MANEJO DE MODO SEGÚN INTENCIÓN DEL USUARIO ==========
+        if not hasattr(self, "modo"):
+            self.modo = None  # Inicializa el modo si no existe
+
+        # Detecta intención SOLO si estamos en el modo base (None)
+        if self.modo is None:
+            lower_text = user_text.lower()
+            if "agendar" in lower_text or "cita nueva" in lower_text or "quiero una cita" in lower_text:
+                self.modo = "crear"
+                logger.info("🟢 Modo cambiado a: CREAR")
+            elif "editar" in lower_text or "cambiar cita" in lower_text or "modificar cita" in lower_text:
+                self.modo = "editar"
+                logger.info("🟡 Modo cambiado a: EDITAR")
+            elif "cancelar" in lower_text or "eliminar cita" in lower_text or "borrar cita" in lower_text:
+                self.modo = "eliminar"
+                logger.info("🔴 Modo cambiado a: ELIMINAR")
+
+        # Genera el prompt según el modo
+        mensajes_para_gpt = generate_openai_prompt(self.conversation_history, modo=self.modo)
+        # ================================================================
+
         try:
             model_a_usar = config("CHATGPT_MODEL", default="gpt-4.1-mini")
-            mensajes_para_gpt = generate_openai_prompt(self.conversation_history)
             start_gpt_call = self._now()
             logger.info(f"⏱️ [LATENCIA-2-START] GPT llamada iniciada para: '{user_text[:30]}...'")
+
             
             respuesta_gpt = generate_openai_response_main(
                 history=mensajes_para_gpt,
@@ -1052,6 +1073,17 @@ class TwilioWebSocketManager:
                     )
                 )
                 return
+
+            # ========== RESETEA MODO SI FLUJO TERMINÓ ==========
+            if hasattr(self, "modo") and self.modo is not None:
+                # Ajusta esta condición según tus necesidades; aquí es básico:
+                if reply_cleaned.strip() == "__END_CALL__" or "¿Le puedo ayudar en algo más?" in reply_cleaned:
+                    self.modo = None
+                    logger.info("🔄 Modo reseteado a: BASE")
+            # ===================================================
+
+
+
 
         except asyncio.CancelledError:
             logger.info("🚫 Tarea GPT cancelada.")
