@@ -130,6 +130,33 @@ TOOLS_BASE = [
     {
         "type": "function",
         "function": {
+            "name": "set_mode",
+            "description": (
+                "Cambia el modo de operación del asistente. "
+                "Úsala cuando detectes una intención clara del usuario de agendar, editar o eliminar una cita. "
+                "Solo cambia el modo si la intención es evidente. Si hay duda, primero pregunta al usuario."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mode": {
+                        "type": "string",
+                        "enum": ["crear", "editar", "eliminar", "None"],
+                        "description": (
+                            "'crear' para agendar cita nueva, "
+                            "'editar' para modificar, "
+                            "'eliminar' para cancelar cita, "
+                            "'None' para modo informativo/general."
+                        ),
+                    }
+                },
+                "required": ["mode"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "end_call",
             "description": "Cierra la llamada de manera definitiva. Úsala cuando ya se haya despedido al paciente.",
             "parameters": {
@@ -257,24 +284,27 @@ TOOLS_BY_MODE = {
     "eliminar": TOOLS_ELIMINAR,
 }
 
-# ══════════════════ TOOL EXECUTOR (EL TUYO) ═════════════════════════════════
+# ══════════════════ TOOL EXECUTOR ═════════════════════════════════
 def handle_tool_execution(tc: Any) -> Dict[str, Any]:
     fn_name = tc.function.name
     try:
         args = json.loads(tc.function.arguments or "{}")
     except json.JSONDecodeError:
-        logger.error(f"Error, al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
+        logger.error(f"Error al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
         return {"error": f"Argumentos inválidos para {fn_name}"}
+
+    # --- Detecta required_params, aunque no todos los tools lo tienen definido ---
+    all_tools = TOOLS_CREAR + TOOLS_EDITAR + TOOLS_ELIMINAR + TOOLS_BASE
     required_params = next(
         (tool["function"].get("parameters", {}).get("required", [])
-         for tool in TOOLS_CREAR + TOOLS_EDITAR + TOOLS_ELIMINAR + TOOLS_BASE
-         if tool["function"]["name"] == fn_name),
+         for tool in all_tools if tool["function"]["name"] == fn_name),
         []
     )
     missing = [p for p in required_params if p not in args]
     if missing:
         logger.error(f"Faltan parámetros requeridos para {fn_name}: {', '.join(missing)}")
         return {"error": f"Missing required parameters: {', '.join(missing)}"}
+
     logger.debug("🛠️ Ejecutando herramienta: %s con args: %s", fn_name, args)
     try:
         if fn_name == "read_sheet_data":
@@ -285,7 +315,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:
             return buscarslot.process_appointment_request(**args)
         elif fn_name == "create_calendar_event":
             phone = args.get("phone", "")
-            if not (phone.isdigit() and len(phone) == 10):
+            if not (isinstance(phone, str) and phone.isdigit() and len(phone) == 10):
                 logger.warning(f"Teléfono inválido '{phone}' para crear evento. La IA debería haberlo validado.")
                 return {"error": "Teléfono inválido proporcionado para crear la cita. Debe tener 10 dígitos."}
             return create_calendar_event(**args)
@@ -299,12 +329,17 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:
             return {"intent_detected": args.get("intention")}
         elif fn_name == "end_call":
             return {"call_ended_reason": args.get("reason", "unknown")}
+        elif fn_name == "set_mode":
+            modo = args.get("mode")
+            logger.info(f"🔁 Tool set_mode llamada: cambiando modo a '{modo}'")
+            return {"new_mode": modo}
         else:
             logger.warning(f"Función {fn_name} no reconocida en handle_tool_execution.")
             return {"error": f"Función desconocida: {fn_name}"}
     except Exception as e:
         logger.exception("Error crítico durante la ejecución de la herramienta %s", fn_name)
         return {"error": f"Error interno al ejecutar {fn_name}: {str(e)}"}
+
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 async def generate_openai_response_main(history: List[Dict], modo=None, model: str = "gpt-4.1-mini"):
