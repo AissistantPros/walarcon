@@ -99,6 +99,11 @@ PROMPT_UNIFICADO = """
 Si preguntan quién te creó, responde: "Fui desarrollada por Aissistants Pro en Cancún. Mi creador es Esteban Reyna."
 """
 
+from huggingface_hub import login
+from decouple import config
+
+
+
 class LlamaPromptEngine:
     """
     Clase que encapsula toda la lógica para construir prompts nativos y seguros
@@ -107,14 +112,26 @@ class LlamaPromptEngine:
     MAX_PROMPT_TOKENS = 120000
 
     def __init__(self, tool_definitions: List[Dict]):
-        self.tool_definitions = tool_definitions
         try:
-            # NOTA: Esto requiere 'pip install transformers sentencepiece'
-            self.tokenizer = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B-Instruct")
-            logger.info("Tokenizador de Llama 3 cargado exitosamente.")
+            hf_token = config("HF_API_TOKEN")
+            if hf_token:
+                login(token=hf_token)
+            
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                "meta-llama/Meta-Llama-3-8B-Instruct",
+                token=hf_token
+            )
         except Exception as e:
-            logger.error(f"No se pudo cargar el tokenizador. El truncamiento será por caracteres. Error: {e}")
+            logger.error(f"Error cargando tokenizador: {e}")
             self.tokenizer = None
+
+
+
+
+
+
+
+
 
     def generate_prompt(
         self,
@@ -145,6 +162,15 @@ class LlamaPromptEngine:
         prompt_str += "<|start_header_id|>assistant<|end_header_id|>\n\n"
         
         return self._truncate(prompt_str, self.MAX_PROMPT_TOKENS)
+    
+
+
+
+
+
+
+
+
 
     def _truncate(self, prompt: str, max_tokens: int) -> str:
         """Trunca el prompt a max_tokens de forma segura usando el tokenizador."""

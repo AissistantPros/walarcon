@@ -3,12 +3,12 @@ import os
 import logging
 from fastapi import FastAPI, Response, WebSocket, Body, Request
 import fastapi
-from aiagent import generate_openai_response_main
 from tw_utils import TwilioWebSocketManager, set_debug   
 from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache 
 from consultarinfo import router as consultorio_router 
 import buscarslot       
 from typing import Optional, Union, List 
+
 from crearcita import create_calendar_event 
 from editarcita import edit_calendar_event   
 from eliminarcita import delete_calendar_event 
@@ -37,7 +37,6 @@ logger = logging.getLogger(__name__)
 
 # Silenciamos verbosidad de librerías externas
 for noisy in (
-    "openai._base_client",    # peticiones HTTP a OpenAI
     "httpcore.http11",        # tráfico httpx-httpcore
     "httpcore.connection",
     "httpx",

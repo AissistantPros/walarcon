@@ -61,7 +61,6 @@ pydantic_core==2.27.2
 PyJWT==2.10.1
 pyparsing==3.2.1
 python-dateutil==2.9.0.post0
-python-decouple==3.8
 python-dotenv==1.0.1
 python-multipart==0.0.20
 pytz==2024.2
@@ -94,3 +93,5 @@ groq
 transformers
 sentencepiece
 torch
+huggingface_hub
+python-decouple
