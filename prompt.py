@@ -10,8 +10,7 @@ en JSON, formato de herramientas nativo y lógica de truncamiento seguro.
 import json
 import logging
 from typing import List, Dict, Optional
-# Nota: Este módulo requiere la librería 'transformers'. Asegúrate de que esté en tu requirements.txt
-from transformers import AutoTokenizer
+from decouple import config
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +37,7 @@ PROMPT_UNIFICADO = """
     ## INSTRUCCIONES PARA CREAR O REAGENDAR UNA CITA
 
     **PASO 1. Entender la Petición Inicial**
-    - Si el usuario NO da fecha u hora, pregunta: “Claro que sí. ¿Tiene fecha u hora en mente o busco lo más pronto posible?”
+    - Si el usuario NO da fecha u hora, pregunta: "Claro que sí. ¿Tiene fecha u hora en mente o busco lo más pronto posible?"
 
     **PASO 2. Procesar Preferencia Temporal y Llamar a Herramienta**
     - Cuando el usuario mencione CUALQUIER referencia temporal, DEBES llamar a la herramienta `process_appointment_request`.
@@ -100,9 +99,6 @@ Si preguntan quién te creó, responde: "Fui desarrollada por Aissistants Pro en
 """
 
 from huggingface_hub import login
-from decouple import config
-
-
 
 class LlamaPromptEngine:
     """
@@ -112,26 +108,59 @@ class LlamaPromptEngine:
     MAX_PROMPT_TOKENS = 120000
 
     def __init__(self, tool_definitions: List[Dict]):
+        self.tool_definitions = tool_definitions
+        self.tokenizer = None
+        
+        # Try to load tokenizer with proper error handling
         try:
-            hf_token = config("HF_API_TOKEN")
+            hf_token = config("HF_API_TOKEN", default=None)
             if hf_token:
                 login(token=hf_token)
-            
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                "meta-llama/Meta-Llama-3-8B-Instruct",
-                token=hf_token
-            )
+                
+                # Try to import transformers only if we have a token
+                try:
+                    from transformers import AutoTokenizer
+                    
+                    # First try the original model
+                    try:
+                        self.tokenizer = AutoTokenizer.from_pretrained(
+                            "meta-llama/Meta-Llama-3-8B-Instruct",
+                            token=hf_token
+                        )
+                        logger.info("Successfully loaded Meta-Llama-3-8B tokenizer")
+                    except Exception as e:
+                        # If that fails, try an alternative open model
+                        logger.warning(f"Failed to load Meta-Llama tokenizer: {e}")
+                        logger.info("Attempting to load alternative tokenizer...")
+                        
+                        # Try alternative tokenizers
+                        alternative_models = [
+                            "NousResearch/Llama-2-7b-hf",  # Open Llama 2 model
+                            "TheBloke/Llama-2-7B-fp16",     # Another Llama 2 variant
+                            "gpt2"                          # Fallback to GPT-2 if needed
+                        ]
+                        
+                        for model_name in alternative_models:
+                            try:
+                                self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+                                logger.info(f"Successfully loaded alternative tokenizer: {model_name}")
+                                break
+                            except Exception as alt_e:
+                                logger.debug(f"Failed to load {model_name}: {alt_e}")
+                                continue
+                        
+                        if not self.tokenizer:
+                            logger.warning("Could not load any tokenizer. Will use character-based truncation.")
+                            
+                except ImportError:
+                    logger.error("transformers library not installed. Install with: pip install transformers")
+                    
+            else:
+                logger.warning("HF_API_TOKEN not found. Tokenizer will not be available.")
+                
         except Exception as e:
-            logger.error(f"Error cargando tokenizador: {e}")
+            logger.error(f"Error in tokenizer initialization: {e}")
             self.tokenizer = None
-
-
-
-
-
-
-
-
 
     def generate_prompt(
         self,
@@ -162,29 +191,31 @@ class LlamaPromptEngine:
         prompt_str += "<|start_header_id|>assistant<|end_header_id|>\n\n"
         
         return self._truncate(prompt_str, self.MAX_PROMPT_TOKENS)
-    
-
-
-
-
-
-
-
-
 
     def _truncate(self, prompt: str, max_tokens: int) -> str:
         """Trunca el prompt a max_tokens de forma segura usando el tokenizador."""
         if not self.tokenizer:
+            # Fallback to character-based truncation
+            # Approximate 1 token ≈ 3-4 characters for most languages
+            max_chars = max_tokens * 3
+            if len(prompt) > max_chars:
+                logger.warning(f"Prompt exceeds {max_chars} characters. Truncating...")
+                return prompt[-max_chars:]
+            return prompt
+
+        try:
+            token_ids = self.tokenizer.encode(prompt)
+            
+            if len(token_ids) > max_tokens:
+                logger.warning(f"El prompt ({len(token_ids)} tokens) excede el límite de {max_tokens}. Será truncado.")
+                truncated_token_ids = token_ids[-max_tokens:]
+                return self.tokenizer.decode(truncated_token_ids, skip_special_tokens=False)
+            
+            return prompt
+        except Exception as e:
+            logger.error(f"Error during tokenization: {e}. Falling back to character truncation.")
+            # Fallback to character-based truncation
             max_chars = max_tokens * 3
             if len(prompt) > max_chars:
                 return prompt[-max_chars:]
             return prompt
-
-        token_ids = self.tokenizer.encode(prompt)
-        
-        if len(token_ids) > max_tokens:
-            logger.warning(f"El prompt ({len(token_ids)} tokens) excede el límite de {max_tokens}. Será truncado.")
-            truncated_token_ids = token_ids[-max_tokens:]
-            return self.tokenizer.decode(truncated_token_ids, skip_special_tokens=True)
-        
-        return prompt
