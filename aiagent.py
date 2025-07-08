@@ -21,7 +21,7 @@ from decouple import config
 from openai import OpenAI
 from selectevent import select_calendar_event_by_index
 from weather_utils import get_cancun_weather
-
+from groq import Groq
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion_message_tool_call import Function, ChatCompletionMessageToolCall
@@ -36,10 +36,21 @@ logging.basicConfig(
 logger = logging.getLogger("aiagent")
 
 # ──────────────────────── OPENAI CLIENT ───────────────────────────
+#try:
+#    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+#except Exception as e:
+#    logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
+
+
+# ──────────────────────── GROQ CLIENT ───────────────────────────
+
 try:
-    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    # Inicializa el cliente de Groq. Automáticamente usará la variable de entorno GROQ_API_KEY.
+    client = Groq()
+    logger.info("✅ Cliente de Groq inicializado correctamente.")
 except Exception as e:
-    logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
+    logger.critical(f"No se pudo inicializar el cliente de Groq. Verifica la variable de entorno GROQ_API_KEY: {e}")
+
 
 # ────────────────── IMPORTS DE TOOLS DE NEGOCIO ───────────────────
 import buscarslot
@@ -357,7 +368,7 @@ async def generate_openai_response_main(
     *,
     modo: Optional[str] = None,
     pending_question: Optional[str] = None,
-    model: str = "gpt-4.1-nano",
+    model: str = "llama-3.3-70b-versatile",
 ) -> Tuple[str, Optional[str], Optional[str]]:
     """
     Llama dos veces a GPT y retorna tupla (respuesta, nuevo_modo, nueva_pending)
@@ -469,7 +480,7 @@ async def generate_openai_response_main(
         logger.info("=" * 50)
 
         # SEGUNDO PASE (streaming, pero SOLO acumula)
-        fast_model = "gpt-4.1-nano"
+        fast_model = "llama-3.3-70b-versatile"
         logger.info("🏃 Segunda llamada con modelo rápido: %s", fast_model)
 
         stream_response_2 = client.chat.completions.create(
