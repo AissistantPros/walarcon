@@ -389,7 +389,7 @@ async def generate_openai_response_main(
         tools_to_use = TOOLS_BY_MODE.get(current_mode, TOOLS_BASE)
         logger.info(f"PASO 1: Llamando a Groq para decisión de herramienta (Modo: {current_mode})")
 
-        response_pass_1 = await client.chat.completions.create(
+        response_pass_1 = client.chat.completions.create(
             model=model,
             messages=messages_for_pass_1,
             tools=tools_to_use,
@@ -439,7 +439,7 @@ async def generate_openai_response_main(
         logger.info("PASO 2: Llamando a Groq para sintetizar la respuesta final.")
         
         # Hacemos la segunda llamada para que genere la respuesta al usuario.
-        response_pass_2 = await client.chat.completions.create(
+        response_pass_2 = client.chat.completions.create(
             model=model,
             messages=messages_for_pass_2,
             # No pasamos las tools en el segundo pase, solo queremos una respuesta de texto.
