@@ -984,7 +984,7 @@ class TwilioWebSocketManager:
                 history=self.conversation_history,
                 modo=self.modo,
                 pending_question=self.pending_question,
-                model=config("CHATGPT_MODEL", default="gpt-4.1-mini"),
+                model=config("CHATGPT_MODEL", default="gpt-4.1-nano"),
             )
         except Exception as e:
             logger.error(f"❌ Error en generate_openai_response_main: {e}", exc_info=True)

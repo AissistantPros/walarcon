@@ -87,6 +87,29 @@ Si la intención del usuario no es clara, primero pide confirmación.
 ######### FIN INSTRUCCIONES set_mode #########
 """
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # ========== FLUJOS POR MODO (SOLO LO ESPECÍFICO DE CADA MODO) ==========
 PROMPT_CREAR_CITA = """
 ─────────────────────────────
@@ -204,13 +227,13 @@ ofrecerle la nueva fecha sugerida.***
 **PASO 4. Si el usuario acepta fecha y horario:**  
 Pregunta, en mensajes separados:
   1) Nombre completo del paciente. *(No llames al usuario por su nombre, ni uses nombres propios)*
-  2) Número de teléfono (10 dígitos).
+  2) Número de teléfono (10 dígitos). **TIENES QUE CONFIRMAR EL NUMERO AL USUARIO, LEE NUMERO POR NUMERO EN PALABRAS** 
   3) Motivo de la consulta.
 
 **PASO 5. Confirmación:**  
 - **NO GUARDES LA CITA TODAVÍA.**  
 Cuando el usuario dé todos los datos, repite y confirma:  
-“Perfecto. Su cita es el {{pretty}}. ¿Es correcto?”  
+“Ok, entonces su cita quedaría para {{pretty}}. ¿Es correcto?”  
 - Si dice que no, pregunta:  
 “¿Qué datos son incorrectos?”
 

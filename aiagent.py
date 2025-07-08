@@ -21,7 +21,7 @@ from decouple import config
 from openai import OpenAI
 from selectevent import select_calendar_event_by_index
 from weather_utils import get_cancun_weather
-#streaming gpt-4.1-mini
+
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion_message_tool_call import Function, ChatCompletionMessageToolCall
@@ -357,7 +357,7 @@ async def generate_openai_response_main(
     *,
     modo: Optional[str] = None,
     pending_question: Optional[str] = None,
-    model: str = "gpt-4.1-mini",
+    model: str = "gpt-4.1-nano",
 ) -> Tuple[str, Optional[str], Optional[str]]:
     """
     Llama dos veces a GPT y retorna tupla (respuesta, nuevo_modo, nueva_pending)
@@ -469,7 +469,7 @@ async def generate_openai_response_main(
         logger.info("=" * 50)
 
         # SEGUNDO PASE (streaming, pero SOLO acumula)
-        fast_model = "gpt-4.1-mini"
+        fast_model = "gpt-4.1-nano"
         logger.info("🏃 Segunda llamada con modelo rápido: %s", fast_model)
 
         stream_response_2 = client.chat.completions.create(
