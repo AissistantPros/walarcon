@@ -351,6 +351,7 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 
+# aiagent.py
 
 async def generate_openai_response_main(
     history: List[Dict],
@@ -358,44 +359,32 @@ async def generate_openai_response_main(
     modo: Optional[str] = None,
     pending_question: Optional[str] = None,
     model: str = "gpt-4.1-mini",
-) -> Tuple[str, Optional[str], Optional[str]]:
+):
     """
-    Llama dos veces a GPT y retorna tupla (respuesta, nuevo_modo, nueva_pending)
+    Orquesta la lógica de doble pase de la IA.
+    1. Primer pase: Decide las herramientas a usar. NO envía respuesta al usuario.
+    2. Ejecuta herramientas y actualiza el estado localmente.
+    3. Segundo pase: Sintetiza la respuesta final y la streamea al usuario.
+    Retorna el nuevo estado de la conversación para que el orquestador lo actualice.
     """
     start_gpt_time = time.perf_counter()
     logger.info("⏱️ [LATENCIA-2] GPT llamada iniciada")
 
-    # Variables para tracking
-    current_mode = modo
-    current_pending = pending_question
-    final_response = ""
-
     try:
-        # PROMPT PARA PRIMER PASE
+        # Variable de estado local para el modo, que se actualizará "en vuelo".
+        current_mode = modo
+
+        # --- PASE 1: DECISIÓN DE HERRAMIENTAS (SIN STREAMING AL USUARIO) ---
         full_conversation_history = generate_openai_prompt(
             list(history),
             modo=current_mode,
-            pending_question=current_pending,
+            pending_question=pending_question,
         )
-
-        logger.info("=" * 50)
-        logger.info("📋 PROMPT COMPLETO PARA GPT:")
-        for i, msg in enumerate(full_conversation_history):
-            short = (msg.get("content", "")[:200] + "…") if len(msg.get("content", "")) > 200 else msg.get("content", "")
-            logger.info("  [%d] %s: %s", i, msg.get("role", ""), short)
-        logger.info("📏 Total mensajes: %d", len(full_conversation_history))
-        logger.info("📏 Caracteres totales: %d", sum(len(str(m)) for m in full_conversation_history))
-        logger.info("=" * 50)
-
-        if not client:
-            logger.error("Cliente OpenAI no inicializado.")
-            return ("Lo siento, estoy teniendo problemas técnicos para conectarme.", current_mode, current_pending)
-
+        
         tools_to_use = TOOLS_BY_MODE.get(current_mode, TOOLS_BASE)
         logger.info("🔧 TOOLS para modo '%s': %s", current_mode, [t['function']['name'] for t in tools_to_use])
 
-        # PRIMERA LLAMADA (streaming, pero SOLO acumula)
-        stream_response = client.chat.completions.create(
+        stream_response_1 = client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
             tools=tools_to_use,
@@ -403,95 +392,87 @@ async def generate_openai_response_main(
             max_tokens=100,
             temperature=0.1,
             timeout=15,
-            stream=True,
+            stream=True, # Mantenemos stream=True para recibir tools lo antes posible.
         )
 
-        full_content = ""
-        tool_calls_chunks: list[Any] = []
-        for chunk in stream_response:
+        full_content_pase1 = ""
+        tool_calls_chunks = []
+        for chunk in stream_response_1:
             if chunk.choices[0].delta.content:
-                full_content += chunk.choices[0].delta.content
+                # No se hace 'yield'. El texto del primer pase solo se acumula internamente.
+                full_content_pase1 += chunk.choices[0].delta.content
             if chunk.choices[0].delta.tool_calls is not None:
-                for tc in chunk.choices[0].delta.tool_calls:
-                    if not hasattr(tc, "index"):
-                        tc.index = len(tool_calls_chunks)
-                    tool_calls_chunks.append(tc)
+                tool_calls_chunks.extend(chunk.choices[0].delta.tool_calls)
+        
+        logger.info("💬 GPT Texto intermedio PASE 1: '%s'", full_content_pase1)
 
-        logger.info("💬 GPT RESPUESTA PASE 1: '%s'", full_content)
-
-        # Si no hubo herramientas, termina aquí
+        # Si no hay tools, la respuesta del primer pase es la definitiva y se streamea.
         if not tool_calls_chunks:
-            logger.info("✅ Respuesta sin herramientas – una sola llamada")
-            return (full_content, current_mode, current_pending)
+            logger.info("✅ Respuesta directa sin tools. Stremeando ahora...")
+            yield full_content_pase1
+            # Retorna el estado sin cambios.
+            return (current_mode, pending_question)
 
-        # Ejecutar tools y armar historial para segundo pase
+        # --- EJECUCIÓN DE HERRAMIENTAS Y ACTUALIZACIÓN DE ESTADO ---
         tool_calls = merge_tool_calls(tool_calls_chunks)
-        response_pase1 = ChatCompletionMessage(
-            content=full_content, role="assistant", tool_calls=tool_calls
-        )
-
+        response_pase1 = ChatCompletionMessage(content=full_content_pase1, role="assistant", tool_calls=tool_calls)
         second_pass_history = list(history)
         second_pass_history.append(response_pase1.model_dump())
+        
+        current_pending = pending_question # Se inicializa la variable de pending para este turno.
 
         for tc in response_pase1.tool_calls:
-            tc_id = tc.id
             result = handle_tool_execution(tc)
-            logger.info("📊 RESULTADO %s: %s", tc.function.name, json.dumps(result, ensure_ascii=False)[:200])
-
-            # Cambio de modo (set_mode)
-            if tc.function.name == "set_mode":
-                new_mode = result.get("new_mode")
-                if new_mode:
-                    current_mode = new_mode
-                    logger.info("🔄 Modo actualizado para segundo pase: %s", current_mode)
-                    if new_mode == "crear":
-                        current_pending = "¿Ya tiene alguna fecha y hora en mente o le busco lo más pronto posible?"
-                    elif new_mode in ("editar", "eliminar"):
-                        current_pending = "¿Me podría dar el número de teléfono con el que se registró la cita, por favor?"
-
-            # Cierre de llamada especial
+            
+            # Se actualiza la variable de modo local si la herramienta 'set_mode' fue llamada.
+            if tc.function.name == "set_mode" and "new_mode" in result:
+                current_mode = result.get("new_mode")
+                logger.info(f"✨ MODO ACTUALIZADO EN VUELO para 2º pase a: '{current_mode}'")
+                
+                # Se establece la pregunta pendiente correspondiente al nuevo modo.
+                if current_mode == "crear":
+                    current_pending = "¿Ya tiene alguna fecha y hora en mente o le busco lo más pronto posible?"
+                elif current_mode in ("editar", "eliminar"):
+                    current_pending = "¿Me podría dar el número de teléfono con el que se registró la cita, por favor?"
+                else:
+                    current_pending = None # Se limpia si se vuelve a modo base.
+            
             if result.get("call_ended_reason"):
-                return ("__END_CALL__", current_mode, current_pending)
+                yield "__END_CALL__"
+                return (current_mode, current_pending)
 
             second_pass_history.append({
-                "tool_call_id": tc_id,
-                "role": "tool",
-                "name": tc.function.name,
-                "content": json.dumps(result),
+                "tool_call_id": tc.id, "role": "tool", "name": tc.function.name, "content": json.dumps(result),
             })
 
-        logger.info("=" * 50)
-        logger.info("📋 HISTORIAL COMPLETO PARA SEGUNDA LLAMADA:")
-        for i, m in enumerate(second_pass_history):
-            short = (str(m.get("content", ""))[:100] + "…") if len(str(m.get("content", ""))) > 100 else m.get("content", "")
-            logger.info("  [%d] %s: %s", i, m.get("role", ""), short)
-        logger.info("📏 Total mensajes pase 2: %d", len(second_pass_history))
-        logger.info("=" * 50)
-
-        # SEGUNDO PASE (streaming, pero SOLO acumula)
-        fast_model = "gpt-4.1-mini"
-        logger.info("🏃 Segunda llamada con modelo rápido: %s", fast_model)
-
-        stream_response_2 = client.chat.completions.create(
-            model=fast_model,
-            messages=generate_openai_prompt(
-                second_pass_history,
-                modo=current_mode,
-                pending_question=current_pending,
-            ),
-            max_tokens=100,
-            temperature=0.2,
-            stream=True,
+        # --- PASE 2: SÍNTESIS Y STREAMING DE RESPUESTA FINAL ---
+        logger.info(f"🏃 Iniciando PASE 2 (Modo: {current_mode}) para sintetizar respuesta...")
+        
+        final_prompt = generate_openai_prompt(
+            second_pass_history,
+            modo=current_mode,
+            pending_question=current_pending,
         )
 
+        stream_response_2 = client.chat.completions.create(
+            model="gpt-4.1-mini", messages=final_prompt, max_tokens=100, temperature=0.2, stream=True,
+        )
+
+        final_text = ""
         for chunk in stream_response_2:
             if chunk.choices[0].delta.content:
-                final_response += chunk.choices[0].delta.content
+                txt = chunk.choices[0].delta.content
+                final_text += txt
+                # El 'yield' al usuario SÓLO ocurre aquí, en el segundo pase.
+                yield txt
+        
+        logger.info("💬 GPT RESPUESTA FINAL: '%s'", final_text)
 
-        logger.info("💬 GPT RESPUESTA FINAL: '%s'", final_response)
-
-        return (final_response, current_mode, current_pending)
+        # Al finalizar el generador, se retorna el estado final.
+        return (current_mode, current_pending)
 
     except Exception as e:
         logger.exception("generate_openai_response_main falló")
-        return ("Lo siento, estoy experimentando un problema técnico.", modo, pending_question)
+        yield "Lo siento, estoy experimentando un problema técnico."
+        # Retorna el estado original en caso de error.
+        return (modo, pending_question)

@@ -18,15 +18,32 @@ logger = logging.getLogger(__name__)
 
 
 def validate_iso_datetime(dt_str: str):
-    """Valida formato ISO8601 con zona horaria."""
+    """Valida formato ISO8601 con o sin zona horaria, y siempre regresa con tzinfo de Cancún."""
     try:
+        # Primero intenta cargar con fromisoformat (soporta zona horaria)
         dt = datetime.fromisoformat(dt_str)
-        if not dt.tzinfo:
-            raise ValueError("Falta zona horaria")
-        return dt.astimezone(pytz.timezone("America/Cancun"))
-    except ValueError as e:
-        logger.error(f"❌ Formato de fecha inválido: {str(e)}")
-        raise HTTPException(status_code=400, detail="Formato datetime inválido (usar ISO8601 con zona horaria)")
+        if dt.tzinfo is None:
+            # Si no tiene zona horaria, asumimos Cancún
+            tz = pytz.timezone("America/Cancun")
+            dt = tz.localize(dt)
+        else:
+            # Si trae zona, lo convertimos a Cancún por si las dudas
+            dt = dt.astimezone(pytz.timezone("America/Cancun"))
+        return dt
+    except Exception as e:
+        # Intenta parsear sin zona horaria explícita
+        try:
+            tz = pytz.timezone("America/Cancun")
+            dt_naive = datetime.strptime(dt_str, "%Y-%m-%dT%H:%M:%S")
+            dt = tz.localize(dt_naive)
+            return dt
+        except Exception as e2:
+            # Ya ni cómo ayudarlo...
+            logger.error(f"❌ Formato de fecha inválido: {str(e2)}")
+            raise HTTPException(
+                status_code=400,
+                detail="Formato datetime inválido. Se esperaba ISO8601 (con o sin zona horaria, ej: 2025-07-08T10:15:00-05:00 o 2025-07-08T10:15:00)"
+            )
 
 def create_calendar_event(name: str, phone: str, reason: str, start_time: str, end_time: str):
     try:
