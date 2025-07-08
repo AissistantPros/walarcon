@@ -1,11 +1,9 @@
 # tw_utils.py
 """
-WebSocket manager para Twilio <-> ElevenLabs <-> GPT
+WebSocket manager para Twilio <-> ElevenLabs <-> Llama 3.3
 ----------------------------------------------------------------
-Maneja la lógica de acumulación de transcripciones, interacción con GPT,
-TTS, y el control del flujo de la llamada, incluyendo la gestión de timeouts
-y la prevención de procesamiento de STT obsoleto.
-CON LOGGING DETALLADO DE TIEMPOS.
+Maneja la lógica de acumulación de transcripciones, interacción con el Agente de IA,
+TTS, y el control del flujo de la llamada.
 """
 
 import asyncio
@@ -20,7 +18,6 @@ from typing import Optional, List, Tuple
 from decouple import config
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
-from aiagent import handle_tool_execution
 from state_store import session_state
 from eleven_http_client import send_tts_http_to_twilio
 from eleven_ws_tts_client import ElevenLabsWSClient
@@ -31,11 +28,11 @@ import collections.abc
 
 # Tus importaciones de módulos locales
 try:
-    from aiagent import generate_openai_response_main 
+   
+    from aiagent import generate_ai_response 
     from buscarslot import load_free_slots_to_cache 
     from consultarinfo import load_consultorio_data_to_cache 
     from deepgram_stt_streamer import DeepgramSTTStreamer 
-    from prompt import generate_openai_prompt 
     from utils import get_cancun_time 
 except ImportError as e:
     logging.exception(f"CRÍTICO: Error importando módulos locales: {e}.")
@@ -43,7 +40,7 @@ except ImportError as e:
 
 # --- Configuración de Logging ---
 logger = logging.getLogger("tw_utils") 
-logger.setLevel(logging.DEBUG) # Asegúrate que esté en DEBUG para ver los nuevos logs
+logger.setLevel(logging.DEBUG)
 
 # --- Formato para Timestamps ---
 LOG_TS_FORMAT = "%H:%M:%S.%f" 
@@ -51,16 +48,14 @@ LOG_TS_FORMAT = "%H:%M:%S.%f"
 # --- Constantes Configurables para Tiempos (en segundos) ---
 PAUSA_SIN_ACTIVIDAD_TIMEOUT = .30
 MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
-LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 50 # Umbral para mensaje de espera
-HOLD_MESSAGE_FILE = "audio/espera_1.wav" # Asegúrate que esta sea la ruta correcta a tu archivo mu-law
+LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 50 
+HOLD_MESSAGE_FILE = "audio/espera_1.wav"
           
-
 # --- Otras Constantes Globales ---
-
 CALL_MAX_DURATION = 600 
 CALL_SILENCE_TIMEOUT = 30 
 GOODBYE_PHRASE = "Fue un placer atenderle. ¡Hasta luego!"
-TEST_MODE_NO_GPT = False # <--- Poner en True para pruebas sin GPT
+TEST_MODE_NO_AI = False # <--- CAMBIO DE NOMBRE (Opcional)
 
 CURRENT_CALL_MANAGER: Optional[object] = None
 
@@ -74,12 +69,12 @@ class TwilioWebSocketManager:
         logger.debug(f"⏱️ TS:[{ts}] INIT START")
         self.websocket: Optional[WebSocket] = None
         self.stt_streamer: Optional[DeepgramSTTStreamer] = None
-        self.current_gpt_task: Optional[asyncio.Task] = None
+        self.current_ai_task: Optional[asyncio.Task] = None 
         self.temporizador_pausa: Optional[asyncio.Task] = None 
         self.tts_timeout_task: Optional[asyncio.Task] = None
         self.audio_espera_task: Optional[asyncio.Task] = None
         self.finalizar_llamada_pendiente = False
-        self.dg_tts_client = None # Será inicializado más adelante
+        self.dg_tts_client = None
         self.call_sid: str = "" 
         self.stream_sid: Optional[str] = None 
         self.call_ended: bool = False
@@ -95,25 +90,22 @@ class TwilioWebSocketManager:
         self.stream_start_time: float = now
         self.last_activity_ts: float = now 
         self.last_final_ts: float = now 
-        self.last_final_stt_timestamp: Optional[float] = None # Para medir latencia real
+        self.last_final_stt_timestamp: Optional[float] = None
         logger.debug(f"⏱️ TS:[{ts_now_str}] INIT Timestamps set: start={self.stream_start_time:.2f}, activity={self.last_activity_ts:.2f}, final={self.last_final_ts:.2f}")
         
         self.twilio_terminated = False
                 
         self.audio_buffer_twilio: List[bytes] = []
         self.audio_buffer_lock = asyncio.Lock()
-        self.audio_buffer_max_bytes = 40000  # ~5 segundos de audio μ-law 8kHz
+        self.audio_buffer_max_bytes = 40000
         self.audio_buffer_current_bytes = 0
         self.hold_audio_task: Optional[asyncio.Task] = None
-        self.pending_question = None 
+        
+        self.pending_question = None # <-- ELIMINADO (o puedes borrar la línea directamente)
 
-      
-
-       
         self.finales_acumulados: List[str] = []
         self.conversation_history: List[dict] = []
         self.hold_audio_mulaw_bytes: bytes = b""
-
 
 
         try:
@@ -121,7 +113,6 @@ class TwilioWebSocketManager:
                 with open(HOLD_MESSAGE_FILE, 'rb') as f:
                     raw = f.read()
 
-                # ── Si el archivo comienza con “RIFF” es un WAV; quita cabecera de 44 bytes ──
                 if raw[:4] == b"RIFF":
                     raw = raw[44:]
 
@@ -148,36 +139,40 @@ class TwilioWebSocketManager:
 
 
 
-
     def _reset_state_for_new_call(self):
-        """Resetea variables de estado al inicio de una llamada."""
-        ts = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-        #logger.debug(f"⏱️ TS:[{ts}] RESET_STATE START")
-        # Cancelar tareas si quedaron de una llamada anterior
-        if self.temporizador_pausa and not self.temporizador_pausa.done():
-            self.temporizador_pausa.cancel()
-            logger.debug("   RESET_STATE: Temporizador pausa cancelado.")
-        if self.current_gpt_task and not self.current_gpt_task.done():
-            self.current_gpt_task.cancel()
-            logger.debug("   RESET_STATE: Tarea GPT cancelada.")
+            """Resetea variables de estado al inicio de una llamada."""
+            ts = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
+            #logger.debug(f"⏱️ TS:[{ts}] RESET_STATE START")
             
-        self.current_gpt_task = None
-        self.temporizador_pausa = None
-        self.call_ended = False
-        self.shutdown_reason = "N/A"
-        self.is_speaking = False
-        self.ignorar_stt = False
-        self.ultimo_evento_fue_parcial = False
-        now = self._now()
-        
-        self.last_chunk_time = None
-        self.stall_detector_task = None
+            # Cancelar tareas si quedaron de una llamada anterior
+            if self.temporizador_pausa and not self.temporizador_pausa.done():
+                self.temporizador_pausa.cancel()
+                logger.debug("   RESET_STATE: Temporizador pausa cancelado.")
+            
+            # --- CAMBIO DE NOMBRE AQUÍ ---
+            if self.current_ai_task and not self.current_ai_task.done():
+                self.current_ai_task.cancel()
+                logger.debug("   RESET_STATE: Tarea de IA cancelada.")
+                
+            self.current_ai_task = None # <-- CAMBIO DE NOMBRE
+            # --- FIN DEL CAMBIO ---
+            
+            self.temporizador_pausa = None
+            self.call_ended = False
+            self.shutdown_reason = "N/A"
+            self.is_speaking = False
+            self.ignorar_stt = False
+            self.ultimo_evento_fue_parcial = False
+            now = self._now()
+            
+            self.last_chunk_time = None
+            self.stall_detector_task = None
 
-        self.last_activity_ts = now
-        self.last_final_ts = now
-        self.finales_acumulados = []
-        self.conversation_history = []
-        #logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] RESET_STATE END")
+            self.last_activity_ts = now
+            self.last_final_ts = now
+            self.finales_acumulados = []
+            self.conversation_history = []
+            #logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] RESET_STATE END")
 
     # --- Manejador Principal del WebSocket ---
 
@@ -469,7 +464,7 @@ class TwilioWebSocketManager:
                 logger.warning("Llamada no marcada como finalizada en finally de handle_twilio_websocket, llamando a _shutdown como precaución.")
                 await self._shutdown(reason="Cleanup in handle_twilio_websocket finally")
 
-            logger.info("📜 Historial completo de conversación enviado a GPT:")
+            logger.info("📜 Historial completo de conversación enviado a IA:")
             for i, msg in enumerate(self.conversation_history):
                 logger.info(f"[{i}] ({msg['role']}): {json.dumps(msg['content'], ensure_ascii=False)}")    
 
@@ -681,12 +676,11 @@ class TwilioWebSocketManager:
 
 
 
-
-
     async def _proceder_a_enviar(self):
-        """Prepara y envía acumulados, activa 'ignorar_stt' y lanza GPT."""
+        """Prepara y envía acumulados, activa 'ignorar_stt' y lanza la tarea de IA."""
         
-        mensaje = await self._preparar_mensaje_para_gpt()
+        # --- CAMBIO DE NOMBRE EN LA LLAMADA ---
+        mensaje = await self._preparar_mensaje_para_ia()
         if not mensaje:
             return
 
@@ -694,16 +688,16 @@ class TwilioWebSocketManager:
         ahora_pc = self._now()
         if hasattr(self, "last_final_stt_timestamp"):
             delta_ms = (ahora_pc - self.last_final_stt_timestamp) * 1000
-            logger.info(f"⏱️ [LATENCIA-1] STT final → GPT call: {delta_ms:.1f} ms")
+            # --- CAMBIO DE NOMBRE EN EL LOG ---
+            logger.info(f"⏱️ [LATENCIA-1] STT final → AI call: {delta_ms:.1f} ms")
 
         await self._activar_modo_ignorar_stt()
-        await self._iniciar_tarea_gpt(mensaje, self.last_final_stt_timestamp)
+        # --- CAMBIO DE NOMBRE EN LA LLAMADA ---
+        await self._iniciar_tarea_ia(mensaje, self.last_final_stt_timestamp)
 
 
-
-
-
-    async def _preparar_mensaje_para_gpt(self) -> Optional[str]:
+    # --- CAMBIO DE NOMBRE DE LA FUNCIÓN ---
+    async def _preparar_mensaje_para_ia(self) -> Optional[str]:
         """Valida si hay finales, construye mensaje y limpia buffers si es inválido."""
         
         if not self.finales_acumulados or self.call_ended or self.ignorar_stt:
@@ -727,10 +721,6 @@ class TwilioWebSocketManager:
         self.finales_acumulados.clear()
         self.ultimo_evento_fue_parcial = False
         return mensaje
-    
-
-
-
 
 
 
@@ -750,22 +740,21 @@ class TwilioWebSocketManager:
 
 
 
+    async def _iniciar_tarea_ia(self, mensaje: str, ts_final: Optional[float]):
+        """Cancela tarea de IA anterior (si aplica), programa el audio-espera y lanza la nueva tarea de IA."""
 
-
-    async def _iniciar_tarea_gpt(self, mensaje: str, ts_final: Optional[float]):
-        """Cancela tarea GPT anterior (si aplica), programa el audio-espera y lanza la nueva tarea GPT."""
-
-        # ── 1️⃣  Cancela una tarea GPT previa ──────────────────────────────────────
-        if self.current_gpt_task and not self.current_gpt_task.done():
-            logger.warning("⚠️ Tarea GPT anterior aún activa. Cancelando…")
-            self.current_gpt_task.cancel()
+        # ── 1️⃣  Cancela una tarea de IA previa ──────────────────────────────────────
+        # --- CAMBIO DE NOMBRE DE VARIABLE ---
+        if self.current_ai_task and not self.current_ai_task.done():
+            logger.warning("⚠️ Tarea de IA anterior aún activa. Cancelando…")
+            self.current_ai_task.cancel()
             try:
-                await asyncio.wait_for(self.current_gpt_task, timeout=0.5)
+                await asyncio.wait_for(self.current_ai_task, timeout=0.5)
             except asyncio.CancelledError:
-                logger.debug("🧹 Tarea GPT cancelada exitosamente.")
+                logger.debug("🧹 Tarea de IA cancelada exitosamente.")
             except Exception as e:
-                logger.error(f"❌ Error al cancelar tarea GPT previa: {e}")
-            self.current_gpt_task = None
+                logger.error(f"❌ Error al cancelar tarea de IA previa: {e}")
+            self.current_ai_task = None
 
         # ── 2️⃣  (Re)programa el temporizador “un segundo, por favor” ─────────────
         if self.audio_espera_task and not self.audio_espera_task.done():
@@ -777,30 +766,33 @@ class TwilioWebSocketManager:
                 name=f"HoldAudioTimer_{self.call_sid or id(self)}"
             )
 
-        # ── 3️⃣  Lanza la nueva tarea GPT ─────────────────────────────────────────
-        logger.debug("🚀 Iniciando nueva tarea GPT…")
-        self.current_gpt_task = asyncio.create_task(
-            self.process_gpt_response_wrapper(mensaje, ts_final),
-            name=f"GPTTask_{self.call_sid or id(self)}"
+        # ── 3️⃣  Lanza la nueva tarea de IA ─────────────────────────────────────────
+        logger.debug("🚀 Iniciando nueva tarea de IA…")
+        # --- CAMBIO DE NOMBRE DE VARIABLE Y FUNCIÓN LLAMADA ---
+        self.current_ai_task = asyncio.create_task(
+            self.process_ai_response_wrapper(mensaje, ts_final),
+            name=f"AITask_{self.call_sid or id(self)}"
         )
 
 
-
-
-
-
-    async def process_gpt_response_wrapper(self, texto_para_gpt: str, last_final_ts: Optional[float]):
-        """Wrapper seguro que llama a process_gpt_response y asegura reactivar STT."""
+    # --- CAMBIO DE NOMBRE DE LA FUNCIÓN Y PARÁMETRO ---
+    async def process_ai_response_wrapper(self, texto_para_ia: str, last_final_ts: Optional[float]):
+        """Wrapper seguro que llama a process_ai_response y asegura reactivar STT."""
         ts_wrapper_start = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
         try:
-            await self.process_gpt_response(texto_para_gpt, last_final_ts)
+            # --- CAMBIO DE NOMBRE DE LA LLAMADA INTERNA ---
+            await self.process_ai_response(texto_para_ia, last_final_ts)
         except Exception as e:
-            logger.error(f"❌ Error capturado dentro de process_gpt_response_wrapper: {e}", exc_info=True)
+            logger.error(f"❌ Error capturado dentro de process_ai_response_wrapper: {e}", exc_info=True)
         finally:
             ts_wrapper_end = datetime.now().strftime(LOG_TS_FORMAT)[:-3]
-            logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_GPT_WRAPPER Finalizado. STT seguirá desactivado hasta isFinal de TTS")
-
-
+            # --- CAMBIO DE NOMBRE EN EL LOG ---
+            logger.debug(f"🏁 TS:[{ts_wrapper_end}] PROCESS_AI_WRAPPER Finalizado. STT seguirá desactivado hasta isFinal de TTS")
+    
+    
+    
+    
+    
     async def _timeout_reactivar_stt(self, segundos: float):
         """
         Espera 'segundos'.  
@@ -919,105 +911,59 @@ class TwilioWebSocketManager:
 
 
 
+    async def process_ai_response(
+            self,
+            user_text: str,
+            last_final_ts: Optional[float],
+        ):
+            """
+            Orquestador principal: Llama al nuevo motor de IA nativo para Llama 3.3.
+            """
+            # ── ❶ Validaciones (Estas no cambian) ───────────────────────────
+            if self.call_ended or not self.websocket or self.websocket.client_state != WebSocketState.CONNECTED:
+                logger.warning("⚠️ PROCESS_AI ignorado: llamada terminada / WS cerrado")
+                return
+            if not user_text:
+                logger.warning("⚠️ PROCESS_AI texto vacío; abortando")
+                return
 
-    async def process_gpt_response(
-        self,
-        user_text: str,
-        last_final_ts: Optional[float],
-    ):
-        """
-        Orquestador principal: procesa la respuesta de la IA, gestiona tools, modo y pending_question.
-        """
+            logger.info("🗣️ Usuario → IA: “%s”", user_text)
+            self.conversation_history.append({"role": "user", "content": user_text})
 
-        # ── ❶ Validaciones ───────────────────────────────────────────────────────
-        if self.call_ended or not self.websocket or \
-        self.websocket.client_state != WebSocketState.CONNECTED:
-            logger.warning("⚠️ PROCESS_GPT ignorado: llamada terminada / WS cerrado")
-            return
-        if not user_text:
-            logger.warning("⚠️ PROCESS_GPT texto vacío; abortando")
-            return
+            # --- CAMBIO IMPORTANTE: Toda la lógica de 'modo' y 'pending_question' se elimina de aquí ---
+            
+            # ── ❷ Llamada al nuevo motor de IA ─────────────────────────────
+            # El ID de sesión único para cada llamada es el `call_sid` de Twilio.
+            session_id = self.call_sid
 
-        # Inicialización defensiva de atributos
-        if not hasattr(self, "modo"):
-            self.modo = None
-        if not hasattr(self, "pending_question"):
-            self.pending_question = None
-        if not hasattr(self, "pending_turns"):
-            self.pending_turns = 0
+            try:
+                # ¡Este es el cambio principal!
+                # Llamamos a nuestra nueva función de `aiagent.py` que ya hace todo por dentro.
+                # Solo nos devuelve el texto final para el usuario.
+                respuesta_texto = await generate_ai_response(
+                    session_id=session_id,
+                    history=self.conversation_history
+                )
+            except Exception as e:
+                logger.error(f"❌ Error en generate_ai_response: {e}", exc_info=True)
+                respuesta_texto = "Disculpe, tuve un problema técnico. ¿Podría repetir?"
 
-        logger.info("🗣️ Usuario → GPT: “%s”", user_text)
-        self.conversation_history.append({"role": "user", "content": user_text})
+            # ── ❸ Procesar la Respuesta (Ahora mucho más simple) ───────────
+            # Ya no necesitamos manejar 'modo' o 'pregunta pendiente' aquí. El agente lo hace solo.
 
-        # Limpieza avanzada de pending_question
-        if self.pending_question:
-            if user_text and (len(user_text) > 3 or any(
-                    kw in user_text.lower() for kw in ["sí", "no", "pronto", "fecha"])):
-                self.pending_question = None
-                logger.info("✅ Pending question atendida por respuesta")
-                self.pending_turns = 0
-            else:
-                self.pending_turns += 1
-                if self.pending_turns > 3:
-                    self.pending_question = None
-                    logger.warning("⏱️ Pending question timeout tras 3 turnos")
-        else:
-            self.pending_turns = 0
+            # Manejar caso especial por si el agente quiere colgar (opcional, pero buena práctica)
+            if respuesta_texto == "__END_CALL__":
+                logger.info("🔚 IA solicitó colgar")
+                await utils.cierre_con_despedida(self, reason="assistant_request", delay=5.0)
+                return
 
-        # Guardar el modo anterior antes de llamar a la IA
-        self.prev_modo = self.modo
-
-        # ── ❷ Cliente ElevenLabs disponible ─────────────────────────────────────
-        try:
-            if (not getattr(self, "dg_tts_client", None) or
-                    getattr(self.dg_tts_client, "_ws_close", None) and
-                    self.dg_tts_client._ws_close.is_set()):
-                from eleven_ws_tts_client import ElevenLabsWSClient
-                self.dg_tts_client = ElevenLabsWSClient()
-                logger.debug("🔌 ElevenLabs WS creado (legacy)")
-        except Exception as e:
-            logger.error("❌ Error creando WS ElevenLabs: %s", e)
-
-        # ── ❸ Llamada a GPT: función pura, retorna tupla  ────────────────────────
-        try:
-            respuesta, nuevo_modo, nueva_pending = await generate_openai_response_main(
-                history=self.conversation_history,
-                modo=self.modo,
-                pending_question=self.pending_question,
-                model=config("CHATGPT_MODEL", default="gpt-4.1-mini"),
+            # Guarda la respuesta de la IA en el historial para el próximo turno
+            self.conversation_history.append(
+                {"role": "assistant", "content": respuesta_texto}
             )
-        except Exception as e:
-            logger.error(f"❌ Error en generate_openai_response_main: {e}", exc_info=True)
-            respuesta = "Disculpe, tuve un problema técnico. ¿Podría repetir?"
-            nuevo_modo = self.modo
-            nueva_pending = self.pending_question
 
-        # Actualizar modo solo si realmente cambia (y nunca perder el anterior)
-        if nuevo_modo is not None and nuevo_modo != self.modo:
-            logger.info("🔄 Modo cambiado: %s → %s", self.modo, nuevo_modo)
-            self.modo = nuevo_modo
-        self.pending_question = nueva_pending  # Puede ser None
-
-        # Manejar caso especial __END_CALL__
-        if respuesta == "__END_CALL__":
-            logger.info("🔚 IA solicitó colgar")
-            await utils.cierre_con_despedida(self, reason="user_request", delay=5.0)
-            return
-
-        # Guarda respuesta en historial ANTES del TTS
-        self.conversation_history.append(
-            {"role": "assistant", "content": respuesta}
-        )
-
-        # Procesar la respuesta (TTS/audio/texto)
-        await self.handle_tts_response(respuesta, last_final_ts)
-
-        # Reset de modo si corresponde (por ejemplo, finalización de ciclo)
-        if self.modo and "¿Le puedo ayudar en algo más?" in respuesta:
-            self.modo = None
-            logger.info("🔄 Modo reseteado a BASE")
-
-
+            # Llama al TTS para que el usuario escuche la respuesta
+            await self.handle_tts_response(respuesta_texto, last_final_ts)
 
 
 
@@ -1028,7 +974,7 @@ class TwilioWebSocketManager:
 
 
     async def handle_tts_response(self, texto: str, last_final_ts: Optional[float]):
-        """Convierte respuesta GPT a TTS con ElevenLabs WS + fallback a ElevenLabs HTTP"""
+        """Convierte respuesta IA a TTS con ElevenLabs WS + fallback a ElevenLabs HTTP"""
         if self.call_ended:
             logger.warning("🔇 handle_tts_response abortado: llamada terminada.")
             return
@@ -1148,7 +1094,7 @@ class TwilioWebSocketManager:
 
     async def _iniciar_temporizador_audio_espera(self, ts_final: Optional[float]):
         """
-        Inicia un temporizador para reproducir el audio de espera si GPT tarda mucho.
+        Inicia un temporizador para reproducir el audio de espera si IA tarda mucho.
         Se cancela automáticamente si TTS comienza antes del umbral.
         """
         if ts_final is None:
@@ -1275,7 +1221,7 @@ class TwilioWebSocketManager:
                 break 
 
             # Timeout por silencio prolongado (basado en last_activity_ts)
-            # Solo si no estamos ocupados (GPT/TTS)
+            # Solo si no estamos ocupados (IA/TTS)
             if not self.ignorar_stt and not self.is_speaking:
                 silence_duration = now_pc - self.last_activity_ts
                 if silence_duration >= CALL_SILENCE_TIMEOUT:
@@ -1317,11 +1263,11 @@ class TwilioWebSocketManager:
 
 
             # --- Cancelar otras tareas activas ---
-            # (Tu código original para cancelar PausaTimer y GPTTask estaba bien,
+            # (Tu código original para cancelar PausaTimer y AITask estaba bien,
             # solo me aseguro que se limpien las referencias)
             tasks_to_cancel_map = {
                 "PausaTimer": "temporizador_pausa",
-                "GPTTask": "current_gpt_task"
+                "AITask": "current_ai_task"
             }
 
             for task_name_log, attr_name in tasks_to_cancel_map.items():

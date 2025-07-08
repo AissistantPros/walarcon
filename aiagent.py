@@ -1,100 +1,207 @@
 # aiagent.py
 # -*- coding: utf-8 -*-
 """
-aiagent – motor de decisión para la asistente telefónica
-────────────────────────────────────────────────────────
-• Modular, con modos (base/crear/editar/eliminar)
-• Expone solo las tools necesarias según modo
-• Compatible con prompts y flujos nuevos
-• Mantiene doble pase, logs y helpers de tu versión original
+Motor de Decisión (Versión Final de Producción para Groq/Llama 3.3)
 """
-
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
+import re
+import shlex  # <-- Usamos shlex para un parsing más seguro
 from time import perf_counter
-import time
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Callable
+
 from decouple import config
-from openai import OpenAI
-from selectevent import select_calendar_event_by_index
-from weather_utils import get_cancun_weather
+from groq import AsyncGroq
 
-from openai.types.chat.chat_completion_message import ChatCompletionMessage
-from openai.types.chat import ChatCompletionMessageToolCall
-from openai.types.chat.chat_completion_message_tool_call import Function, ChatCompletionMessageToolCall
+# Importamos nuestro motor de prompts final del paso anterior
+from prompt import LlamaPromptEngine
 
-# ────────────────────── CONFIG LOGGING ────────────────────────────
-LOG_LEVEL = logging.DEBUG # ⇢ INFO en prod.
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(asctime)s | %(levelname)5s | %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
+# --- Configuración ---
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)5s | %(name)s: %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger("aiagent")
 
-# ──────────────────────── OPENAI CLIENT ───────────────────────────
+# --- Clientes y Gestores ---
 try:
-    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    client = AsyncGroq(api_key=config("GROQ_API_KEY"))
+    logger.info("Cliente AsyncGroq inicializado correctamente.")
 except Exception as e:
-    logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
+    logger.critical(f"No se pudo inicializar el cliente Groq. Verifica GROQ_API_KEY: {e}")
+    client = None
 
-# ────────────────── IMPORTS DE TOOLS DE NEGOCIO ───────────────────
-import buscarslot
-from utils import search_calendar_event_by_phone
-from consultarinfo import get_consultorio_data_from_cache
-from crearcita import create_calendar_event
-from editarcita import edit_calendar_event
-from eliminarcita import delete_calendar_event
+class SessionManager:
+    """Gestiona el estado de la conversación para cada sesión única."""
+    def __init__(self):
+        self.sessions: Dict[str, Dict[str, Any]] = {}
 
-# prompt dinámico (system)
-from prompt import generate_openai_prompt
+    def get_state(self, session_id: str) -> Dict[str, Any]:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = {"mode": None}
+        return self.sessions[session_id]
 
-# ══════════════════ HELPERS ═══════════════════════════════════════
-def _t(start: float) -> str:
-    """Devuelve el tiempo transcurrido desde *start* en ms formateado."""
-    return f"{(perf_counter() - start) * 1_000:6.1f} ms"
+    def set_mode(self, session_id: str, mode: str):
+        state = self.get_state(session_id)
+        state['mode'] = mode
 
-def merge_tool_calls(tool_calls_chunks):
-    """Junta tool_calls fragmentadas en streaming usando su 'index' y concatena sus argumentos."""
-    if not tool_calls_chunks:
-        return None
-    tool_calls_by_index = {}
-    for tc in tool_calls_chunks:
-        index = getattr(tc, "index", None)
-        if index is None:
-            index = len(tool_calls_by_index)
-        if index not in tool_calls_by_index:
-            tool_calls_by_index[index] = {
-                "id": "",
-                "type": "function",
-                "function": {"name": "", "arguments": ""}
+# --- Motor de Herramientas con Parsing Seguro ---
+class ToolEngine:
+    """Encapsula el parseo, validación y ejecución de herramientas."""
+    TOOL_CALL_PATTERN = re.compile(r'\[(\w+)\((.*?)\)\]', re.DOTALL)
+
+    def __init__(self, tool_definitions: List[Dict]):
+        self.tool_schemas = {tool['function']['name']: tool['function'] for tool in tool_definitions}
+        self.tool_executors = self._map_executors()
+
+    def _map_executors(self) -> Dict[str, Callable]:
+        """Mapea nombres de herramientas a las funciones de Python."""
+        # Importaciones de tu lógica de negocio
+        from consultarinfo import get_consultorio_data_from_cache
+        from crearcita import create_calendar_event
+        from editarcita import edit_calendar_event
+        from eliminarcita import delete_calendar_event
+        from utils import search_calendar_event_by_phone
+        from weather_utils import get_cancun_weather
+        import buscarslot
+
+        return {
+            "read_sheet_data": get_consultorio_data_from_cache,
+            "process_appointment_request": buscarslot.process_appointment_request,
+            "create_calendar_event": create_calendar_event,
+            "edit_calendar_event": edit_calendar_event,
+            "delete_calendar_event": delete_calendar_event,
+            "search_calendar_event_by_phone": search_calendar_event_by_phone,
+            "get_cancun_weather": get_cancun_weather,
+            # Agrega aquí cualquier otra herramienta que falte
+        }
+
+    def parse_tool_calls(self, text: str) -> List[Dict]:
+        """Parsea el texto crudo del LLM y extrae las llamadas a herramientas."""
+        tool_calls = []
+        for match in self.TOOL_CALL_PATTERN.finditer(text):
+            tool_name, args_str = match.groups()
+            if tool_name in self.tool_schemas:
+                try:
+                    args = self._parse_arguments_with_shlex(args_str)
+                    tool_calls.append({"name": tool_name, "arguments": args})
+                except Exception as e:
+                    logger.warning(f"Error parseando argumentos para '{tool_name}' con shlex: {e}")
+        return tool_calls
+    
+    def _parse_arguments_with_shlex(self, args_str: str) -> Dict[str, Any]:
+        """Parsea argumentos de forma segura usando shlex, ideal para producción."""
+        if not args_str.strip(): return {}
+        args = {}
+        # shlex.split maneja correctamente las comillas y espacios
+        parts = shlex.split(args_str)
+        for part in parts:
+            if '=' in part:
+                key, value = part.split('=', 1)
+                args[key.strip()] = self._convert_type(value)
+        return args
+    
+    def _convert_type(self, value: str) -> Any:
+        """Convierte un string a su tipo Python más probable de forma segura."""
+        value = value.strip()
+        if value.lower() == 'true': return True
+        if value.lower() == 'false': return False
+        if value.lower() == 'none' or value.lower() == 'null': return None
+        try:
+            return int(value)
+        except ValueError:
+            try:
+                return float(value)
+            except ValueError:
+                return value # Dejar como string
+
+    async def execute_tool(self, tool_call: Dict) -> Dict:
+        """Ejecuta una herramienta y devuelve un resultado estructurado."""
+        tool_name = tool_call["name"]
+        arguments = tool_call["arguments"]
+        executor = self.tool_executors.get(tool_name)
+        
+        if not executor:
+            return {"error": f"Herramienta desconocida: {tool_name}", "details": "El ejecutor no fue encontrado."}
+        
+        try:
+            logger.info(f"Ejecutando: {tool_name} con {arguments}")
+            if asyncio.iscoroutinefunction(executor):
+                return await executor(**arguments)
+            else:
+                return executor(**arguments)
+        except Exception as e:
+            logger.exception(f"La ejecución de la herramienta '{tool_name}' falló.")
+            return {
+                "error": f"Fallo en la ejecución de {tool_name}",
+                "details": str(e),
+                "arguments_used": arguments
             }
-        if getattr(tc, "id", None):
-            tool_calls_by_index[index]["id"] = tc.id
-        if getattr(tc, "function", None) and getattr(tc.function, "name", None):
-            tool_calls_by_index[index]["function"]["name"] = tc.function.name
-        if getattr(tc, "function", None) and getattr(tc.function, "arguments", None):
-            tool_calls_by_index[index]["function"]["arguments"] += tc.function.arguments
-    merged = []
-    for data in tool_calls_by_index.values():
-        if data["id"] and data["function"]["name"]:
-            merged.append(ChatCompletionMessageToolCall(
-                id=data["id"],
-                type="function",
-                function=Function(
-                    name=data["function"]["name"],
-                    arguments=data["function"]["arguments"]
-                )
-            ))
-    return merged
 
-# ══════════════════ UNIFIED TOOLS DEFINITION (COMPLETO) ══════════════════════
+# --- Agente Principal de IA (Orquestador) ---
+class AIAgent:
+    def __init__(self, tool_definitions: List[Dict]):
+        self.groq_client = client
+        self.prompt_engine = LlamaPromptEngine(tool_definitions=tool_definitions)
+        self.tool_engine = ToolEngine(tool_definitions)
+        self.session_manager = SessionManager()
+        self.model = "llama-3.3-70b-versatile"
 
-# (Tus tools completas tal cual tienes, solo agrupa por modo abajo)
-TOOLS_BASE = [
+    def _detect_intent(self, history: List[Dict], current_mode: Optional[str]) -> Optional[str]:
+        if not history: return None
+        last_message = history[-1]['content'].lower()
+        mode_keywords = {
+            "crear_cita": ["agendar", "cita", "reservar", "espacio"],
+            "editar_cita": ["cambiar", "modificar", "reprogramar"],
+            "eliminar_cita": ["cancelar", "borrar", "anular"]
+        }
+        for mode, keywords in mode_keywords.items():
+            if any(keyword in last_message for keyword in keywords):
+                return mode
+        return current_mode
+
+    async def process_stream(self, session_id: str, history: List[Dict]) -> str:
+        """Orquesta el flujo completo en un solo pase de streaming."""
+        session_state = self.session_manager.get_state(session_id)
+        
+        detected_intent = self._detect_intent(history, session_state.get("mode"))
+        if detected_intent:
+            self.session_manager.set_mode(session_id, detected_intent)
+        
+        full_prompt = self.prompt_engine.generate_prompt(history, detected_intent)
+        
+        try:
+            stream = await self.groq_client.chat.completions.create(
+                model=self.model, messages=[{"role": "user", "content": full_prompt}],
+                temperature=0.1, stream=True
+            )
+            full_response_text = ""
+            async for chunk in stream:
+                full_response_text += chunk.choices[0].delta.content or ""
+        except Exception as e:
+            logger.error(f"Error en la llamada a Groq: {e}")
+            return "Lo siento, hay un problema con la conexión al asistente. Por favor, intente de nuevo."
+
+        user_facing_text = re.sub(self.tool_engine.TOOL_CALL_PATTERN, "", full_response_text).strip()
+        tool_calls = self.tool_engine.parse_tool_calls(full_response_text)
+        
+        if tool_calls:
+            tool_tasks = [self.tool_engine.execute_tool(tc) for tc in tool_calls]
+            results = await asyncio.gather(*tool_tasks)
+            
+            history.append({"role": "assistant", "content": full_response_text})
+            for tool_call, result in zip(tool_calls, results):
+                history.append({
+                    "role": "tool", "name": tool_call["name"],
+                    "content": json.dumps(result, ensure_ascii=False)
+                })
+        else:
+             history.append({"role": "assistant", "content": user_facing_text})
+        
+        return user_facing_text
+
+
+# --- Definiciones Completas de Herramientas ---
+# Esta lista maestra contiene todas las herramientas disponibles para el agente.
+ALL_TOOLS = [
     {
         "type": "function",
         "function": {
@@ -131,23 +238,14 @@ TOOLS_BASE = [
         "type": "function",
         "function": {
             "name": "set_mode",
-            "description": (
-                "Cambia el modo de operación del asistente. "
-                "Úsala cuando detectes una intención clara del usuario de agendar, editar o eliminar una cita. "
-                "Solo cambia el modo si la intención es evidente. Si hay duda, primero pregunta al usuario."
-            ),
+            "description": "Cambia el modo de operación del asistente. Úsala cuando detectes una intención clara del usuario de agendar, editar o eliminar una cita.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "mode": {
                         "type": "string",
                         "enum": ["crear", "editar", "eliminar", "None"],
-                        "description": (
-                            "'crear' para agendar cita nueva, "
-                            "'editar' para modificar, "
-                            "'eliminar' para cancelar cita, "
-                            "'None' para modo informativo/general."
-                        ),
+                        "description": "'crear' para agendar, 'editar' para modificar, 'eliminar' para cancelar, 'None' para modo general."
                     }
                 },
                 "required": ["mode"]
@@ -164,23 +262,18 @@ TOOLS_BASE = [
                 "properties": {
                     "reason": {
                         "type": "string",
-                        "description": "Motivo del cierre. Ej: 'user_request', 'task_completed', 'assistant_farewell'."
+                        "description": "Motivo del cierre. Ej: 'user_request', 'task_completed'."
                     }
                 },
                 "required": ["reason"]
             }
         }
     },
-]
-TOOLS_CREAR = TOOLS_BASE + [
     {
         "type": "function",
         "function": {
             "name": "process_appointment_request",
-            "description": (
-                "Procesa la solicitud de agendamiento o consulta de disponibilidad de citas. "
-                "Interpreta la petición de fecha/hora del usuario (ej. 'próxima semana', 'el 15 a las 10', etc.)"
-            ),
+            "description": "Procesa la solicitud de agendamiento o consulta de disponibilidad de citas. Interpreta la petición de fecha/hora del usuario.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -215,9 +308,7 @@ TOOLS_CREAR = TOOLS_BASE + [
                 "required": ["name", "phone", "start_time", "end_time"]
             }
         }
-    }
-]
-TOOLS_EDITAR = TOOLS_BASE + [
+    },
     {
         "type": "function",
         "function": {
@@ -247,22 +338,6 @@ TOOLS_EDITAR = TOOLS_BASE + [
     {
         "type": "function",
         "function": {
-            "name": "process_appointment_request",
-            "description": "Verifica nuevos slots para citas editadas."
-        }
-    }
-]
-TOOLS_ELIMINAR = TOOLS_BASE + [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_calendar_event_by_phone",
-            "description": "Buscar citas existentes de un paciente por su número de teléfono."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "delete_calendar_event",
             "description": "Eliminar/Cancelar una cita existente del calendario.",
             "parameters": {
@@ -277,221 +352,9 @@ TOOLS_ELIMINAR = TOOLS_BASE + [
     }
 ]
 
-TOOLS_BY_MODE = {
-    None: TOOLS_BASE,
-    "crear": TOOLS_CREAR,
-    "editar": TOOLS_EDITAR,
-    "eliminar": TOOLS_ELIMINAR,
-}
 
-# ══════════════════ TOOL EXECUTOR ═════════════════════════════════
-def handle_tool_execution(tc: Any) -> Dict[str, Any]:
-    fn_name = tc.function.name
-    try:
-        args = json.loads(tc.function.arguments or "{}")
-    except json.JSONDecodeError:
-        logger.error(f"Error al decodificar argumentos JSON para {fn_name}: {tc.function.arguments}")
-        return {"error": f"Argumentos inválidos para {fn_name}"}
+ai_agent = AIAgent(tool_definitions=ALL_TOOLS)
 
-    # --- Detecta required_params, aunque no todos los tools lo tienen definido ---
-    all_tools = TOOLS_CREAR + TOOLS_EDITAR + TOOLS_ELIMINAR + TOOLS_BASE
-    required_params = next(
-        (tool["function"].get("parameters", {}).get("required", [])
-         for tool in all_tools if tool["function"]["name"] == fn_name),
-        []
-    )
-    missing = [p for p in required_params if p not in args]
-    if missing:
-        logger.error(f"Faltan parámetros requeridos para {fn_name}: {', '.join(missing)}")
-        return {"error": f"Missing required parameters: {', '.join(missing)}"}
-
-    logger.debug("🛠️ Ejecutando herramienta: %s con args: %s", fn_name, args)
-    try:
-        if fn_name == "read_sheet_data":
-            return {"data_consultorio": get_consultorio_data_from_cache()}
-        elif fn_name == "get_cancun_weather":
-            return get_cancun_weather()
-        elif fn_name == "process_appointment_request":
-            return buscarslot.process_appointment_request(**args)
-        elif fn_name == "create_calendar_event":
-            phone = args.get("phone", "")
-            if not (isinstance(phone, str) and phone.isdigit() and len(phone) == 10):
-                logger.warning(f"Teléfono inválido '{phone}' para crear evento. La IA debería haberlo validado.")
-                return {"error": "Teléfono inválido proporcionado para crear la cita. Debe tener 10 dígitos."}
-            return create_calendar_event(**args)
-        elif fn_name == "edit_calendar_event":
-            return edit_calendar_event(**args)
-        elif fn_name == "delete_calendar_event":
-            return delete_calendar_event(**args)
-        elif fn_name == "search_calendar_event_by_phone":
-            return {"search_results": search_calendar_event_by_phone(**args)}
-        elif fn_name == "detect_intent":
-            return {"intent_detected": args.get("intention")}
-        elif fn_name == "end_call":
-            return {"call_ended_reason": args.get("reason", "unknown")}
-        elif fn_name == "set_mode":
-            modo = args.get("mode")
-            logger.info(f"🔁 Tool set_mode llamada: cambiando modo a '{modo}'")
-            return {"new_mode": modo}
-        else:
-            logger.warning(f"Función {fn_name} no reconocida en handle_tool_execution.")
-            return {"error": f"Función desconocida: {fn_name}"}
-    except Exception as e:
-        logger.exception("Error crítico durante la ejecución de la herramienta %s", fn_name)
-        return {"error": f"Error interno al ejecutar {fn_name}: {str(e)}"}
-
-
-
-
-
-
-
-
-
-
-# ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
-
-
-async def generate_openai_response_main(
-    history: List[Dict],
-    *,
-    modo: Optional[str] = None,
-    pending_question: Optional[str] = None,
-    model: str = "gpt-4.1-mini",
-) -> Tuple[str, Optional[str], Optional[str]]:
-    """
-    Llama dos veces a GPT y retorna tupla (respuesta, nuevo_modo, nueva_pending)
-    """
-    start_gpt_time = time.perf_counter()
-    logger.info("⏱️ [LATENCIA-2] GPT llamada iniciada")
-
-    # Variables para tracking
-    current_mode = modo
-    current_pending = pending_question
-    final_response = ""
-
-    try:
-        # PROMPT PARA PRIMER PASE
-        full_conversation_history = generate_openai_prompt(
-            list(history),
-            modo=current_mode,
-            pending_question=current_pending,
-        )
-
-        logger.info("=" * 50)
-        logger.info("📋 PROMPT COMPLETO PARA GPT:")
-        for i, msg in enumerate(full_conversation_history):
-            short = (msg.get("content", "")[:200] + "…") if len(msg.get("content", "")) > 200 else msg.get("content", "")
-            logger.info("  [%d] %s: %s", i, msg.get("role", ""), short)
-        logger.info("📏 Total mensajes: %d", len(full_conversation_history))
-        logger.info("📏 Caracteres totales: %d", sum(len(str(m)) for m in full_conversation_history))
-        logger.info("=" * 50)
-
-        if not client:
-            logger.error("Cliente OpenAI no inicializado.")
-            return ("Lo siento, estoy teniendo problemas técnicos para conectarme.", current_mode, current_pending)
-
-        tools_to_use = TOOLS_BY_MODE.get(current_mode, TOOLS_BASE)
-        logger.info("🔧 TOOLS para modo '%s': %s", current_mode, [t['function']['name'] for t in tools_to_use])
-
-        # PRIMERA LLAMADA (streaming, pero SOLO acumula)
-        stream_response = client.chat.completions.create(
-            model=model,
-            messages=full_conversation_history,
-            tools=tools_to_use,
-            tool_choice="auto",
-            max_tokens=100,
-            temperature=0.1,
-            timeout=15,
-            stream=True,
-        )
-
-        full_content = ""
-        tool_calls_chunks: list[Any] = []
-        for chunk in stream_response:
-            if chunk.choices[0].delta.content:
-                full_content += chunk.choices[0].delta.content
-            if chunk.choices[0].delta.tool_calls is not None:
-                for tc in chunk.choices[0].delta.tool_calls:
-                    if not hasattr(tc, "index"):
-                        tc.index = len(tool_calls_chunks)
-                    tool_calls_chunks.append(tc)
-
-        logger.info("💬 GPT RESPUESTA PASE 1: '%s'", full_content)
-
-        # Si no hubo herramientas, termina aquí
-        if not tool_calls_chunks:
-            logger.info("✅ Respuesta sin herramientas – una sola llamada")
-            return (full_content, current_mode, current_pending)
-
-        # Ejecutar tools y armar historial para segundo pase
-        tool_calls = merge_tool_calls(tool_calls_chunks)
-        response_pase1 = ChatCompletionMessage(
-            content=full_content, role="assistant", tool_calls=tool_calls
-        )
-
-        second_pass_history = list(history)
-        second_pass_history.append(response_pase1.model_dump())
-
-        for tc in response_pase1.tool_calls:
-            tc_id = tc.id
-            result = handle_tool_execution(tc)
-            logger.info("📊 RESULTADO %s: %s", tc.function.name, json.dumps(result, ensure_ascii=False)[:200])
-
-            # Cambio de modo (set_mode)
-            if tc.function.name == "set_mode":
-                new_mode = result.get("new_mode")
-                if new_mode:
-                    current_mode = new_mode
-                    logger.info("🔄 Modo actualizado para segundo pase: %s", current_mode)
-                    if new_mode == "crear":
-                        current_pending = "¿Ya tiene alguna fecha y hora en mente o le busco lo más pronto posible?"
-                    elif new_mode in ("editar", "eliminar"):
-                        current_pending = "¿Me podría dar el número de teléfono con el que se registró la cita, por favor?"
-
-            # Cierre de llamada especial
-            if result.get("call_ended_reason"):
-                return ("__END_CALL__", current_mode, current_pending)
-
-            second_pass_history.append({
-                "tool_call_id": tc_id,
-                "role": "tool",
-                "name": tc.function.name,
-                "content": json.dumps(result),
-            })
-
-        logger.info("=" * 50)
-        logger.info("📋 HISTORIAL COMPLETO PARA SEGUNDA LLAMADA:")
-        for i, m in enumerate(second_pass_history):
-            short = (str(m.get("content", ""))[:100] + "…") if len(str(m.get("content", ""))) > 100 else m.get("content", "")
-            logger.info("  [%d] %s: %s", i, m.get("role", ""), short)
-        logger.info("📏 Total mensajes pase 2: %d", len(second_pass_history))
-        logger.info("=" * 50)
-
-        # SEGUNDO PASE (streaming, pero SOLO acumula)
-        fast_model = "gpt-4.1-mini"
-        logger.info("🏃 Segunda llamada con modelo rápido: %s", fast_model)
-
-        stream_response_2 = client.chat.completions.create(
-            model=fast_model,
-            messages=generate_openai_prompt(
-                second_pass_history,
-                modo=current_mode,
-                pending_question=current_pending,
-            ),
-            max_tokens=100,
-            temperature=0.2,
-            stream=True,
-        )
-
-        for chunk in stream_response_2:
-            if chunk.choices[0].delta.content:
-                final_response += chunk.choices[0].delta.content
-
-        logger.info("💬 GPT RESPUESTA FINAL: '%s'", final_response)
-
-        return (final_response, current_mode, current_pending)
-
-    except Exception as e:
-        logger.exception("generate_openai_response_main falló")
-        return ("Lo siento, estoy experimentando un problema técnico.", modo, pending_question)
+async def generate_ai_response(session_id: str, history: List[Dict]) -> str:
+    """Función pública que será llamada desde tw_utils.py."""
+    return await ai_agent.process_stream(session_id, history)
