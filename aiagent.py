@@ -21,7 +21,7 @@ from decouple import config
 from openai import OpenAI
 from selectevent import select_calendar_event_by_index
 from weather_utils import get_cancun_weather
-from groq import Groq
+
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.chat import ChatCompletionMessageToolCall
 from openai.types.chat.chat_completion_message_tool_call import Function, ChatCompletionMessageToolCall
@@ -36,21 +36,10 @@ logging.basicConfig(
 logger = logging.getLogger("aiagent")
 
 # ──────────────────────── OPENAI CLIENT ───────────────────────────
-#try:
-#    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
-#except Exception as e:
-#    logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
-
-
-# ──────────────────────── GROQ CLIENT ───────────────────────────
-
 try:
-    # Inicializa el cliente de Groq. Automáticamente usará la variable de entorno GROQ_API_KEY.
-    client = Groq()
-    logger.info("✅ Cliente de Groq inicializado correctamente.")
+    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
 except Exception as e:
-    logger.critical(f"No se pudo inicializar el cliente de Groq. Verifica la variable de entorno GROQ_API_KEY: {e}")
-
+    logger.critical(f"No se pudo inicializar el cliente OpenAI. Verifica CHATGPT_SECRET_KEY: {e}")
 
 # ────────────────── IMPORTS DE TOOLS DE NEGOCIO ───────────────────
 import buscarslot
@@ -362,92 +351,145 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:
 
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
 
+
 async def generate_openai_response_main(
     history: List[Dict],
     *,
     modo: Optional[str] = None,
     pending_question: Optional[str] = None,
-    model: str = "llama-3.1-70b-versatile", # Asegúrate de que el modelo esté aquí
+    model: str = "gpt-4.1-mini",
 ) -> Tuple[str, Optional[str], Optional[str]]:
     """
-    Orquesta la lógica de doble pase para ser compatible con Llama 3 en Groq.
+    Llama dos veces a GPT y retorna tupla (respuesta, nuevo_modo, nueva_pending)
     """
-    logger.info("▶️ Iniciando generate_openai_response_main para Llama 3...")
+    start_gpt_time = time.perf_counter()
+    logger.info("⏱️ [LATENCIA-2] GPT llamada iniciada")
 
-    # Variables para tracking de estado
+    # Variables para tracking
     current_mode = modo
     current_pending = pending_question
+    final_response = ""
 
     try:
-        # --- PASO 1: El LLM decide qué herramienta usar ---
-        messages_for_pass_1 = generate_openai_prompt(
+        # PROMPT PARA PRIMER PASE
+        full_conversation_history = generate_openai_prompt(
             list(history),
             modo=current_mode,
             pending_question=current_pending,
         )
-        
-        tools_to_use = TOOLS_BY_MODE.get(current_mode, TOOLS_BASE)
-        logger.info(f"PASO 1: Llamando a Groq para decisión de herramienta (Modo: {current_mode})")
 
-        response_pass_1 = client.chat.completions.create(
+        logger.info("=" * 50)
+        logger.info("📋 PROMPT COMPLETO PARA GPT:")
+        for i, msg in enumerate(full_conversation_history):
+            short = (msg.get("content", "")[:200] + "…") if len(msg.get("content", "")) > 200 else msg.get("content", "")
+            logger.info("  [%d] %s: %s", i, msg.get("role", ""), short)
+        logger.info("📏 Total mensajes: %d", len(full_conversation_history))
+        logger.info("📏 Caracteres totales: %d", sum(len(str(m)) for m in full_conversation_history))
+        logger.info("=" * 50)
+
+        if not client:
+            logger.error("Cliente OpenAI no inicializado.")
+            return ("Lo siento, estoy teniendo problemas técnicos para conectarme.", current_mode, current_pending)
+
+        tools_to_use = TOOLS_BY_MODE.get(current_mode, TOOLS_BASE)
+        logger.info("🔧 TOOLS para modo '%s': %s", current_mode, [t['function']['name'] for t in tools_to_use])
+
+        # PRIMERA LLAMADA (streaming, pero SOLO acumula)
+        stream_response = client.chat.completions.create(
             model=model,
-            messages=messages_for_pass_1,
+            messages=full_conversation_history,
             tools=tools_to_use,
             tool_choice="auto",
+            max_tokens=100,
             temperature=0.1,
+            timeout=15,
+            stream=True,
         )
 
-        response_message = response_pass_1.choices[0].message
-        tool_calls = response_message.tool_calls
+        full_content = ""
+        tool_calls_chunks: list[Any] = []
+        for chunk in stream_response:
+            if chunk.choices[0].delta.content:
+                full_content += chunk.choices[0].delta.content
+            if chunk.choices[0].delta.tool_calls is not None:
+                for tc in chunk.choices[0].delta.tool_calls:
+                    if not hasattr(tc, "index"):
+                        tc.index = len(tool_calls_chunks)
+                    tool_calls_chunks.append(tc)
 
-        # Si el modelo NO decide usar una herramienta, responde directamente.
-        if not tool_calls:
-            logger.info("✅ Groq respondió directamente sin usar herramientas.")
-            final_response = response_message.content or "No he podido generar una respuesta."
-            return (final_response, current_mode, current_pending)
+        logger.info("💬 GPT RESPUESTA PASE 1: '%s'", full_content)
 
-        logger.info(f"✅ Groq decidió usar {len(tool_calls)} herramienta(s).")
+        # Si no hubo herramientas, termina aquí
+        if not tool_calls_chunks:
+            logger.info("✅ Respuesta sin herramientas – una sola llamada")
+            return (full_content, current_mode, current_pending)
 
-        # --- PASO 2: Ejecutamos la herramienta y llamamos de nuevo para síntesis ---
-        
-        # Añadir la respuesta original del asistente (con la decisión de la tool) al historial.
-        messages_for_pass_2 = list(history)
-        messages_for_pass_2.append(response_message.model_dump())
+        # Ejecutar tools y armar historial para segundo pase
+        tool_calls = merge_tool_calls(tool_calls_chunks)
+        response_pase1 = ChatCompletionMessage(
+            content=full_content, role="assistant", tool_calls=tool_calls
+        )
 
-        for tool_call in tool_calls:
-            result = handle_tool_execution(tool_call)
-            
-            # Actualizamos el estado local basado en el resultado de la tool
-            if tool_call.function.name == "set_mode" and "new_mode" in result:
-                current_mode = result.get("new_mode")
-                logger.info(f"✨ MODO ACTUALIZADO para 2º pase a: '{current_mode}'")
-                # ... (lógica para establecer pending_question)
+        second_pass_history = list(history)
+        second_pass_history.append(response_pase1.model_dump())
 
+        for tc in response_pase1.tool_calls:
+            tc_id = tc.id
+            result = handle_tool_execution(tc)
+            logger.info("📊 RESULTADO %s: %s", tc.function.name, json.dumps(result, ensure_ascii=False)[:200])
+
+            # Cambio de modo (set_mode)
+            if tc.function.name == "set_mode":
+                new_mode = result.get("new_mode")
+                if new_mode:
+                    current_mode = new_mode
+                    logger.info("🔄 Modo actualizado para segundo pase: %s", current_mode)
+                    if new_mode == "crear":
+                        current_pending = "¿Ya tiene alguna fecha y hora en mente o le busco lo más pronto posible?"
+                    elif new_mode in ("editar", "eliminar"):
+                        current_pending = "¿Me podría dar el número de teléfono con el que se registró la cita, por favor?"
+
+            # Cierre de llamada especial
             if result.get("call_ended_reason"):
                 return ("__END_CALL__", current_mode, current_pending)
-            
-            # Añadimos el resultado de la herramienta al historial para el segundo pase.
-            messages_for_pass_2.append(
-                {
-                    "tool_call_id": tool_call.id,
-                    "role": "tool",
-                    "name": tool_call.function.name,
-                    "content": json.dumps(result),
-                }
-            )
 
-        logger.info("PASO 2: Llamando a Groq para sintetizar la respuesta final.")
-        
-        # Hacemos la segunda llamada para que genere la respuesta al usuario.
-        response_pass_2 = client.chat.completions.create(
-            model=model,
-            messages=messages_for_pass_2,
-            # No pasamos las tools en el segundo pase, solo queremos una respuesta de texto.
+            second_pass_history.append({
+                "tool_call_id": tc_id,
+                "role": "tool",
+                "name": tc.function.name,
+                "content": json.dumps(result),
+            })
+
+        logger.info("=" * 50)
+        logger.info("📋 HISTORIAL COMPLETO PARA SEGUNDA LLAMADA:")
+        for i, m in enumerate(second_pass_history):
+            short = (str(m.get("content", ""))[:100] + "…") if len(str(m.get("content", ""))) > 100 else m.get("content", "")
+            logger.info("  [%d] %s: %s", i, m.get("role", ""), short)
+        logger.info("📏 Total mensajes pase 2: %d", len(second_pass_history))
+        logger.info("=" * 50)
+
+        # SEGUNDO PASE (streaming, pero SOLO acumula)
+        fast_model = "gpt-4.1-mini"
+        logger.info("🏃 Segunda llamada con modelo rápido: %s", fast_model)
+
+        stream_response_2 = client.chat.completions.create(
+            model=fast_model,
+            messages=generate_openai_prompt(
+                second_pass_history,
+                modo=current_mode,
+                pending_question=current_pending,
+            ),
+            max_tokens=100,
+            temperature=0.2,
+            stream=True,
         )
-        
-        final_response = response_pass_2.choices[0].message.content or "Entendido."
-        logger.info("💬 Respuesta final sintetizada por Groq: '%s'", final_response)
-        
+
+        for chunk in stream_response_2:
+            if chunk.choices[0].delta.content:
+                final_response += chunk.choices[0].delta.content
+
+        logger.info("💬 GPT RESPUESTA FINAL: '%s'", final_response)
+
         return (final_response, current_mode, current_pending)
 
     except Exception as e:
