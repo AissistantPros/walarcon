@@ -436,15 +436,44 @@ async def generate_openai_response_main(
             return (full_content, current_mode, current_pending)
 
         # Ejecutar tools y armar historial para segundo pase
+        #tool_calls = merge_tool_calls(tool_calls_chunks)
+        #response_pase1 = ChatCompletionMessage(
+        #    content=full_content, role="assistant", tool_calls=tool_calls
+        #)
+
+        #second_pass_history = list(history)
+        #second_pass_history.append(response_pase1.model_dump())
+
+
+        # Ejecutar tools y armar historial para segundo pase
         tool_calls = merge_tool_calls(tool_calls_chunks)
-        response_pase1 = ChatCompletionMessage(
-            content=full_content, role="assistant", tool_calls=tool_calls
-        )
-
+        
+        # Prepara el historial para el segundo pase.
         second_pass_history = list(history)
-        second_pass_history.append(response_pase1.model_dump())
+        
+        # -- INICIO DE LA CORRECCIÓN --
+        # Construimos el mensaje del asistente manualmente para asegurar compatibilidad con Groq.
+        assistant_message_with_tools = {
+            "role": "assistant",
+            # Es importante convertir cada tool_call a un diccionario también.
+            "tool_calls": [tc.model_dump() for tc in tool_calls]
+        }
+        # Solo añadimos la clave "content" si el LLM generó texto además de las tools.
+        if full_content:
+            assistant_message_with_tools["content"] = full_content
+            
+        second_pass_history.append(assistant_message_with_tools)
+        # -- FIN DE LA CORRECCIÓN --
 
-        for tc in response_pase1.tool_calls:
+
+
+
+
+
+
+
+        #for tc in response_pase1.tool_calls:
+        for tc in tool_calls:
             tc_id = tc.id
             result = handle_tool_execution(tc)
             logger.info("📊 RESULTADO %s: %s", tc.function.name, json.dumps(result, ensure_ascii=False)[:200])
