@@ -16,7 +16,7 @@ import json
 import logging
 from time import perf_counter
 import time
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional, Tuple
 from decouple import config
 from openai import OpenAI
 from selectevent import select_calendar_event_by_index
@@ -340,40 +340,44 @@ def handle_tool_execution(tc: Any) -> Dict[str, Any]:
         logger.exception("Error crítico durante la ejecución de la herramienta %s", fn_name)
         return {"error": f"Error interno al ejecutar {fn_name}: {str(e)}"}
 
+
+
+
+
+
+
+
+
+
 # ══════════════════ CORE – UNIFIED RESPONSE GENERATION ═════════════
+
+
 async def generate_openai_response_main(
     history: List[Dict],
     *,
-    modo: str | None = None,
-    pending_question: str | None = None,      # ← NUEVO parámetro
+    modo: Optional[str] = None,
+    pending_question: Optional[str] = None,
     model: str = "gpt-4.1-mini",
-):
+) -> Tuple[str, Optional[str], Optional[str]]:
     """
-    Llama dos veces a GPT:
-
-    • Pase 1  (modelo “inteligente”) decide herramientas y lógica.
-    • Pase 2  (modelo “rápido”) genera la respuesta final
-      con todo el historial + resultados de tools.
-
-    Parámetros:
-        history ............ historial completo de la llamada
-        modo ............... modo actual (None → BASE)
-        pending_question ... si la IA tiene una pregunta pendiente que
-                             no debe volver a formular
-        model .............. modelo para el primer pase
+    Llama dos veces a GPT y retorna tupla (respuesta, nuevo_modo, nueva_pending)
     """
     start_gpt_time = time.perf_counter()
     logger.info("⏱️ [LATENCIA-2] GPT llamada iniciada")
 
+    # Variables para tracking
+    current_mode = modo
+    current_pending = pending_question
+    final_response = ""
+
     try:
-        # ── PROMPT PARA PRIMER PASE ─────────────────────────────────────────
+        # PROMPT PARA PRIMER PASE
         full_conversation_history = generate_openai_prompt(
             list(history),
-            modo=modo,
-            pending_question=pending_question,          # ← NUEVO
+            modo=current_mode,
+            pending_question=current_pending,
         )
 
-        # ---------- LOG del prompt (se mantiene igual) ----------
         logger.info("=" * 50)
         logger.info("📋 PROMPT COMPLETO PARA GPT:")
         for i, msg in enumerate(full_conversation_history):
@@ -385,14 +389,12 @@ async def generate_openai_response_main(
 
         if not client:
             logger.error("Cliente OpenAI no inicializado.")
-            yield "Lo siento, estoy teniendo problemas técnicos para conectarme."
-            return
+            return ("Lo siento, estoy teniendo problemas técnicos para conectarme.", current_mode, current_pending)
 
-        # ---------- Selección de tools según modo ----------
-        tools_to_use = TOOLS_BY_MODE.get(modo, TOOLS_BASE)
-        logger.info("🔧 TOOLS para modo '%s': %s", modo, [t['function']['name'] for t in tools_to_use])
+        tools_to_use = TOOLS_BY_MODE.get(current_mode, TOOLS_BASE)
+        logger.info("🔧 TOOLS para modo '%s': %s", current_mode, [t['function']['name'] for t in tools_to_use])
 
-        # ── PRIMERA LLAMADA (STREAM) ────────────────────────────────────────
+        # PRIMERA LLAMADA (streaming, pero SOLO acumula)
         stream_response = client.chat.completions.create(
             model=model,
             messages=full_conversation_history,
@@ -406,19 +408,9 @@ async def generate_openai_response_main(
 
         full_content = ""
         tool_calls_chunks: list[Any] = []
-        first_chunk = True
-
         for chunk in stream_response:
-            # texto
             if chunk.choices[0].delta.content:
-                txt = chunk.choices[0].delta.content
-                full_content += txt
-                if first_chunk:
-                    logger.info("⏱️ [LATENCIA-2-FIRST] GPT primer chunk: %.1f ms",
-                                (time.perf_counter() - start_gpt_time) * 1000)
-                    first_chunk = False
-                yield txt
-            # tools
+                full_content += chunk.choices[0].delta.content
             if chunk.choices[0].delta.tool_calls is not None:
                 for tc in chunk.choices[0].delta.tool_calls:
                     if not hasattr(tc, "index"):
@@ -427,21 +419,17 @@ async def generate_openai_response_main(
 
         logger.info("💬 GPT RESPUESTA PASE 1: '%s'", full_content)
 
-        # Si no hubo herramientas, terminamos aquí.
+        # Si no hubo herramientas, termina aquí
         if not tool_calls_chunks:
             logger.info("✅ Respuesta sin herramientas – una sola llamada")
-            return
+            return (full_content, current_mode, current_pending)
 
-        # ── AGRUPAR tool_calls y ejecutar cada una ──────────────────────────
+        # Ejecutar tools y armar historial para segundo pase
         tool_calls = merge_tool_calls(tool_calls_chunks)
-        for tc in tool_calls:
-            logger.info("  - %s: %s", tc.function.name, tc.function.arguments)
-
         response_pase1 = ChatCompletionMessage(
             content=full_content, role="assistant", tool_calls=tool_calls
         )
 
-        # Historial para segundo pase
         second_pass_history = list(history)
         second_pass_history.append(response_pase1.model_dump())
 
@@ -449,10 +437,22 @@ async def generate_openai_response_main(
             tc_id = tc.id
             result = handle_tool_execution(tc)
             logger.info("📊 RESULTADO %s: %s", tc.function.name, json.dumps(result, ensure_ascii=False)[:200])
-            # Señal para colgar
+
+            # Cambio de modo (set_mode)
+            if tc.function.name == "set_mode":
+                new_mode = result.get("new_mode")
+                if new_mode:
+                    current_mode = new_mode
+                    logger.info("🔄 Modo actualizado para segundo pase: %s", current_mode)
+                    if new_mode == "crear":
+                        current_pending = "¿Ya tiene alguna fecha y hora en mente o le busco lo más pronto posible?"
+                    elif new_mode in ("editar", "eliminar"):
+                        current_pending = "¿Me podría dar el número de teléfono con el que se registró la cita, por favor?"
+
+            # Cierre de llamada especial
             if result.get("call_ended_reason"):
-                yield "__END_CALL__"
-                return
+                return ("__END_CALL__", current_mode, current_pending)
+
             second_pass_history.append({
                 "tool_call_id": tc_id,
                 "role": "tool",
@@ -460,7 +460,6 @@ async def generate_openai_response_main(
                 "content": json.dumps(result),
             })
 
-        # ── LOG del 2º pase ────────────────────────────────────────────────
         logger.info("=" * 50)
         logger.info("📋 HISTORIAL COMPLETO PARA SEGUNDA LLAMADA:")
         for i, m in enumerate(second_pass_history):
@@ -469,7 +468,7 @@ async def generate_openai_response_main(
         logger.info("📏 Total mensajes pase 2: %d", len(second_pass_history))
         logger.info("=" * 50)
 
-        # ── SEGUNDA LLAMADA (modelo rápido) ────────────────────────────────
+        # SEGUNDO PASE (streaming, pero SOLO acumula)
         fast_model = "gpt-4.1-mini"
         logger.info("🏃 Segunda llamada con modelo rápido: %s", fast_model)
 
@@ -477,28 +476,22 @@ async def generate_openai_response_main(
             model=fast_model,
             messages=generate_openai_prompt(
                 second_pass_history,
-                modo=modo,
-                pending_question=pending_question,       # ← NUEVO
+                modo=current_mode,
+                pending_question=current_pending,
             ),
             max_tokens=100,
             temperature=0.2,
             stream=True,
         )
 
-        final_text = ""
-        first_chunk_2 = True
         for chunk in stream_response_2:
             if chunk.choices[0].delta.content:
-                txt = chunk.choices[0].delta.content
-                final_text += txt
-                if first_chunk_2:
-                    logger.info("⏱️ [LATENCIA-2-SECOND-FIRST] GPT segundo pase primer chunk: %.1f ms",
-                                (time.perf_counter() - start_gpt_time) * 1000)
-                    first_chunk_2 = False
-                yield txt
+                final_response += chunk.choices[0].delta.content
 
-        logger.info("💬 GPT RESPUESTA FINAL: '%s'", final_text)
+        logger.info("💬 GPT RESPUESTA FINAL: '%s'", final_response)
+
+        return (final_response, current_mode, current_pending)
 
     except Exception as e:
         logger.exception("generate_openai_response_main falló")
-        yield "Lo siento, estoy experimentando un problema técnico."
+        return ("Lo siento, estoy experimentando un problema técnico.", modo, pending_question)
