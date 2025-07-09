@@ -26,7 +26,7 @@ import utils
 from asyncio import run_coroutine_threadsafe
 import collections.abc
 from state_store import emit_latency_event
-
+from state_store import session_state
 
 # Tus importaciones de módulos locales
 try:
@@ -675,6 +675,7 @@ class TwilioWebSocketManager:
             delta_ms = (ahora_pc - self.last_final_stt_timestamp) * 1000
             logger.info(f"⏱️ [LATENCIA-1] STT final → AI call: {delta_ms:.1f} ms")
 
+        emit_latency_event(self.call_sid, "chunk_received")
         await self._activar_modo_ignorar_stt()
 
         # 🆕 PREPARAR CONEXIÓN ELEVENLABS EN PARALELO CON LA IA
@@ -832,8 +833,8 @@ class TwilioWebSocketManager:
         self.ignorar_stt = False
         self.tts_en_progreso = False
         logger.info(f" 🟢 STT reactivado (ignorar_stt=False).")
+        
         emit_latency_event(self.call_sid, "response_complete")
-
         if self.tts_timeout_task and not self.tts_timeout_task.done():
             self.tts_timeout_task.cancel()
         self.tts_timeout_task = None
@@ -884,6 +885,7 @@ class TwilioWebSocketManager:
             self.conversation_history.append({"role": "user", "content": user_text})
 
             session_id = self.call_sid
+            emit_latency_event(session_id, "parse_start")
 
             try:
                 respuesta_texto = await generate_ai_response(
@@ -936,6 +938,7 @@ class TwilioWebSocketManager:
             emit_latency_event(self.call_sid, "tts_start", {"text": texto[:60]})
 
             logger.info(f"⏱️ [LATENCIA-3-START] TTS request iniciado para: '{texto[:30]}...'")
+            emit_latency_event(self.call_sid, "tts_start", {"text": texto[:60]})
             ts_tts_start = self._now()
 
             async def _send_chunk(chunk: bytes):
