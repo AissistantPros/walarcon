@@ -16,21 +16,21 @@ import time
 import logging
 from typing import Dict, Any, List, Callable, Awaitable
 
+from fastapi import logger
+
 from state_store import session_state  # ya existe
 from state_store import emit_latency_event
 from synthetic_responses import generate_synthetic_response
 
 # ── Importa funciones REALES de tus módulos de herramientas ───────────────────
-# Ajusta nombres de módulo si difieren.
 from buscarslot import process_appointment_request            # noqa: F401
 from crearcita import create_calendar_event                   # noqa: F401
-from selectevent import edit_calendar_event, delete_calendar_event  # noqa: F401
-from buscarslot import read_sheet_data                        # noqa: F401
-from buscarslot import get_cancun_weather                     # noqa: F401
-from buscarslot import detect_intent                          # noqa: F401
-from selectevent import search_calendar_event_by_phone        # noqa: F401
-
-logger = logging.getLogger(__name__)
+from editarcita import edit_calendar_event                    # noqa: F401
+from utils import search_calendar_event_by_phone              # noqa: F401
+from eliminarcita import delete_calendar_event                # noqa: F401
+from consultarinfo import read_sheet_data                     # noqa: F401
+from weather_utils import get_cancun_weather                  # noqa: F401
+# (detect_intent no existe; se elimina)
 
 # ╭─ REGISTRO DE HERRAMIENTAS ───────────────────────────────────────────────╮
 TOOL_REGISTRY: Dict[str, Callable[..., Awaitable[Dict[str, Any]]]] = {}
@@ -48,7 +48,6 @@ register_tool("edit_calendar_event", edit_calendar_event)
 register_tool("delete_calendar_event", delete_calendar_event)
 register_tool("read_sheet_data", read_sheet_data)
 register_tool("get_cancun_weather", get_cancun_weather)
-register_tool("detect_intent", detect_intent)
 register_tool("search_calendar_event_by_phone", search_calendar_event_by_phone)
 
 
