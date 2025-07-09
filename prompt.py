@@ -1,37 +1,30 @@
 # prompt.py
-# ────────────────────────────────────────────────────────────────────────────────
+# -*- coding: utf-8 -*-
+"""
+Motor de Prompts para Llama 3.3 (Versión Final y Definitiva)
+
+Contiene la clase LlamaPromptEngine, responsable de construir el prompt
+nativo y completo, incluyendo el detallado manual de operaciones, ejemplos
+en JSON, formato de herramientas nativo y lógica de truncamiento seguro.
+"""
 import json
 import logging
 from typing import List, Dict, Optional
 
-from aiagent import TOOL_REGISTRY  # registro creado en aiagent.py
-
 logger = logging.getLogger(__name__)
 
-# ── Lista de herramientas sincronizada con el registro ─────────────────────────
-ALL_TOOLS = [
-    {
-        "type": "function",
-        "function": {"name": name, "description": func.__doc__ or ""}
-    }
-    for name, func in TOOL_REGISTRY.items()
-]
-
-# ── Prompt unificado (incluye herramientas, formato estricto, identidad, etc.) ─
-PROMPT_UNIFICADO = f"""
+# El "Manual de Operaciones Completo" con toda tu lógica de negocio explícita.
+PROMPT_UNIFICADO = """
 # FORMATO CRÍTICO DE HERRAMIENTAS
 SIEMPRE usa EXACTAMENTE este formato para herramientas:
-[tool_name(param1=value1, param2=value2)]
+[nombre_herramienta(parametro1=valor1, parametro2=valor2)]
 
 NUNCA escribas:
-- JSON crudo {{ "type":"function", … }}
-- Tags XML <function>…</function>
-- <|python_tag|>name.call(…) ni variantes
+- JSON crudo como {"type": "function"...}
+- Tags XML como <function>
+- Cualquier otro formato
 
 Si necesitas llamar una herramienta, el formato [herramienta(args)] es OBLIGATORIO.
-
-# HERRAMIENTAS DISPONIBLES
-{json.dumps(ALL_TOOLS, ensure_ascii=False, indent=2)}
 
 # IDENTIDAD Y TONO
 - Eres Dany, asistente virtual del Dr. Wilfrido Alarcón.
@@ -59,22 +52,22 @@ Si necesitas llamar una herramienta, el formato [herramienta(args)] es OBLIGATOR
     **PASO 2. Procesar Preferencia Temporal y Llamar a Herramienta**
     - Cuando el usuario mencione CUALQUIER referencia temporal, DEBES llamar a la herramienta `process_appointment_request`.
     - El parámetro `user_query_for_date_time` DEBE contener la frase EXACTA del usuario.
-    - **Ejemplos de cómo debes llamar a la herramienta (formato JSON):**
-        - Usuario dice: "Para **hoy**" → Llama a `process_appointment_request` con: `{{"user_query_for_date_time": "hoy"}}`
-        - Usuario dice: "**Lo más pronto posible**" → Llama a `process_appointment_request` con: `{{"user_query_for_date_time": "lo más pronto posible", "is_urgent_param": true}}`
-        - Usuario dice: "**De hoy en ocho**" → Llama a `process_appointment_request` con: `{{"user_query_for_date_time": "de hoy en ocho"}}`
-        - Usuario dice: "**Mañana en la tarde**" → Llama a `process_appointment_request` con: `{{"user_query_for_date_time": "mañana en la tarde", "explicit_time_preference_param": "tarde"}}`
-        - Usuario dice: "El **19 de junio**" → Llama a `process_appointment_request` con: `{{"user_query_for_date_time": "el 19 de junio", "day_param": 19, "month_param": "junio"}}`
-        - Usuario dice: "El **próximo martes**" → Llama a `process_appointment_request` con: `{{"user_query_for_date_time": "el próximo martes", "fixed_weekday_param": "martes"}}`
+    - **Ejemplos de cómo debes llamar a la herramienta (formato [tool(args)]):**
+        - Usuario dice: "Para **hoy**" → Llama: [process_appointment_request(user_query_for_date_time="hoy")]
+        - Usuario dice: "**Lo más pronto posible**" → Llama: [process_appointment_request(user_query_for_date_time="lo más pronto posible", is_urgent_param=true)]
+        - Usuario dice: "**De hoy en ocho**" → Llama: [process_appointment_request(user_query_for_date_time="de hoy en ocho")]
+        - Usuario dice: "**Mañana en la tarde**" → Llama: [process_appointment_request(user_query_for_date_time="mañana en la tarde", explicit_time_preference_param="tarde")]
+        - Usuario dice: "El **19 de junio**" → Llama: [process_appointment_request(user_query_for_date_time="el 19 de junio", day_param=19, month_param="junio")]
+        - Usuario dice: "El **próximo martes**" → Llama: [process_appointment_request(user_query_for_date_time="el próximo martes", fixed_weekday_param="martes")]
     - **Regla "más tarde / más temprano"**: Si el usuario ya vio horarios y pide un ajuste:
-        - Si dice "más tarde", vuelve a llamar a `process_appointment_request` con los parámetros originales y añade `"more_late_param": true`.
-        - Si dice "más temprano", vuelve a llamar y añade `"more_early_param": true`.
+        - Si dice "más tarde", vuelve a llamar a `process_appointment_request` con los parámetros originales y añade `more_late_param=true`.
+        - Si dice "más temprano", vuelve a llamar y añade `more_early_param=true`.
     - **Ambigüedad**: Si el usuario dice algo como "martes o miércoles", NO llames a la herramienta. Pide aclaración primero.
 
     **PASO 3. Interpretar la Respuesta de la Herramienta**
     - La herramienta te dará un `status`. Tu respuesta al usuario DEPENDE de ese status:
-        - Si `status` es `SLOT_LIST`: Muestra los horarios. Ej: "Para el {{pretty_date}}, tengo disponible: {{available_pretty}}. ¿Alguna de estas horas le funciona?"
-        - Si `status` es `SLOT_FOUND_LATER`: DEBES informar que no había en la fecha solicitada y ofrecer la nueva. Ej: "Busqué para el {{requested_date_iso}} y no había espacio. El siguiente disponible es el {{suggested_date_iso}}. ¿Le parece bien?"
+        - Si `status` es `SLOT_LIST`: Muestra los horarios. Ej: "Para el {pretty_date}, tengo disponible: {available_pretty}. ¿Alguna de estas horas le funciona?"
+        - Si `status` es `SLOT_FOUND_LATER`: DEBES informar que no había en la fecha solicitada y ofrecer la nueva. Ej: "Busqué para el {requested_date_iso} y no había espacio. El siguiente disponible es el {suggested_date_iso}. ¿Le parece bien?"
         - Si `status` es `NO_SLOT`: Informa que no hay disponibilidad. Ej: "Lo siento, no encontré horarios disponibles en los próximos meses."
         - Si `status` es `NO_MORE_LATE`: Di "No hay horarios más tarde ese día. ¿Quiere que busque en otro día?"
         - Si `status` es `NO_MORE_EARLY`: Di "No hay horarios más temprano ese día. ¿Quiere que busque en otro día?"
@@ -89,9 +82,9 @@ Si necesitas llamar una herramienta, el formato [herramienta(args)] es OBLIGATOR
         4. Solo si lo confirma, pregunta por el **Motivo de la consulta**.
 
     **PASO 5. Confirmación Final y Creación del Evento**
-    - Antes de guardar, DEBES confirmar todos los datos. Ej: "Ok, entonces su cita quedaría para el {{pretty_date}}, a nombre del paciente {{nombre}}. ¿Es correcto?"
+    - Antes de guardar, DEBES confirmar todos los datos. Ej: "Ok, entonces su cita quedaría para el {pretty_date}, a nombre del paciente {nombre}. ¿Es correcto?"
     - **Importante:** NO te refieras al usuario por el nombre del paciente.
-    - Solo si el usuario da el "sí" final, llama a `Calendar`. Asegúrate de que los campos `start_time` y `end_time` estén en formato ISO 8601 con offset de Cancún (-05:00).
+    - Solo si el usuario da el "sí" final, llama a `create_calendar_event`. Asegúrate de que los campos `start_time` y `end_time` estén en formato ISO 8601 con offset de Cancún (-05:00).
 </module>
 
 <module id="editar_cita">
@@ -113,76 +106,55 @@ Si necesitas llamar una herramienta, el formato [herramienta(args)] es OBLIGATOR
 
 # INFORMACIÓN SOBRE IA
 Si preguntan quién te creó, responde: "Fui desarrollada por Aissistants Pro en Cancún. Mi creador es Esteban Reyna."
-""".strip()
+"""
 
-# ────────────────────────────────────────────────────────────────────────────────
-# Clase para construir el prompt con historial – YA NO añade herramientas otra vez
-# ────────────────────────────────────────────────────────────────────────────────
 class LlamaPromptEngine:
-    """Crea el prompt para Llama-3.3 con historial; las herramientas ya van en PROMPT_UNIFICADO."""
-    MAX_PROMPT_TOKENS = 120_000  # equivalencia ≈360 k caracteres
+    """
+    Clase que encapsula toda la lógica para construir prompts nativos y seguros
+    para Llama 3.3, incluyendo manejo de herramientas y truncamiento.
+    """
+    MAX_PROMPT_TOKENS = 120000
 
-    def __init__(self):
-        logger.info("PromptEngine listo (truncamiento por caracteres)")
+    def __init__(self, tool_definitions: List[Dict]):
+        self.tool_definitions = tool_definitions
+        logger.info("Usando truncamiento basado en caracteres (sin tokenizer)")
 
-    # ── API principal ─
     def generate_prompt(
         self,
-        conversation_history: List[Dict[str, str]],
+        conversation_history: List[Dict],
         detected_intent: Optional[str] = None
     ) -> str:
-        system_prompt = PROMPT_UNIFICADO  # ¡ya contiene herramientas!
-
+        """
+        Construye el prompt nativo completo para Llama 3.3.
+        """
+        system_prompt = PROMPT_UNIFICADO
+        
+        tools_json = json.dumps([tool["function"] for tool in self.tool_definitions], indent=2, ensure_ascii=False)
+        system_prompt += f"\n\n## HERRAMIENTAS DISPONIBLES\n{tools_json}"
+        
         if detected_intent:
-            intent_json = json.dumps(
-                {
-                    "active_mode": detected_intent,
-                    "action": f"Sigue estrictamente las instrucciones del módulo <module id='{detected_intent}'>"
-                },
-                ensure_ascii=False
-            )
-            system_prompt += f"\n\n# CONTEXTO ACTIVO\n{intent_json}"
+            intent_context = {"active_mode": detected_intent, "action": f"Sigue estrictamente las instrucciones del módulo <module id='{detected_intent}'>"}
+            system_prompt += f"\n\n# CONTEXTO ACTIVO\n{json.dumps(intent_context)}"
+        
+        prompt_str = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
+        
+        for message in conversation_history:
+            role = message.get("role")
+            content = str(message.get("content", ""))
+            if role in ["user", "assistant", "tool"]:
+                prompt_role = "system" if role == "tool" else role
+                prompt_str += f"<|start_header_id|>{prompt_role}<|end_header_id|>\n\n{content}<|eot_id|>"
+        
+        prompt_str += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        
+        return self._truncate(prompt_str, self.MAX_PROMPT_TOKENS)
 
-        # --- Formato Llama 3.3 nativo ---
-        prompt = (
-            "<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n"
-            f"{system_prompt}<|eot_id|>"
-        )
-
-        for msg in conversation_history:
-            role = "system" if msg["role"] == "tool" else msg["role"]
-            prompt += (
-                f"<|start_header_id|>{role}<|end_header_id|>\n\n"
-                f"{msg.get('content','')}<|eot_id|>"
-            )
-
-        prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
-        return self._truncate(prompt)
-
-    # ── Truncamiento sencillo sin tokenizer ─
-    def _truncate(self, prompt: str) -> str:
-        max_chars = self.MAX_PROMPT_TOKENS * 3  # aprox. 3 caracteres por token
+    def _truncate(self, prompt: str, max_tokens: int) -> str:
+        """Trunca el prompt a max_tokens de forma segura usando aproximación por caracteres."""
+        max_chars = max_tokens * 3
+        
         if len(prompt) > max_chars:
-            logger.warning(
-                f"Prompt de {len(prompt)} chars excede {max_chars}. Cortando parte inicial."
-            )
+            logger.warning(f"El prompt ({len(prompt)} caracteres) excede el límite aproximado de {max_chars}. Será truncado.")
             return prompt[-max_chars:]
+        
         return prompt
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
