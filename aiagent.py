@@ -9,6 +9,7 @@
 # módulo real tiene nombre diferente en tu proyecto.
 # ────────────────────────────────────────────────────────────────────────────────
 
+import os
 import re
 import json
 import asyncio
@@ -16,6 +17,9 @@ import time
 import logging
 from typing import Dict, Any, List, Callable, Awaitable
 
+from groq import Groq
+from prompt import LlamaPromptEngine
+import httpx  # o tu cliente real de Groq/OpenAI
 from fastapi import logger
 
 from state_store import session_state  # ya existe
@@ -240,3 +244,30 @@ class AIAgent:
             except asyncio.TimeoutError:
                 logger.error(f"Timeout ejecutando herramienta: {name}")
         return out
+
+
+
+_prompt_engine = LlamaPromptEngine()
+_groq_client  = Groq()                 # Usa GROQ_API_KEY en variables de entorno
+
+async def generate_ai_response(session_id: str, history: list[dict]) -> str:
+    """
+    • Construye prompt con herramientas incluídas.
+    • Llama a Groq con streaming=True.
+    • Acumula los tokens en un buffer y los devuelve como string.
+    """
+    prompt = _prompt_engine.generate_prompt(history)
+
+    stream = await _groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    )
+
+    chunks = []
+    async for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta:
+            token = chunk.choices[0].delta.content or ""
+            chunks.append(token)
+
+    return "".join(chunks).strip()
