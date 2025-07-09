@@ -25,6 +25,8 @@ from utils import terminar_llamada_twilio
 import utils
 from asyncio import run_coroutine_threadsafe
 import collections.abc
+from state_store import emit_latency_event
+
 
 # Tus importaciones de módulos locales
 try:
@@ -830,6 +832,7 @@ class TwilioWebSocketManager:
         self.ignorar_stt = False
         self.tts_en_progreso = False
         logger.info(f" 🟢 STT reactivado (ignorar_stt=False).")
+        emit_latency_event(self.call_sid, "response_complete")
 
         if self.tts_timeout_task and not self.tts_timeout_task.done():
             self.tts_timeout_task.cancel()
@@ -929,6 +932,8 @@ class TwilioWebSocketManager:
                 "event": "clear",
                 "streamSid": self.stream_sid
             }))
+
+            emit_latency_event(self.call_sid, "tts_start", {"text": texto[:60]})
 
             logger.info(f"⏱️ [LATENCIA-3-START] TTS request iniciado para: '{texto[:30]}...'")
             ts_tts_start = self._now()

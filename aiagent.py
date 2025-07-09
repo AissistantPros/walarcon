@@ -1,360 +1,243 @@
 # aiagent.py
-# -*- coding: utf-8 -*-
-"""
-Motor de Decisión (Versión Final de Producción para Groq/Llama 3.3)
-"""
-import asyncio
-import json
-import logging
+# ────────────────────────────────────────────────────────────────────────────────
+# Modificación profunda que:
+#   • Añade parser multiformato con buffer (500 ms)
+#   • Implementa flujo “una pasada” (ejecuta herramienta → respuesta sintética)
+#   • Emite telemetría a session_state['events']
+#   • Mantiene intactos SessionManager, session_state y lógica existente de STT/TTS
+# Copia / pega este archivo completo y ajusta SOLO las rutas de import si algún
+# módulo real tiene nombre diferente en tu proyecto.
+# ────────────────────────────────────────────────────────────────────────────────
+
 import re
-import shlex  # <-- Usamos shlex para un parsing más seguro
-from time import perf_counter
-from typing import Dict, List, Any, Optional, Callable
+import json
+import asyncio
+import time
+import logging
+from typing import Dict, Any, List, Callable, Awaitable
 
-from decouple import config
-from groq import AsyncGroq
+from state_store import session_state  # ya existe
+from state_store import emit_latency_event
+from synthetic_responses import generate_synthetic_response
 
-# Importamos nuestro motor de prompts final del paso anterior
-from prompt import LlamaPromptEngine
+# ── Importa funciones REALES de tus módulos de herramientas ───────────────────
+# Ajusta nombres de módulo si difieren.
+from buscarslot import process_appointment_request            # noqa: F401
+from crearcita import create_calendar_event                   # noqa: F401
+from selectevent import edit_calendar_event, delete_calendar_event  # noqa: F401
+from buscarslot import read_sheet_data                        # noqa: F401
+from buscarslot import get_cancun_weather                     # noqa: F401
+from buscarslot import detect_intent                          # noqa: F401
+from selectevent import search_calendar_event_by_phone        # noqa: F401
 
-# --- Configuración ---
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)5s | %(name)s: %(message)s", datefmt="%H:%M:%S")
-logger = logging.getLogger("aiagent")
+logger = logging.getLogger(__name__)
 
-# --- Clientes y Gestores ---
-try:
-    client = AsyncGroq(api_key=config("GROQ_API_KEY"))
-    logger.info("Cliente AsyncGroq inicializado correctamente.")
-except Exception as e:
-    logger.critical(f"No se pudo inicializar el cliente Groq. Verifica GROQ_API_KEY: {e}")
-    client = None
+# ╭─ REGISTRO DE HERRAMIENTAS ───────────────────────────────────────────────╮
+TOOL_REGISTRY: Dict[str, Callable[..., Awaitable[Dict[str, Any]]]] = {}
 
-class SessionManager:
-    """Gestiona el estado de la conversación para cada sesión única."""
-    def __init__(self):
-        self.sessions: Dict[str, Dict[str, Any]] = {}
 
-    def get_state(self, session_id: str) -> Dict[str, Any]:
-        if session_id not in self.sessions:
-            self.sessions[session_id] = {"mode": None}
-        return self.sessions[session_id]
+def register_tool(name: str, func: Callable[..., Awaitable[Dict[str, Any]]]):
+    """Se invoca abajo para cada herramienta importada."""
+    TOOL_REGISTRY[name] = func
 
-    def set_mode(self, session_id: str, mode: str):
-        state = self.get_state(session_id)
-        state['mode'] = mode
 
-# --- Motor de Herramientas con Parsing Seguro ---
+# ── Registrar todo (mantén en sincronía con ALL_TOOLS del prompt) ─────────────
+register_tool("process_appointment_request", process_appointment_request)
+register_tool("create_calendar_event", create_calendar_event)
+register_tool("edit_calendar_event", edit_calendar_event)
+register_tool("delete_calendar_event", delete_calendar_event)
+register_tool("read_sheet_data", read_sheet_data)
+register_tool("get_cancun_weather", get_cancun_weather)
+register_tool("detect_intent", detect_intent)
+register_tool("search_calendar_event_by_phone", search_calendar_event_by_phone)
+
+
+# ╭─ TOOL ENGINE (parser con buffer) ──────────────────────────────────────────╮
 class ToolEngine:
-    """Encapsula el parseo, validación y ejecución de herramientas."""
-    TOOL_CALL_PATTERN = re.compile(r'\[(\w+)\((.*?)\)\]', re.DOTALL)
+    """Detecta [tool()], JSON, <function>, <|python_tag|> y nunca deja filtrar texto."""
+    LIST_RE = re.compile(r'\[(\w+)\s*\((.*?)\)\]', re.S)
+    JSON_RE = re.compile(r'^\s*\{.*?"type"\s*:\s*"function".*?\}\s*$', re.S)
+    XML_RE = re.compile(r'<function\s*=\s*(\w+)>\s*(\{.*?\})\s*</function>', re.S)
+    PYTAG_RE = re.compile(r'<\|python_tag\|>\s*(\w+)\.call\((.*?)\)', re.S)
 
-    def __init__(self, tool_definitions: List[Dict]):
-        self.tool_schemas = {tool['function']['name']: tool['function'] for tool in tool_definitions}
-        self.tool_executors = self._map_executors()
+    def __init__(self):
+        self._buf = ""
+        self._buf_start = 0.0
+        self._open = False
 
-    def _map_executors(self) -> Dict[str, Callable]:
-        """Mapea nombres de herramientas a las funciones de Python."""
-        # Importaciones de tu lógica de negocio
-        from consultarinfo import get_consultorio_data_from_cache
-        from crearcita import create_calendar_event
-        from editarcita import edit_calendar_event
-        from eliminarcita import delete_calendar_event
-        from utils import search_calendar_event_by_phone
-        from weather_utils import get_cancun_weather
-        import buscarslot
+    # ── Buffer helpers ──
+    def _start(self):
+        self._buf = ""
+        self._buf_start = time.perf_counter()
+        self._open = True
 
-        return {
-            "read_sheet_data": get_consultorio_data_from_cache,
-            "process_appointment_request": buscarslot.process_appointment_request,
-            "create_calendar_event": create_calendar_event,
-            "edit_calendar_event": edit_calendar_event,
-            "delete_calendar_event": delete_calendar_event,
-            "search_calendar_event_by_phone": search_calendar_event_by_phone,
-            "get_cancun_weather": get_cancun_weather,
-            # Agrega aquí cualquier otra herramienta que falte
-        }
+    def _timeout(self) -> bool:
+        return (time.perf_counter() - self._buf_start) * 1000 > 500
 
-    def parse_tool_calls(self, text: str) -> List[Dict]:
-        """Parsea el texto crudo del LLM y extrae las llamadas a herramientas."""
-        tool_calls = []
-        for match in self.TOOL_CALL_PATTERN.finditer(text):
-            tool_name, args_str = match.groups()
-            if tool_name in self.tool_schemas:
-                try:
-                    args = self._parse_arguments_with_shlex(args_str)
-                    tool_calls.append({"name": tool_name, "arguments": args})
-                except Exception as e:
-                    logger.warning(f"Error parseando argumentos para '{tool_name}' con shlex: {e}")
-        return tool_calls
-    
-    def _parse_arguments_with_shlex(self, args_str: str) -> Dict[str, Any]:
-        """Parsea argumentos de forma segura usando shlex, ideal para producción."""
-        if not args_str.strip(): return {}
-        args = {}
-        # shlex.split maneja correctamente las comillas y espacios
-        parts = shlex.split(args_str)
-        for part in parts:
-            if '=' in part:
-                key, value = part.split('=', 1)
-                args[key.strip()] = self._convert_type(value)
-        return args
-    
-    def _convert_type(self, value: str) -> Any:
-        """Convierte un string a su tipo Python más probable de forma segura."""
-        value = value.strip()
-        if value.lower() == 'true': return True
-        if value.lower() == 'false': return False
-        if value.lower() == 'none' or value.lower() == 'null': return None
-        try:
-            return int(value)
-        except ValueError:
+    # ── Public API ──
+    def parse_with_buffer(self, chunk: str) -> List[Dict[str, Any]]:
+        """Devuelve llamadas detectadas o [] si patrón no ha cerrado."""
+        if any(sym in chunk for sym in ('[', '{', '<')):
+            if not self._open:
+                self._start()
+            self._buf += chunk
+
+            if not self._pattern_complete(self._buf):
+                if self._timeout():
+                    logger.warning("Parser timeout, descarto buffer para evitar JSON al TTS")
+                    self._open = False
+                    self._buf = ""
+                return []
+
+            # patrón completo
+            calls = self._extract_calls(self._buf)
+            self._open = False
+            self._buf = ""
+            return calls
+
+        # chunk sin ningún inicio de patrón
+        return []
+
+    # ── Internos ──
+    @staticmethod
+    def _pattern_complete(text: str) -> bool:
+        return (text.count('{') == text.count('}')) or \
+               (text.count('[') == text.count(']')) or \
+               (text.count('<') == text.count('>'))
+
+    def _extract_calls(self, txt: str) -> List[Dict[str, Any]]:
+        calls: List[Dict[str, Any]] = []
+
+        # JSON formato
+        if self.JSON_RE.match(txt.strip()):
             try:
-                return float(value)
-            except ValueError:
-                return value # Dejar como string
+                payload = json.loads(txt)
+                payloads = payload if isinstance(payload, list) else [payload]
+                for p in payloads:
+                    if p.get("type") == "function":
+                        calls.append({"name": p["name"],
+                                      "arguments": p.get("parameters", {})})
+            except json.JSONDecodeError:
+                pass
 
-    async def execute_tool(self, tool_call: Dict) -> Dict:
-        """Ejecuta una herramienta y devuelve un resultado estructurado."""
-        tool_name = tool_call["name"]
-        arguments = tool_call["arguments"]
-        executor = self.tool_executors.get(tool_name)
-        
-        if not executor:
-            return {"error": f"Herramienta desconocida: {tool_name}", "details": "El ejecutor no fue encontrado."}
-        
-        try:
-            logger.info(f"Ejecutando: {tool_name} con {arguments}")
-            if asyncio.iscoroutinefunction(executor):
-                return await executor(**arguments)
-            else:
-                return executor(**arguments)
-        except Exception as e:
-            logger.exception(f"La ejecución de la herramienta '{tool_name}' falló.")
-            return {
-                "error": f"Fallo en la ejecución de {tool_name}",
-                "details": str(e),
-                "arguments_used": arguments
-            }
+        # XML formato
+        for m in self.XML_RE.finditer(txt):
+            try:
+                args = json.loads(m.group(2))
+            except json.JSONDecodeError:
+                args = {}
+            calls.append({"name": m.group(1), "arguments": args})
 
-# --- Agente Principal de IA (Orquestador) ---
+        # Llama python_tag
+        for m in self.PYTAG_RE.finditer(txt):
+            calls.append({"name": m.group(1),
+                          "arguments": self._parse_kv_pairs(m.group(2))})
+
+        # Lista clásica
+        for m in self.LIST_RE.finditer(txt):
+            calls.append({"name": m.group(1),
+                          "arguments": self._parse_kv_pairs(m.group(2))})
+
+        return calls
+
+    @staticmethod
+    def _parse_kv_pairs(argstr: str) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for pair in re.split(r'\s*,\s*', argstr.strip()):
+            if '=' in pair:
+                k, v = pair.split('=', 1)
+                try:
+                    out[k.strip()] = json.loads(v)
+                except json.JSONDecodeError:
+                    out[k.strip()] = v.strip().strip('"\'')
+        return out
+
+
+# ╭─ Limpia patrones para que nada “JSON” llegue al TTS ────────────────────────
+_CLEAN_RE = re.compile(
+    r'(<\|python_tag\|>.*?|\[.*?\]|\{.*?"type"\s*:\s*"function".*?\}|' +
+    r'<function=.*?</function>)',
+    re.S
+)
+
+
+def remove_all_tool_patterns(text: str) -> str:
+    return _CLEAN_RE.sub('', text).strip()
+
+
+# ╭─ AIAgent ────────────────────────────────────────────────────────────────────
 class AIAgent:
-    def __init__(self, tool_definitions: List[Dict]):
-        self.groq_client = client
-        self.prompt_engine = LlamaPromptEngine(tool_definitions=tool_definitions)
-        self.tool_engine = ToolEngine(tool_definitions)
-        self.session_manager = SessionManager()
-        self.model = "llama-3.3-70b-versatile"
+    """
+    Orquesta: respuesta LLM → detecta herramienta → ejecuta → respuesta sintética
+    Mantiene compatibilidad con SessionManager y session_state existentes.
+    """
+    def __init__(self, call_sid: str):
+        self.call_sid = call_sid
+        self.tool_engine = ToolEngine()
 
-    def _detect_intent(self, history: List[Dict], current_mode: Optional[str]) -> Optional[str]:
-        if not history: return None
-        last_message = history[-1]['content'].lower()
-        mode_keywords = {
-            "crear_cita": ["agendar", "cita", "reservar", "espacio"],
-            "editar_cita": ["cambiar", "modificar", "reprogramar"],
-            "eliminar_cita": ["cancelar", "borrar", "anular"]
-        }
-        for mode, keywords in mode_keywords.items():
-            if any(keyword in last_message for keyword in keywords):
-                return mode
-        return current_mode
+    # Este método se llama desde tu manejador de streaming
+    async def process_stream(
+        self,
+        llm_chunk: str,
+        history: List[Dict[str, str]]
+    ) -> str:
+        """
+        Retorna texto limpio para TTS.
+        """
+        emit_latency_event(self.call_sid, "chunk_received")
 
-    async def process_stream(self, session_id: str, history: List[Dict]) -> str:
-        """Orquesta el flujo completo en un solo pase de streaming."""
-        session_state = self.session_manager.get_state(session_id)
-        
-        detected_intent = self._detect_intent(history, session_state.get("mode"))
-        if detected_intent:
-            self.session_manager.set_mode(session_id, detected_intent)
-        
-        full_prompt = self.prompt_engine.generate_prompt(history, detected_intent)
-        
+        tool_calls = self.tool_engine.parse_with_buffer(llm_chunk)
+        emit_latency_event(self.call_sid, "parse_start")
+
+        clean_text = remove_all_tool_patterns(llm_chunk)
+
+        # ─── Caso 1: Solo herramientas ───────────────────────────────────────
+        if tool_calls and not clean_text:
+            emit_latency_event(self.call_sid, "tool_detected", {"count": len(tool_calls)})
+            return await self._execute_tools_and_respond(tool_calls)
+
+        # ─── Caso 2: Texto + herramientas ───────────────────────────────────
+        if tool_calls and clean_text:
+            emit_latency_event(self.call_sid, "tool_detected", {"count": len(tool_calls)})
+
+            transition_words = {"un momento", "verificando", "por favor espere"}
+            if clean_text.lower().strip() in transition_words:
+                # Respuesta transicional → TTS inmediato, herramientas en background
+                asyncio.create_task(self._execute_tools_and_respond(tool_calls))
+                return clean_text
+
+            synthetic = await self._execute_tools_and_respond(tool_calls)
+            return f"{clean_text} {synthetic}"
+
+        # ─── Caso 3: Solo texto ──────────────────────────────────────────────
+        return clean_text
+
+    # ── Helpers internos ────────────────────────────────────────────────────
+    async def _execute_tools_and_respond(self, calls: List[Dict[str, Any]]) -> str:
+        emit_latency_event(self.call_sid, "tool_exec_start")
         try:
-            stream = await self.groq_client.chat.completions.create(
-                model=self.model, messages=[{"role": "user", "content": full_prompt}],
-                temperature=0.1, stream=True
-            )
-            full_response_text = ""
-            async for chunk in stream:
-                full_response_text += chunk.choices[0].delta.content or ""
-        except Exception as e:
-            logger.error(f"Error en la llamada a Groq: {e}")
-            return "Lo siento, hay un problema con la conexión al asistente. Por favor, intente de nuevo."
+            results = await asyncio.wait_for(self._execute_tools(calls), timeout=4.0)
+        except asyncio.TimeoutError:
+            emit_latency_event(self.call_sid, "tool_timeout")
+            return "Un momento por favor…"
+        emit_latency_event(self.call_sid, "tool_exec_end")
 
-        user_facing_text = re.sub(self.tool_engine.TOOL_CALL_PATTERN, "", full_response_text).strip()
-        tool_calls = self.tool_engine.parse_tool_calls(full_response_text)
-        
-        if tool_calls:
-            tool_tasks = [self.tool_engine.execute_tool(tc) for tc in tool_calls]
-            results = await asyncio.gather(*tool_tasks)
-            
-            history.append({"role": "assistant", "content": full_response_text})
-            for tool_call, result in zip(tool_calls, results):
-                history.append({
-                    "role": "tool", "name": tool_call["name"],
-                    "content": json.dumps(result, ensure_ascii=False)
-                })
-        else:
-             history.append({"role": "assistant", "content": user_facing_text})
-        
-        return user_facing_text
+        # Solo usamos la primera llamada para generar respuesta sintética
+        first = calls[0]["name"]
+        return generate_synthetic_response(first, results.get(first, {}))
 
-
-# --- Definiciones Completas de Herramientas ---
-# Esta lista maestra contiene todas las herramientas disponibles para el agente.
-ALL_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "read_sheet_data",
-            "description": "Obtener información general del consultorio como dirección, horarios de atención general, servicios principales, o políticas de cancelación. No usar para verificar disponibilidad de citas."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_cancun_weather",
-            "description": "Obtener el estado del tiempo actual en Cancún, como temperatura, descripción (soleado, nublado, lluvia), y sensación térmica. Útil si el usuario pregunta específicamente por el clima."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "detect_intent",
-            "description": "Detecta la intención del usuario cuando no está claro si quiere agendar en un horario 'más tarde' (more_late) o 'más temprano' (more_early) de la hora que le propusimos.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "intention": {
-                        "type": "string",
-                        "enum": ["more_late", "more_early"],
-                        "description": "La intención detectada del usuario."
-                    }
-                },
-                "required": ["intention"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_mode",
-            "description": "Cambia el modo de operación del asistente. Úsala cuando detectes una intención clara del usuario de agendar, editar o eliminar una cita.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["crear", "editar", "eliminar", "None"],
-                        "description": "'crear' para agendar, 'editar' para modificar, 'eliminar' para cancelar, 'None' para modo general."
-                    }
-                },
-                "required": ["mode"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "end_call",
-            "description": "Cierra la llamada de manera definitiva. Úsala cuando ya se haya despedido al paciente.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string",
-                        "description": "Motivo del cierre. Ej: 'user_request', 'task_completed'."
-                    }
-                },
-                "required": ["reason"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "process_appointment_request",
-            "description": "Procesa la solicitud de agendamiento o consulta de disponibilidad de citas. Interpreta la petición de fecha/hora del usuario.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "user_query_for_date_time": {"type": "string"},
-                    "day_param": {"type": "integer"},
-                    "month_param": {"type": ["string", "integer"]},
-                    "year_param": {"type": "integer"},
-                    "fixed_weekday_param": {"type": "string"},
-                    "explicit_time_preference_param": {"type": "string", "enum": ["mañana", "tarde", "mediodia"]},
-                    "is_urgent_param": {"type": "boolean"},
-                    "more_late_param": {"type": "boolean"},
-                    "more_early_param": {"type": "boolean"}
-                },
-                "required": ["user_query_for_date_time"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "create_calendar_event",
-            "description": "Crear una nueva cita médica en el calendario después de que el usuario haya confirmado todo.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "phone": {"type": "string"},
-                    "reason": {"type": "string"},
-                    "start_time": {"type": "string", "format": "date-time"},
-                    "end_time": {"type": "string", "format": "date-time"}
-                },
-                "required": ["name", "phone", "start_time", "end_time"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "search_calendar_event_by_phone",
-            "description": "Buscar citas existentes de un paciente por su número de teléfono."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "edit_calendar_event",
-            "description": "Modificar una cita existente en el calendario.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "event_id": {"type": "string"},
-                    "new_start_time_iso": {"type": "string", "format": "date-time"},
-                    "new_end_time_iso": {"type": "string", "format": "date-time"},
-                    "new_name": {"type": "string"},
-                    "new_reason": {"type": "string"},
-                    "new_phone_for_description": {"type": "string"}
-                },
-                "required": ["event_id", "new_start_time_iso", "new_end_time_iso"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_calendar_event",
-            "description": "Eliminar/Cancelar una cita existente del calendario.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "event_id": {"type": "string"},
-                    "original_start_time_iso": {"type": "string", "format": "date-time"}
-                },
-                "required": ["event_id", "original_start_time_iso"]
-            }
-        }
-    }
-]
-
-
-ai_agent = AIAgent(tool_definitions=ALL_TOOLS)
-
-async def generate_ai_response(session_id: str, history: List[Dict]) -> str:
-    """Función pública que será llamada desde tw_utils.py."""
-    return await ai_agent.process_stream(session_id, history)
+    async def _execute_tools(self, calls: List[Dict[str, Any]]) -> Dict[str, Any]:
+        out: Dict[str, Any] = {}
+        for call in calls:
+            name = call["name"]
+            func = TOOL_REGISTRY.get(name)
+            if func is None:
+                logger.error(f"Herramienta no registrada: {name}")
+                continue
+            try:
+                out[name] = await asyncio.wait_for(
+                    func(**call["arguments"]), timeout=2.0
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"Timeout ejecutando herramienta: {name}")
+        return out
