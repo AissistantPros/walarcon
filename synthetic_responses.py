@@ -205,7 +205,9 @@ def prepare_format_data(tool_name: str, result: Dict[str, Any]) -> Dict[str, Any
     if tool_name == "process_appointment_request":
         # Convertir listas a strings
         if "available_pretty" in format_data and isinstance(format_data["available_pretty"], list):
-            format_data["available_pretty"] = " o ".join(format_data["available_pretty"])
+            # Tomar máximo 3 horarios
+            slots = format_data["available_pretty"][:3]
+            format_data["available_pretty"] = " o ".join(slots)
         
         # Formatear fechas si vienen en ISO
         if "date_iso" in format_data:

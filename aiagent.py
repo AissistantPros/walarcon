@@ -79,13 +79,14 @@ class ToolEngine:
             "delete_calendar_event": delete_calendar_event,
             "search_calendar_event_by_phone": search_calendar_event_by_phone,
             "get_cancun_weather": get_cancun_weather,
-            "end_call": self._handle_end_call,  # <<< CAMBIO 1: AGREGADO
+            "end_call": self._handle_end_call,  
         }
 
-    # <<< CAMBIO 2: MÉTODO AGREGADO >>>
+    
     def _handle_end_call(self, reason: str = "user_request") -> Dict:
         """Marca que se debe terminar la llamada."""
-        return {"action": "end_call", "reason": reason}
+        # Agregar una bandera especial que el sistema reconozca
+        return {"action": "end_call", "reason": reason, "__terminate__": True}
 
     def parse_tool_calls(self, text: str) -> List[Dict]:
         """Parsea el texto crudo del LLM y extrae las llamadas a herramientas."""
@@ -312,6 +313,16 @@ class AIAgent:
                 })
                 logger.info(f"[HISTORIAL] Agregado 'tool' ({tool_call['name']}): {tool_content[:200]}...")
             
+
+            # Verificar si alguna herramienta pidió terminar la llamada
+            for result in results:
+                if isinstance(result, dict) and result.get("__terminate__"):
+                    history.append({"role": "assistant", "content": full_response_text})
+                    logger.info("[HISTORIAL] IA solicitó terminar llamada")
+                    return "__END_CALL__"
+
+
+
             # Generación de respuesta sintética si es necesario
             if not user_facing_text:
                 from synthetic_responses import generate_synthetic_response
