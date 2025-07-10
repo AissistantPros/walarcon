@@ -49,7 +49,7 @@ logger.setLevel(logging.DEBUG)
 LOG_TS_FORMAT = "%H:%M:%S.%f"
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .20
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .3
 MAX_TIMEOUT_SIN_ACTIVIDAD = 8.0
 LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 50
 HOLD_MESSAGE_FILE = "audio/espera_1.wav"
