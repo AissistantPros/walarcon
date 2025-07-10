@@ -79,7 +79,13 @@ class ToolEngine:
             "delete_calendar_event": delete_calendar_event,
             "search_calendar_event_by_phone": search_calendar_event_by_phone,
             "get_cancun_weather": get_cancun_weather,
+            "end_call": self._handle_end_call,  # <<< CAMBIO 1: AGREGADO
         }
+
+    # <<< CAMBIO 2: MÉTODO AGREGADO >>>
+    def _handle_end_call(self, reason: str = "user_request") -> Dict:
+        """Marca que se debe terminar la llamada."""
+        return {"action": "end_call", "reason": reason}
 
     def parse_tool_calls(self, text: str) -> List[Dict]:
         """Parsea el texto crudo del LLM y extrae las llamadas a herramientas."""
@@ -132,9 +138,12 @@ class ToolEngine:
         return tool_calls
     
     def _parse_arguments_with_shlex(self, args_str: str) -> Dict[str, Any]:
-        """Parsea argumentos de forma segura usando shlex."""
-        if not args_str.strip(): 
+        """
+        Parsea argumentos de forma segura usando shlex y limpia comas finales de los valores.
+        """
+        if not args_str.strip():
             return {}
+            
         args = {}
         try:
             # shlex.split maneja correctamente las comillas y espacios
@@ -144,13 +153,18 @@ class ToolEngine:
                     key, value = part.split('=', 1)
                     args[key.strip()] = self._convert_type(value)
         except Exception as e:
-            logger.warning(f"Error en shlex parsing: {e}, intentando parsing simple")
-            # Fallback a parsing simple
+            print(f"Advertencia: Error en shlex parsing: {e}, intentando parsing simple")
             for pair in args_str.split(','):
                 if '=' in pair:
                     key, value = pair.split('=', 1)
                     args[key.strip()] = self._convert_type(value.strip())
-        return args
+
+        cleaned_args = {}
+        for key, value in args.items():
+            if isinstance(value, str):
+                value = value.rstrip(',')
+            cleaned_args[key] = value
+        return cleaned_args
     
     def _convert_type(self, value: str) -> Any:
         """Convierte un string a su tipo Python más probable."""
@@ -177,7 +191,6 @@ class ToolEngine:
         
         try:
             logger.info(f"Ejecutando: {tool_name} con {arguments}")
-            # Las herramientas son síncronas, no async
             if asyncio.iscoroutinefunction(executor):
                 result = await executor(**arguments)
             else:
@@ -193,13 +206,9 @@ class ToolEngine:
 
     def remove_tool_patterns(self, text: str) -> str:
         """Elimina TODOS los patrones de herramientas del texto."""
-        # Eliminar formato [tool()]
         text = self.TOOL_CALL_PATTERN.sub('', text)
-        # Eliminar formato JSON
         text = self.JSON_PATTERN.sub('', text)
-        # Eliminar formato XML
         text = self.XML_PATTERN.sub('', text)
-        # Eliminar formato python_tag
         text = self.PYTHON_TAG_PATTERN.sub('', text)
         return text.strip()
 
@@ -237,7 +246,6 @@ class AIAgent:
         
         full_prompt = self.prompt_engine.generate_prompt(history, detected_intent)
         
-        # Emitir evento de inicio
         emit_latency_event(session_id, "chunk_received")
         
         try:
@@ -254,25 +262,20 @@ class AIAgent:
             logger.error(f"Error en la llamada a Groq: {e}")
             return "Lo siento, hay un problema con la conexión al asistente. Por favor, intente de nuevo."
 
-        # Emitir evento de parsing
         emit_latency_event(session_id, "parse_start")
         
-        # CRÍTICO: Limpiar el texto ANTES de enviarlo al usuario
         user_facing_text = self.tool_engine.remove_tool_patterns(full_response_text).strip()
         
-        # Detectar herramientas
         tool_calls = self.tool_engine.parse_tool_calls(full_response_text)
         
         if tool_calls:
             emit_latency_event(session_id, "tool_detected", {"count": len(tool_calls)})
             
-            # Si hay herramientas, ejecutarlas
             emit_latency_event(session_id, "tool_exec_start")
             tool_tasks = [self.tool_engine.execute_tool(tc) for tc in tool_calls]
             results = await asyncio.gather(*tool_tasks)
             emit_latency_event(session_id, "tool_exec_end")
             
-            # Guardar en historial con el texto completo (incluyendo herramientas)
             history.append({"role": "assistant", "content": full_response_text})
             for tool_call, result in zip(tool_calls, results):
                 history.append({
@@ -281,10 +284,8 @@ class AIAgent:
                     "content": json.dumps(result, ensure_ascii=False)
                 })
             
-            # Si no hay texto para el usuario, generar respuesta sintética
             if not user_facing_text:
                 from synthetic_responses import generate_synthetic_response
-                # Usar la primera herramienta para generar respuesta
                 if tool_calls and results:
                     user_facing_text = generate_synthetic_response(
                         tool_calls[0]["name"], 
@@ -293,13 +294,12 @@ class AIAgent:
                 else:
                     user_facing_text = "He procesado su solicitud."
         else:
-            # No hay herramientas, guardar solo el texto limpio
             history.append({"role": "assistant", "content": user_facing_text})
         
         emit_latency_event(session_id, "response_complete")
         return user_facing_text
 
-
+# El resto del archivo no cambia, pero lo incluyo para que sea completo
 # --- Definiciones Completas de Herramientas ---
 ALL_TOOLS = [
     {

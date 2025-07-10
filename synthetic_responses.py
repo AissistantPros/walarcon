@@ -153,6 +153,7 @@ TEMPLATES = {
     }
 }
 
+
 def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
     """
     Genera una respuesta sintética basada en el resultado de una herramienta.
@@ -167,7 +168,12 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
     status_templates = TEMPLATES[tool_name].get(status, TEMPLATES[tool_name].get("default", []))
     
     if not status_templates:
-        return "Operación completada."
+        # --- INICIO DE LA INTEGRACIÓN ---
+        # Reemplazamos el return genérico con una lógica más inteligente.
+        if "error" in result:
+            return "Hubo un problema al procesar su solicitud. ¿Podemos intentar de nuevo?"
+        return "He procesado su solicitud correctamente."
+        # --- FIN DE LA INTEGRACIÓN ---
     
     # Seleccionar una plantilla aleatoria
     template = random.choice(status_templates)
@@ -179,8 +185,15 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
         # Formatear la plantilla con los datos
         return template.format(**format_data)
     except Exception as e:
-        logger.warning(f"Error formateando respuesta sintética: {e}")
+        # logger.warning(f"Error formateando respuesta sintética: {e}")
+        print(f"Advertencia: Error formateando respuesta sintética: {e}") # Usando print si no hay logger
         return template  # Devolver la plantilla sin formatear como fallback
+    
+
+
+
+
+    
 
 def prepare_format_data(tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     """
