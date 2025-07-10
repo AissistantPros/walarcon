@@ -106,7 +106,7 @@ class TwilioWebSocketManager:
         self.finales_acumulados: List[str] = []
         self.conversation_history: List[dict] = []
         self.hold_audio_mulaw_bytes: bytes = b""
-
+        self.turn_start_time: Optional[float] = None
 
         try:
             if os.path.exists(HOLD_MESSAGE_FILE):
@@ -669,6 +669,13 @@ class TwilioWebSocketManager:
         if not mensaje:
             return
 
+        # <<< INICIO CAMBIO: Registrar inicio del turno de conversación >>>
+        self.turn_start_time = self._now()
+        logger.info(f"[PERF] INICIO DE TURNO (desde fin de STT del usuario)")
+        # <<< FIN CAMBIO >>>
+
+
+
         # ⏱️ Medición: cuánto tiempo pasó desde el último is_final
         ahora_pc = self._now()
         if hasattr(self, "last_final_stt_timestamp"):
@@ -833,6 +840,16 @@ class TwilioWebSocketManager:
         self.ignorar_stt = False
         self.tts_en_progreso = False
         logger.info(f" 🟢 STT reactivado (ignorar_stt=False).")
+
+
+        # <<< INICIO CAMBIO: Medir y loguear latencia total del turno >>>
+        if self.turn_start_time:
+            turn_end_time = self._now()
+            total_turn_latency = (turn_end_time - self.turn_start_time) * 1000
+            logger.info(f"[PERF] FIN DE TURNO. Latencia E2E (Usuario fin -> IA fin): {total_turn_latency:.1f} ms")
+            self.turn_start_time = None # Resetear para el siguiente turno
+        # <<< FIN CAMBIO >>>
+        
         
         emit_latency_event(self.call_sid, "response_complete")
         if self.tts_timeout_task and not self.tts_timeout_task.done():
@@ -883,6 +900,10 @@ class TwilioWebSocketManager:
 
             logger.info("🗣️ Usuario → IA: “%s”", user_text)
             self.conversation_history.append({"role": "user", "content": user_text})
+
+            # <<< INICIO CAMBIO: Log de historial de usuario >>>
+            logger.info(f"[HISTORIAL] Agregado 'user': '{user_text}'")
+            # <<< FIN CAMBIO >>>
 
             session_id = self.call_sid
             emit_latency_event(session_id, "parse_start")

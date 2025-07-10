@@ -16,17 +16,17 @@ TEMPLATES = {
     "process_appointment_request": {
         "SLOT_LIST": [
             "Para el {pretty_date}, tengo disponible: {available_pretty}. ¿Alguna de estas horas le funciona?",
-            "Le encontré espacio el {pretty_date} a las: {available_pretty}. ¿Cuál prefiere?",
-            "Perfecto, para {pretty_date} hay lugar a las: {available_pretty}.",
-            "Tengo estos horarios para el {pretty_date}: {available_pretty}. ¿Le conviene alguno?",
+            "Le encontré espacio el {pretty_date} a las: {available_pretty}. ¿Le acomoda alguna?",
+            "Perfecto, para {pretty_date} hay lugar a las: {available_pretty}. ¿Le sirve alguna de estas horas?",
+            "Tengo estos horarios para el {pretty_date}: {available_pretty}. ¿Le conviene algun horario?",
             "El {pretty_date} puedo ofrecerle: {available_pretty}. ¿Qué hora le queda mejor?"
         ],
         "SLOT_FOUND_LATER": [
             "Busqué para el {requested_date_iso} y no había espacio. El siguiente disponible es el {suggested_date_iso}. ¿Le parece bien?",
             "No hay lugar el día solicitado. Tengo disponible el {suggested_date_iso} a las {available_pretty}. ¿Lo tomamos?",
-            "La fecha que pidió está llena. ¿Le funciona el {suggested_date_iso}? Tengo: {available_pretty}.",
+            "La fecha que pidió está llena. ¿Le funciona el {suggested_date_iso}? Tengo: {available_pretty}. ¿Le acomoda?",
             "No encontré espacio para entonces. El próximo hueco es el {suggested_date_iso}: {available_pretty}. ¿Está bien?",
-            "Esa fecha no tiene disponibilidad. Puedo ofrecerle el {suggested_date_iso} en estos horarios: {available_pretty}."
+            "Esa fecha no tiene disponibilidad. Puedo ofrecerle el {suggested_date_iso} en estos horarios: {available_pretty}. ¿Le sirve alguno?"
         ],
         "NO_SLOT": [
             "Lo siento, no encontré horarios disponibles en los próximos meses.",
@@ -64,11 +64,11 @@ TEMPLATES = {
     },
     "create_calendar_event": {
         "success": [
-            "Perfecto, su cita quedó agendada.",
-            "Listo, ya está registrada su cita.",
-            "Excelente, cita confirmada.",
-            "Su cita ha sido creada exitosamente.",
-            "Todo listo, le esperamos en su cita."
+            "Perfecto, su cita quedó agendada. Le puedo ayudar con algo más?",
+            "Listo, ya está registrada su cita. ¿Necesita algo más?",
+            "Excelente, cita confirmada. ¿Hay algo más en lo que le pueda ayudar?",
+            "Su cita ha sido creada exitosamente. ¿Puedo ayudarle con algo más?",
+            "Quedó guardada su cita, le esperamos en su cita. ¿Algo más que necesite?",
         ],
         "error": [
             "Hubo un problema al crear la cita. ¿Podemos intentar de nuevo?",
@@ -193,7 +193,7 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
 
 
 
-    
+
 
 def prepare_format_data(tool_name: str, result: Dict[str, Any]) -> Dict[str, Any]:
     """

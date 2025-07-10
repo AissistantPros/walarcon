@@ -189,12 +189,17 @@ class ToolEngine:
         if not executor:
             return {"error": f"Herramienta desconocida: {tool_name}", "details": "El ejecutor no fue encontrado."}
         
+        t_start = perf_counter()
         try:
             logger.info(f"Ejecutando: {tool_name} con {arguments}")
             if asyncio.iscoroutinefunction(executor):
                 result = await executor(**arguments)
             else:
                 result = executor(**arguments)
+            
+            t_end = perf_counter()
+            logger.info(f"[PERF] Herramienta '{tool_name}' ejecutada en {(t_end - t_start) * 1000:.1f} ms")
+            
             return result
         except Exception as e:
             logger.exception(f"La ejecución de la herramienta '{tool_name}' falló.")
@@ -234,6 +239,10 @@ class AIAgent:
                 return mode
         return current_mode
 
+
+
+
+   
     async def process_stream(self, session_id: str, history: List[Dict]) -> str:
         """Orquesta el flujo completo en un solo pase de streaming."""
         from state_store import emit_latency_event
@@ -249,6 +258,11 @@ class AIAgent:
         emit_latency_event(session_id, "chunk_received")
         
         try:
+            # Medición de latencia de la IA
+            logger.info(f"[PERF] Iniciando llamada a Groq (modelo: {self.model})")
+            t_start_llm = perf_counter()
+            first_chunk_time = None
+
             stream = await self.groq_client.chat.completions.create(
                 model=self.model, 
                 messages=[{"role": "user", "content": full_prompt}],
@@ -257,6 +271,11 @@ class AIAgent:
             )
             full_response_text = ""
             async for chunk in stream:
+                if first_chunk_time is None:
+                    first_chunk_time = perf_counter()
+                    ttft = (first_chunk_time - t_start_llm) * 1000
+                    logger.info(f"[PERF] IA (Groq) - Time To First Token: {ttft:.1f} ms")
+                
                 full_response_text += chunk.choices[0].delta.content or ""
         except Exception as e:
             logger.error(f"Error en la llamada a Groq: {e}")
@@ -264,26 +283,36 @@ class AIAgent:
 
         emit_latency_event(session_id, "parse_start")
         
+        # Parseo de la respuesta
+        t_parse_start = perf_counter()
         user_facing_text = self.tool_engine.remove_tool_patterns(full_response_text).strip()
-        
         tool_calls = self.tool_engine.parse_tool_calls(full_response_text)
+        t_parse_end = perf_counter()
+        logger.info(f"[PERF] Parsing de respuesta del LLM en {(t_parse_end - t_parse_start) * 1000:.1f} ms")
         
         if tool_calls:
             emit_latency_event(session_id, "tool_detected", {"count": len(tool_calls)})
             
+            # Ejecución de herramientas
             emit_latency_event(session_id, "tool_exec_start")
             tool_tasks = [self.tool_engine.execute_tool(tc) for tc in tool_calls]
             results = await asyncio.gather(*tool_tasks)
             emit_latency_event(session_id, "tool_exec_end")
             
+            # Logueo del historial
             history.append({"role": "assistant", "content": full_response_text})
+            logger.info(f"[HISTORIAL] Agregado 'assistant' con tool_calls: {full_response_text}")
+
             for tool_call, result in zip(tool_calls, results):
+                tool_content = json.dumps(result, ensure_ascii=False)
                 history.append({
                     "role": "tool", 
                     "name": tool_call["name"],
-                    "content": json.dumps(result, ensure_ascii=False)
+                    "content": tool_content
                 })
+                logger.info(f"[HISTORIAL] Agregado 'tool' ({tool_call['name']}): {tool_content[:200]}...")
             
+            # Generación de respuesta sintética si es necesario
             if not user_facing_text:
                 from synthetic_responses import generate_synthetic_response
                 if tool_calls and results:
@@ -291,13 +320,17 @@ class AIAgent:
                         tool_calls[0]["name"], 
                         results[0]
                     )
+                    logger.info(f"[HISTORIAL] Respuesta sintética generada: '{user_facing_text}'")
                 else:
                     user_facing_text = "He procesado su solicitud."
         else:
+            # Logueo del historial para respuestas directas
             history.append({"role": "assistant", "content": user_facing_text})
+            logger.info(f"[HISTORIAL] Agregado 'assistant' con respuesta de texto: '{user_facing_text}'")
         
         emit_latency_event(session_id, "response_complete")
         return user_facing_text
+
 
 # El resto del archivo no cambia, pero lo incluyo para que sea completo
 # --- Definiciones Completas de Herramientas ---
