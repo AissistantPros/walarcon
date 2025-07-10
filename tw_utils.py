@@ -8,6 +8,7 @@ TTS, y el control del flujo de la llamada.
 
 import asyncio
 import base64
+from http import client
 import json
 import logging
 import re
@@ -48,8 +49,8 @@ logger.setLevel(logging.DEBUG)
 LOG_TS_FORMAT = "%H:%M:%S.%f"
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .30
-MAX_TIMEOUT_SIN_ACTIVIDAD = 5.0
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .20
+MAX_TIMEOUT_SIN_ACTIVIDAD = 8.0
 LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 50
 HOLD_MESSAGE_FILE = "audio/espera_1.wav"
 
@@ -253,6 +254,18 @@ class TwilioWebSocketManager:
        # --- Tarea de Monitoreo ---
         monitor_task = asyncio.create_task(self._monitor_call_timeout(), name=f"MonitorTask_{self.call_sid or id(self)}")
         #logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Monitor task created.")
+
+
+        # Pre-calentar Groq con llamada dummy
+        try:
+            await client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": "hi"}],
+                max_tokens=1
+            )
+        except:
+            pass
+
 
         # --- Bucle Principal de Recepción ---
         #logger.debug(f"⏱️ TS:[{datetime.now().strftime(LOG_TS_FORMAT)[:-3]}] HANDLE_WS Entering main receive loop...")
