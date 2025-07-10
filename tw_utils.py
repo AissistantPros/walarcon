@@ -329,7 +329,7 @@ class TwilioWebSocketManager:
                             greeting_text,
                             on_chunk=_send_greet_chunk,
                             on_end=_on_greet_end,
-                            timeout_first_chunk=3.0,
+                            timeout_first_chunk=1.0,
                         )
 
                         if not ok:
@@ -990,7 +990,7 @@ class TwilioWebSocketManager:
                     texto,
                     on_chunk=_send_chunk,
                     on_end=self._reactivar_stt_despues_de_envio,
-                    timeout_first_chunk=3.0,
+                    timeout_first_chunk=1.0,
                 )
 
                 if not ok:

@@ -63,7 +63,6 @@ class ToolEngine:
     def _map_executors(self) -> Dict[str, Callable]:
         """Mapea nombres de herramientas a las funciones de Python."""
         # Importaciones de tu lógica de negocio
-        from consultarinfo import get_consultorio_data_from_cache
         from crearcita import create_calendar_event
         from editarcita import edit_calendar_event
         from eliminarcita import delete_calendar_event
@@ -72,7 +71,6 @@ class ToolEngine:
         import buscarslot
 
         return {
-            "read_sheet_data": get_consultorio_data_from_cache,
             "process_appointment_request": buscarslot.process_appointment_request,
             "create_calendar_event": create_calendar_event,
             "edit_calendar_event": edit_calendar_event,
@@ -356,13 +354,6 @@ class AIAgent:
 # El resto del archivo no cambia, pero lo incluyo para que sea completo
 # --- Definiciones Completas de Herramientas ---
 ALL_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "read_sheet_data",
-            "description": "Obtener información general del consultorio como dirección, horarios de atención general, servicios principales, o políticas de cancelación. No usar para verificar disponibilidad de citas."
-        }
-    },
     {
         "type": "function",
         "function": {

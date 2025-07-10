@@ -54,6 +54,8 @@ class ElevenLabsWSClient:
         self._ws = None
         self._ws_task = None
 
+
+
         # Eventos de coordinación
         self._ws_open = asyncio.Event()
         self._ws_close = asyncio.Event()
@@ -69,12 +71,17 @@ class ElevenLabsWSClient:
         self._chunk_counter = 0
         self._send_time = 0.0
 
+        # Nueva bandera para control de cierre
+        self._closing = False
+
         # ✅ Configuración optimizada según RAG
         self.voice_settings = {
-            "stability": 0.75,
-            "style": 0.45,
+            "stability": 0.55,
+            "similarity": 1.0,
+            "volume": 1.0,
+            "style": 0.0,
             "use_speaker_boost": False,
-            "speed": 1.2,
+            "speed": 1.0,
         }
 
         # Iniciar conexión WebSocket REUTILIZABLE
@@ -112,9 +119,12 @@ class ElevenLabsWSClient:
                 # Marcar como conectado
                 self._loop.call_soon_threadsafe(self._ws_open.set)
 
+                # ✅ Iniciar tarea de keepalive
+                keepalive_task = asyncio.create_task(self._keepalive_loop())
+                
                 # Bucle de recepción
                 async for message in ws:
-                    if self._should_close:
+                    if self._closing:  # Verificar si estamos en proceso de cierre
                         break
                         
                     try:
@@ -128,9 +138,25 @@ class ElevenLabsWSClient:
         except Exception as e:
             logger.error(f"❌ Error en WebSocket ElevenLabs: {e}")
         finally:
+            # ✅ Marcar que estamos cerrando y cancelar keepalive
+            self._closing = True
+            
+            # Cancelar tarea de keepalive si existe
+            if 'keepalive_task' in locals():
+                keepalive_task.cancel()
+                try:
+                    await keepalive_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.debug(f"Error al cancelar keepalive: {e}")
+
             self._ws = None
             self._loop.call_soon_threadsafe(self._ws_close.set)
             logger.info("🔒 ElevenLabs WebSocket cerrado")
+
+
+
 
     def _clean_mp3_headers(self, audio_bytes: bytes) -> bytes:
         """Remueve headers ID3 del MP3, manteniendo solo datos de audio"""
@@ -215,6 +241,25 @@ class ElevenLabsWSClient:
         if "error" in data:
             error_msg = data["error"]
             logger.error(f"❌ Error de ElevenLabs: {error_msg}")
+
+
+    async def _keepalive_loop(self):
+        """Envía espacios cada 15 segundos para mantener viva la conexión"""
+        while not self._closing:
+            try:
+                if self._ws and not self._ws.closed:
+                    await self._ws.send(json.dumps({"text": " "}))
+                    logger.debug("💓 Keepalive enviado a ElevenLabs")
+                await asyncio.sleep(15)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug(f"Error en keepalive: {e}")
+                break
+
+
+
+
 
     # ─────────────────────────────────── API pública ────────────────────────────────────
 
