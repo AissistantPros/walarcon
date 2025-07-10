@@ -49,7 +49,7 @@ logger.setLevel(logging.DEBUG)
 LOG_TS_FORMAT = "%H:%M:%S.%f"
 
 # --- Constantes Configurables para Tiempos (en segundos) ---
-PAUSA_SIN_ACTIVIDAD_TIMEOUT = .6
+PAUSA_SIN_ACTIVIDAD_TIMEOUT = .4
 MAX_TIMEOUT_SIN_ACTIVIDAD = 8.0
 LATENCY_THRESHOLD_FOR_HOLD_MESSAGE = 50
 HOLD_MESSAGE_FILE = "audio/espera_1.wav"
@@ -1106,12 +1106,12 @@ class TwilioWebSocketManager:
         try:
             now = get_cancun_time()
             h = now.hour
-            if 5 <= h < 12: return "Buenos días, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
-            if 12 <= h < 19: return "Buenas tardes, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
-            return "Buenas noches, consultorio del Dr. Wilfrido Alarcón. ¿Cómo puedo ayudarle?"
+            if 5 <= h < 12: return "Buenos días!! Soy Dany, asistente de Inteligencia Artifical del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+            if 12 <= h < 19: return "Buenas tardes!! Soy Dany, asistente de Inteligencia Artifical del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+            return "Buenas noches!! Soy Dany, asistente de Inteligencia Artifical del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
         except Exception as e_greet:
              logger.error(f"Error generando saludo: {e_greet}")
-             return "Consultorio del Doctor Wilfrido Alarcón, ¿Cómo puedo ayudarle?"
+             return "Consultorio del Doctor Wilfrido Alarcón, Soy Dany, asistente de Inteligencia Artifical. ¿Cómo puedo ayudarle?"
 
 
     async def _monitor_call_timeout(self):
