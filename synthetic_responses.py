@@ -164,7 +164,7 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
     Genera una respuesta sintética basada en el resultado de una herramienta.
     """
     if tool_name not in TEMPLATES:
-        return "He procesado su solicitud."
+        return "Listo!!, está hecho. ¿Hay algo más en lo que pueda ayudarle?"
     
     # Obtener el status del resultado
     status = result.get("status", "default")
@@ -177,7 +177,7 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
         # Reemplazamos el return genérico con una lógica más inteligente.
         if "error" in result:
             return "Hubo un problema al procesar su solicitud. ¿Podemos intentar de nuevo?"
-        return "He procesado su solicitud correctamente."
+        return "Listo!!, está hecho. ¿Hay algo más en lo que pueda ayudarle?"
         # --- FIN DE LA INTEGRACIÓN ---
     
     # Seleccionar una plantilla aleatoria
