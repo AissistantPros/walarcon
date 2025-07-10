@@ -158,7 +158,24 @@ class LlamaPromptEngine:
         """
         Construye el prompt nativo completo para Llama 3.3.
         """
-        system_prompt = PROMPT_UNIFICADO
+        # AGREGAR FECHA ACTUAL DINÁMICA
+        from utils import get_cancun_time
+        now = get_cancun_time()
+        fecha_actual = now.strftime("%A %d de %B de %Y")
+        # Traducir día y mes al español
+        dias = {"Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miércoles", 
+                "Thursday": "Jueves", "Friday": "Viernes", "Saturday": "Sábado", "Sunday": "Domingo"}
+        meses = {"January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
+                "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
+                "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"}
+        
+        for en, es in dias.items():
+            fecha_actual = fecha_actual.replace(en, es)
+        for en, es in meses.items():
+            fecha_actual = fecha_actual.replace(en, es)
+        
+        system_prompt = f"# FECHA Y HORA ACTUAL\nHoy es {fecha_actual}. Hora actual en Cancún: {now.strftime('%H:%M')}.\nIMPORTANTE: Todas las citas deben ser para {now.year} o años posteriores.\n\n"
+        system_prompt += PROMPT_UNIFICADO
         
         tools_json = json.dumps([tool["function"] for tool in self.tool_definitions], indent=2, ensure_ascii=False)
         system_prompt += f"\n\n## HERRAMIENTAS DISPONIBLES\n{tools_json}"

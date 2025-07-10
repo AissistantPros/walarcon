@@ -327,10 +327,20 @@ class AIAgent:
             if not user_facing_text:
                 from synthetic_responses import generate_synthetic_response
                 if tool_calls and results:
-                    user_facing_text = generate_synthetic_response(
-                        tool_calls[0]["name"], 
-                        results[0]
-                    )
+                    # Verificar si hubo error en la herramienta
+                    first_result = results[0]
+                    if isinstance(first_result, dict) and "error" in first_result:
+                        # Usar status del error si existe, sino "error" genérico
+                        error_status = first_result.get("status", "error")
+                        user_facing_text = generate_synthetic_response(
+                            tool_calls[0]["name"], 
+                            {"status": error_status}
+                        )
+                    else:
+                        user_facing_text = generate_synthetic_response(
+                            tool_calls[0]["name"], 
+                            first_result
+                        )
                     logger.info(f"[HISTORIAL] Respuesta sintética generada: '{user_facing_text}'")
                 else:
                     user_facing_text = "He procesado su solicitud."

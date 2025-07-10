@@ -68,14 +68,19 @@ TEMPLATES = {
             "Listo, ya está registrada su cita. ¿Necesita algo más?",
             "Excelente, cita confirmada. ¿Hay algo más en lo que le pueda ayudar?",
             "Su cita ha sido creada exitosamente. ¿Puedo ayudarle con algo más?",
-            "Quedó guardada su cita, le esperamos en su cita. ¿Algo más que necesite?",
+            "Quedó guardada su cita. ¿Algo más que necesite?",
         ],
         "error": [
-            "Hubo un problema al crear la cita. ¿Podemos intentar de nuevo?",
-            "No pude agendar la cita. ¿Reintentamos?",
-            "Ocurrió un error al guardar. ¿Lo intentamos otra vez?",
-            "Disculpe, falló el registro. ¿Probamos nuevamente?",
-            "No se pudo crear la cita. ¿Intentamos de nuevo?"
+            "Hubo un problema al crear la cita. Permítame intentar nuevamente.",
+            "No pude agendar la cita. Déjeme verificar qué sucedió.",
+            "Ocurrió un error. Voy a intentar guardar su cita nuevamente.",
+            "Disculpe, no se pudo crear la cita. Permítame otro momento.",
+            "Hubo una falla técnica. Déjeme intentar de nuevo."
+        ],
+        "validation_error": [  
+            "Disculpe, hubo un error con la fecha. Permítame corregirlo.",
+            "Parece que hay un problema con los datos. Déjeme verificar.",
+            "No pude validar la información. Permítame intentar nuevamente."
         ]
     },
     "search_calendar_event_by_phone": {
