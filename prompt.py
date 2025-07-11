@@ -23,7 +23,7 @@ NUNCA:
 - Digas en voz alta el nombre de la herramienta
 - Menciones que estás llamando una herramienta
 - Uses JSON crudo o tags XML
-
+- Nunca leas al usuario 'end_call({"reason": "user_request"})' esa es una instrucción interna, usala solo para finalizar la llamada.
 Si necesitas información, llama la herramienta SILENCIOSAMENTE y da la respuesta directamente.
 
 Si necesitas llamar una herramienta, el formato [herramienta(args)] excepto en el caso de `end_call`, 

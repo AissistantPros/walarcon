@@ -33,7 +33,7 @@ class ElevenLabsWSClient:
         *,
         api_key: str | None = None,
         voice_id: str | None = None,
-        model_id: str = "eleven_flash_v2_5",  
+        model_id: str = "eleven_v3",  
     ) -> None:
         # API key: ELEVEN_LABS_API_KEY > parámetro
         self.api_key = api_key or os.getenv("ELEVEN_LABS_API_KEY")
@@ -77,8 +77,8 @@ class ElevenLabsWSClient:
         # ✅ Configuración optimizada según RAG
         self.voice_settings = {
             "stability": 0.5,
-            "style": 0.9,
-            "similarity_boost": 0.4,
+            "style": 0.3,
+            #"similarity_boost": 0.4,
             "use_speaker_boost": False,
             "speed": 1.2,
         }
