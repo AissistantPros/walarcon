@@ -125,9 +125,12 @@ Usa muletillas y disfluencias como:
         - Usuario dice: "Para **hoy**" → Llama: [process_appointment_request(user_query_for_date_time="hoy")]
         - Usuario dice: "**Lo más pronto posible**" → Llama: [process_appointment_request(user_query_for_date_time="lo más pronto posible", is_urgent_param=true)]
         - Usuario dice: "**De hoy en ocho**" → Llama: [process_appointment_request(user_query_for_date_time="de hoy en ocho")]
-        - Usuario dice: "**Mañana en la tarde**" → Llama: [process_appointment_request(user_query_for_date_time="mañana en la tarde", explicit_time_preference_param="tarde")]
+        - Usuario dice: "**Mañana en la tarde**" → Llama: [process_appointment_request(user_query_for_date_time="mañana", explicit_time_preference_param="tarde")]
         - Usuario dice: "El **19 de junio**" → Llama: [process_appointment_request(user_query_for_date_time="el 19 de junio", day_param=19, month_param="junio")]
         - Usuario dice: "El **próximo martes**" → Llama: [process_appointment_request(user_query_for_date_time="el próximo martes", fixed_weekday_param="martes")]
+        - Usuario dice: "El **próximo miercoles por la tarde**" → Llama: [process_appointment_request(user_query_for_date_time="el próximo miércoles", fixed_weekday_param="miércoles", explicit_time_preference_param="tarde")]
+    
+    
     - **Regla "más tarde / más temprano"**: Si el usuario ya vio horarios y pide un ajuste:
         - Si dice "más tarde", vuelve a llamar a `process_appointment_request` con los parámetros originales y añade `more_late_param=true`.
         - Si dice "más temprano", vuelve a llamar y añade `more_early_param=true`.
