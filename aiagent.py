@@ -265,7 +265,7 @@ class AIAgent:
             stream = await self.groq_client.chat.completions.create(
                 model=self.model, 
                 messages=[{"role": "user", "content": full_prompt}],
-                temperature=0.3, 
+                temperature=0.2, 
                 stream=True
             )
             full_response_text = ""

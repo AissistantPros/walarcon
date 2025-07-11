@@ -76,8 +76,8 @@ class ElevenLabsWSClient:
 
         # ✅ Configuración optimizada según RAG
         self.voice_settings = {
-            "stability": 0.1,
-            "style": 0.0,
+            "stability": 0.5,
+            "style": 1.0,
             "use_speaker_boost": False,
             "speed": 1.2,
         }
