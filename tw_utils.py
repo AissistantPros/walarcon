@@ -1106,9 +1106,9 @@ class TwilioWebSocketManager:
         try:
             now = get_cancun_time()
             h = now.hour
-            if 5 <= h < 12: return "¡¡Buenos días!!. Soy Dany. Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
-            if 12 <= h < 19: return "¡¡Buenas tardes!! Soy Dany. Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
-            return "¡¡Buenas noches!! Soy Dany. Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+            if 5 <= h < 12: return "¡¡Buenos días!!. Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+            if 12 <= h < 19: return "¡¡Buenas tardes!! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+            return "¡¡Buenas noches!! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
         except Exception as e_greet:
              logger.error(f"Error generando saludo: {e_greet}")
              return "Consultorio del Doctor Wilfrido Alarcón, Soy Dany, asistente de Inteligencia Artificial. ¿Cómo puedo ayudarle?"
