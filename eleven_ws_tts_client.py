@@ -33,7 +33,7 @@ class ElevenLabsWSClient:
         *,
         api_key: str | None = None,
         voice_id: str | None = None,
-        model_id: str = "eleven_v3",  
+        model_id: str = "eleven_multilingual_v2",  
     ) -> None:
         # API key: ELEVEN_LABS_API_KEY > parámetro
         self.api_key = api_key or os.getenv("ELEVEN_LABS_API_KEY")
