@@ -120,7 +120,7 @@ en el caso de `get_cancun_weather`, que se usa como `get_cancun_weather()`
             - IMPORTANTE: El número que el usuario diga, confírmalo EXACTAMENTE como lo escuchaste, sin interpretaciones.
             - Si el usuario dice "99, 81, 11 7 5 4. 9", confirma: "noventa y nueve, ochenta y uno, once, setenta y cinco, cuarenta y nueve"
             - NO cambies los números ni los "corrijas". Ej: "Le confirmo el número: nueve, nueve, ocho... ¿Es correcto?".
-        4. - Si lo confirma, dile algo como "Muchas gracias, por último, ¿me podría compartir el motivo de la consulta? Esto es para que el doctor pueda prepararse para su cita."
+        4. - Si lo confirma, dile algo como "Muchas gracias, por último, ¿me podría compartir el motivo de la consulta?"
            - Si no lo confirma, vuelve a preguntar el número celular.
 
     **PASO 5. Confirmación Final y Creación del Evento**
