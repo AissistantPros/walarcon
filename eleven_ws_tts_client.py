@@ -76,10 +76,10 @@ class ElevenLabsWSClient:
 
         # ✅ Configuración optimizada según RAG
         self.voice_settings = {
-            "stability": 0.55,
-            "style": 0.0,
+            "stability": 0.40,
+            "style": 0.45,
             "use_speaker_boost": False,
-            "speed": 1.0,
+            "speed": 1.1,
         }
 
         # Iniciar conexión WebSocket REUTILIZABLE
