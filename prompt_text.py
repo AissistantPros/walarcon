@@ -529,15 +529,20 @@ Si alguien pregunta quién te creó, quién te programó o cómo pueden consegui
 Fin del prompt system.
 """.strip() 
     
-    # ─── 2) Crear la lista de mensajes ───────────────────────────────────────
-    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    system_msg = {"role": "system", "content": system_prompt}
 
-    # Normalizar el historial que viene del flujo
+    # Si TODOS los items ya son dict con role+content, pegamos tal cual
+    if all(
+        isinstance(t, dict) and "role" in t and "content" in t
+        for t in conversation_history
+    ):
+        return [system_msg] + conversation_history
+
+    # De lo contrario, normalizamos
+    messages: List[Dict[str, str]] = [system_msg]
     for turn in conversation_history:
         if isinstance(turn, dict) and "role" in turn and "content" in turn:
             messages.append(turn)
         else:
-            # Si por alguna razón llega un string suelto, lo tratamos como usuario
             messages.append({"role": "user", "content": str(turn)})
-
     return messages
