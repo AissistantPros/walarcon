@@ -206,12 +206,38 @@ def process_text_message(
             func_name = tool_call.function.name
             func_args = json.loads(tool_call.function.arguments or "{}")
 
-            # Ejecutamos la función real
-            tool_result = (
-                tool_functions_map[func_name](**func_args)
-                if func_name in tool_functions_map
-                else {"error": f"Función {func_name} no registrada."}
-            )
+            
+            # Ejecutamos la función real con timeout
+            if func_name in tool_functions_map:
+                try:
+                    # Timeout de 10 segundos para herramientas
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    
+                    tool_result = loop.run_until_complete(
+                        asyncio.wait_for(
+                            asyncio.to_thread(tool_functions_map[func_name], **func_args),
+                            timeout=10.0
+                        )
+                    )
+                except asyncio.TimeoutError:
+                    tool_result = {
+                        "error": f"timeout_exceeded",
+                        "message": f"La operación {func_name} tardó más de 10 segundos"
+                    }
+                    print(f"[{conv_id_for_logs}] ⏰ TIMEOUT en tool {func_name}")
+                except Exception as e_tool:
+                    tool_result = {
+                        "error": f"tool_execution_error",
+                        "message": f"Error ejecutando {func_name}: {str(e_tool)}"
+                    }
+                    print(f"[{conv_id_for_logs}] ❌ ERROR en tool {func_name}: {e_tool}")
+                finally:
+                    loop.close()
+            else:
+                tool_result = {"error": f"Función {func_name} no registrada."}
+            
             print(f"[{conv_id_for_logs}] Resultado tool {func_name}: {tool_result}")
 
             # System message con la respuesta de la tool
@@ -232,7 +258,7 @@ def process_text_message(
                 max_tokens=512,
                 top_p=0.9,
             )
-            
+
             ai_final_response_content = (
                 second_chat_completion.choices[0].message.content.strip()
             )
@@ -253,8 +279,33 @@ def process_text_message(
     except Exception as e_main_process:
         import traceback
         traceback.print_exc()
-        return {
-            "reply_text": "¡Caramba! 😅 Hubo un problema procesando tu mensaje. "
-            "¿Podrías intentar de nuevo?",
-            "status": "error_processing_message",
-        }
+        
+        # Mensaje más específico según el tipo de error
+        error_str = str(e_main_process).lower()
+        
+        if "rate_limit" in error_str or "429" in error_str:
+            return {
+                "reply_text": "El sistema está muy ocupado ahora. Por favor intenta en unos segundos 😊",
+                "status": "error_rate_limit"
+            }
+        elif "api_key" in error_str or "authentication" in error_str or "401" in error_str:
+            return {
+                "reply_text": "Hay un problema de configuración. Por favor contacta al administrador 🔧",
+                "status": "error_api_key"
+            }
+        elif "timeout" in error_str or "timed out" in error_str:
+            return {
+                "reply_text": "La respuesta tardó demasiado. Por favor intenta de nuevo 🕐",
+                "status": "error_timeout"
+            }
+        elif "connection" in error_str or "network" in error_str:
+            return {
+                "reply_text": "Parece que hay problemas de conexión. Intenta en un momento 📡",
+                "status": "error_connection"
+            }
+        else:
+            return {
+                "reply_text": "¡Caramba! 😅 Hubo un problema procesando tu mensaje. "
+                "¿Podrías intentar de nuevo?",
+                "status": "error_processing_message",
+            }

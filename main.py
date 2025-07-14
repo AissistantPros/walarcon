@@ -227,6 +227,16 @@ async def receive_n8n_message(message_data: N8NMessage):
         # para que aiagent_text.py pueda usarlo en sus logs.
         conversation_histories[conversation_id] = [{"conversation_id_for_logs": conversation_id}]
     
+    # Limitar el historial a los últimos 20 mensajes para evitar consumo excesivo de memoria
+    if len(conversation_histories[conversation_id]) > 21:  # 21 porque el primer elemento es metadata
+        conversation_histories[conversation_id] = (
+            [conversation_histories[conversation_id][0]] +  # Mantener metadata
+            conversation_histories[conversation_id][-20:]   # Últimos 20 mensajes
+        )
+
+
+
+
     current_conversation_history = conversation_histories[conversation_id]
 
     # 2. Añadir el mensaje actual del usuario al historial
