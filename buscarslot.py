@@ -11,11 +11,11 @@ from datetime import datetime, timedelta, time as dt_time, date
 from typing import Dict, Optional, Tuple, Union, List
 from dateutil.relativedelta import relativedelta as rd
 import pytz
+import threading
 
 from utils import (
     initialize_google_calendar,
     get_cancun_time,
-    cache_lock,
     convert_utc_to_cancun,
     GOOGLE_CALENDAR_ID,
     convertir_hora_a_palabras,
@@ -78,6 +78,9 @@ free_slots_cache: Dict[str, List[str]] = {}
 last_cache_update: Optional[datetime] = None
 CACHE_VALID_MINUTES = 15
 
+# Cache lock local (ya no importado de utils)
+cache_lock = threading.Lock()
+
 # ──────────── HELPERS ─────────────────────────────────────────────────────
 
 def _word_to_int(token: str) -> int:
@@ -109,8 +112,8 @@ def parse_time_of_day(q: str) -> Optional[str]:
 def parse_relative_date(q: str, today: date) -> Optional[date]:
     """
     Devuelve un objeto datetime.date o None si no se reconoce la frase.
-    Interpreta expresiones relativas, “de hoy en ocho”, días de la semana,
-    ‘fin de semana’, y ahora también “esta semana”.
+    Interpreta expresiones relativas, "de hoy en ocho", días de la semana,
+    'fin de semana', y ahora también "esta semana".
     """
     q_l = q.lower().strip()
 
@@ -126,11 +129,11 @@ def parse_relative_date(q: str, today: date) -> Optional[date]:
     #   ⇒ devolvemos el propio 'today' para que process_appointment_request
     #      sepa que la intención es la semana actual (sin día fijo aún).
     if any(phrase in q_l for phrase in SINONIMOS_SEMANA):
-        return today  # marcador de “semana actual”
+        return today  # marcador de "semana actual"
 
     # — de hoy/mañana en N —
     if m := re.search(r"\b(hoy|mañana)\s+en\s+(\d+|\w+)", q_l):
-        base = 0 if m.group(1) == "hoy" else 1          # “mañana” = hoy+1
+        base = 0 if m.group(1) == "hoy" else 1          # "mañana" = hoy+1
         n = _word_to_int(m.group(2))                    # número capturado (1-30)
         if n:
             if n == 8:                                  # caso especial de costumbre
@@ -342,7 +345,7 @@ def process_appointment_request(
     # —— fecha objetivo ——
     target_date: Optional[date] = None
 
-    # “el 19” sin mes
+    # "el 19" sin mes
     if day_param and month_param is None and year_param is None:
         month_param = today.month if day_param >= today.day else (today.month % 12 + 1)
 
@@ -359,7 +362,7 @@ def process_appointment_request(
             # distancia hasta el próximo <lunes-domingo>
             offset = (wd - today.weekday()) % 7 or 7
 
-            # ¿el usuario dijo “próxima semana / la semana que viene / …”?
+            # ¿el usuario dijo "próxima semana / la semana que viene / …"?
             if any(p in user_query_for_date_time.lower() for p in [
                 "próxima semana", "la semana que viene", "la semana que entra",
                 "para la otra semana", "la siguiente semana"
@@ -444,7 +447,7 @@ def process_appointment_request(
             
             current_day_available_slots = slots_in_preferred_franja
             
-            # Regla “más tarde / más temprano” solo para la primera franja intentada
+            # Regla "más tarde / más temprano" solo para la primera franja intentada
             if current_day_available_slots and (more_late_param or more_early_param):
                 if more_late_param:
                     current_day_available_slots = current_day_available_slots[1:5] # siguientes 4
@@ -504,7 +507,7 @@ def process_appointment_request(
         if not current_day_available_slots:
             continue
 
-        # ─ Si la consulta era “esta semana” y el hueco es > sábado, avisa ──
+        # ─ Si la consulta era "esta semana" y el hueco es > sábado, avisa ──
         if is_this_week and day_offset > days_until_saturday:
             available = current_day_available_slots[:4]
             # Generamos las dos listas de formatos
@@ -519,7 +522,7 @@ def process_appointment_request(
                 "available_text_format": available_slots_for_text,  # NUEVO: para el texto
                 "requested_time_kw": current_time_preference_for_search
             }
-        # ─ Si la consulta era “hoy” o "mañana" y el hueco cae otro día, avisa ─────────
+        # ─ Si la consulta era "hoy" o "mañana" y el hueco cae otro día, avisa ─────────
         # Y si se encontró un slot en el día actual pero no el día original de la consulta
         if (is_today_request or is_tomorrow_request or is_sunday_request) and day_offset > 0:
             available = current_day_available_slots[:4]
