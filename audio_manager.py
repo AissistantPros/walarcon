@@ -285,6 +285,14 @@ class AudioManager:
         # Intentar con WebSocket primero
         success = await self._try_websocket_tts(text)
         
+
+        # --- INICIO DE LA MODIFICACIÓN PARA EL EXPERIMENTO ---
+        # Intentar con WebSocket primero
+        # success = await self._try_websocket_tts(text) # Comentamos la llamada original
+        success = False # Forzamos a que falle para usar siempre el Plan B (HTTP)
+        # --- FIN DE LA MODIFICACIÓN PARA EL EXPERIMENTO ---
+
+
         # Si falla, usar HTTP fallback
         if not success:
             logger.warning("⚠️ WebSocket TTS falló, usando HTTP fallback")
