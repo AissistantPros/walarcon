@@ -233,16 +233,17 @@ class AIAgent:
         """Orquesta el flujo completo en un solo pase de streaming."""
         from state_store import emit_latency_event
         
+        # Obtenemos el estado de la sesión, que puede contener el 'mode' (crear, editar, etc.)
         session_state = self.session_manager.get_state(session_id)
+        current_mode = session_state.get("mode") # Esto será 'crear', 'editar', o None
         
-        detected_intent = self._detect_intent(history, session_state.get("mode"))
-        if detected_intent:
-            self.session_manager.set_mode(session_id, detected_intent)
-        
-        full_prompt = self.prompt_engine.generate_prompt(history, detected_intent)
+        # Generamos el prompt pasándole el modo actual.
+        # La función está diseñada para manejarlo incluso si es None.
+        full_prompt = self.prompt_engine.generate_prompt(history, current_mode)
         
         emit_latency_event(session_id, "chunk_received")
-        
+
+        # El resto de la función (el bloque 'try...except' para llamar a Groq) sigue igual...
         try:
             # Medición de latencia de la IA
             logger.info(f"[PERF] Iniciando llamada a Groq (modelo: {self.model})")
@@ -346,24 +347,6 @@ ALL_TOOLS = [
         "function": {
             "name": "get_cancun_weather",
             "description": "Obtener el estado del tiempo actual en Cancún, como temperatura, descripción (soleado, nublado, lluvia), y sensación térmica. Útil si el usuario pregunta específicamente por el clima."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "detect_intent",
-            "description": "Detecta la intención del usuario cuando no está claro si quiere agendar en un horario 'más tarde' (more_late) o 'más temprano' (more_early) de la hora que le propusimos.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "intention": {
-                        "type": "string",
-                        "enum": ["more_late", "more_early"],
-                        "description": "La intención detectada del usuario."
-                    }
-                },
-                "required": ["intention"]
-            }
         }
     },
     {
