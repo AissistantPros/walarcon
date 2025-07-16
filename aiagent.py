@@ -225,19 +225,6 @@ class AIAgent:
         self.session_manager = SessionManager()
         self.model = "llama-3.3-70b-versatile"
 
-    def _detect_intent(self, history: List[Dict], current_mode: Optional[str]) -> Optional[str]:
-        if not history: return None
-        last_message = history[-1]['content'].lower()
-        mode_keywords = {
-            "crear_cita": ["agendar", "cita", "reservar", "espacio"],
-            "editar_cita": ["cambiar", "modificar", "reprogramar"],
-            "eliminar_cita": ["cancelar", "borrar", "anular"]
-        }
-        for mode, keywords in mode_keywords.items():
-            if any(keyword in last_message for keyword in keywords):
-                return mode
-        return current_mode
-
 
 
 

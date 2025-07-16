@@ -51,14 +51,7 @@ GOOGLE_CLIENT_CERT_URL = config("GOOGLE_CLIENT_CERT_URL")
 
 
 
-# ------------------------------------------
-# 🔄 Caché de Disponibilidad (Thread-safe)
-# ------------------------------------------
-cache_lock = threading.Lock()
-availability_cache = {
-    "busy_slots": [],
-    "last_updated": None
-}
+
 
 # -----------------------------------------------------------------------------
 # FUNCIONES DE UTILIDAD PARA FORMATEO DE FECHA Y HORA (Centralizadas aquí)
