@@ -376,7 +376,7 @@ class TwilioHandler:
     
     def _can_send(self) -> bool:
         """
-        ✅ Verifica si se puede enviar datos
+        ✅ Verifica si se puede envia.r datos
         
         Returns:
             bool: True si la conexión está lista
