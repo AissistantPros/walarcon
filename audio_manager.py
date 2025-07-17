@@ -358,7 +358,7 @@ class AudioManager:
         Args:
             audio_chunk: Audio μ-law 8kHz
         """
-        payload = base64.b64encode(audio_chunk).decode()
+        payload = base64.b64encode(audio_chunk).decode("ascii")
         await self.websocket_send(json.dumps({
             "event": "media",
             "streamSid": self.stream_sid,

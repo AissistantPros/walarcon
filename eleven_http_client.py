@@ -169,7 +169,7 @@ async def send_tts_http_to_twilio(
                     await asyncio.sleep(sleep_needed)
 
             # Serializar + enviar
-            payload64 = base64.b64encode(chunk).decode()
+            payload64 = base64.b64encode(chunk).decode("ascii")
             try:
                 await websocket_send(json.dumps({
                     "event": "media",
