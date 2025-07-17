@@ -179,7 +179,8 @@ class TwilioHandler:
                 
             else:
                 logger.warning(f"❓ Evento desconocido: {event_type}")
-            logger.info(f"[LATENCIA] Evento '{event_type}' procesado en {1000*(time.perf_counter()-t0):.1f} ms")
+            if event_type != "media":
+                logger.info(f"[LATENCIA] Evento '{event_type}' procesado en {1000*(time.perf_counter()-t0):.1f} ms")
                 
         except Exception as e:
             logger.error(f"❌ Error procesando evento {event_type}: {e}", exc_info=True)
