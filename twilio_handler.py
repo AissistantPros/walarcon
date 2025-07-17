@@ -352,7 +352,7 @@ class TwilioHandler:
     
     async def send_json(self, data: Dict[str, Any]) -> bool:
         """
-        📤 Envía datos JSON raw a Twilio
+        📤 Envía datos JSON raw a Twilio, asegurando el formato correcto.
         
         Args:
             data: Diccionario a enviar
@@ -364,6 +364,10 @@ class TwilioHandler:
             return False
         
         try:
+            # ANTES:
+            # await self.connection.websocket.send_json(data)
+
+            # AHORA (Replicando el método del tw_utils.py funcional):
             await self.connection.websocket.send_text(json.dumps(data))
             return True
         except Exception as e:
