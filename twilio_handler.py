@@ -12,6 +12,7 @@ Es el punto de entrada/salida con Twilio, nada más.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import time
@@ -351,22 +352,35 @@ class TwilioHandler:
             return False
     
     async def send_json(self, data: Dict[str, Any]) -> bool:
-        """
-        📤 Envía datos JSON raw a Twilio, asegurando el formato correcto.
-        """
-        if not self._can_send():
-            return False
-        
         try:
-            # ANTES (Usando el método de conveniencia que no funciona en este caso):
-            # await self.connection.websocket.send_json(data)
-
-            # AHORA (Replicando el método del tw_utils.py que SÍ funciona):
-            await self.connection.websocket.send_text(json.dumps(data))
+            # ---- INICIO DEL BLOQUE DE DIAGNÓSTICO ----
+            if data.get("event") == "media":
+                payload_b64 = data.get("media", {}).get("payload", "")
+                
+                # 1. Validar que el payload se puede decodificar desde Base64
+                try:
+                    base64.b64decode(payload_b64)
+                    logger.info(f"[DIAGNÓSTICO] ✓ Payload Base64 válido (longitud: {len(payload_b64)})")
+                except Exception as e:
+                    logger.error(f"[DIAGNÓSTICO] ✗ Payload Base64 INVÁLIDO: {e}")
+                    return False # No enviar si está malformado
+                
+                # 2. Validar que el streamSid es el que esperamos
+                if data.get("streamSid") != self.get_stream_sid():
+                    logger.error(f"[DIAGNÓSTICO] ✗ Inconsistencia de StreamSID! Esperado: {self.get_stream_sid()}, Encontrado: {data.get('streamSid')}")
+                    return False
             
+            # 3. Imprimir el JSON que se va a enviar
+            json_str = json.dumps(data)
+            logger.info(f"[DIAGNÓSTICO] Enviando a Twilio: {json_str[:250]}...") # Imprime los primeros 250 caracteres
+            # ---- FIN DEL BLOQUE DE DIAGNÓSTICO ----
+
+            # Envío final (usando el método que sabemos que funciona en tu otro proyecto)
+            await self.connection.websocket.send_text(json_str)
             return True
+        
         except Exception as e:
-            logger.error(f"❌ Error enviando JSON: {e}")
+            logger.error(f"❌ Error en la capa final de envío a Twilio: {e}")
             return False
     
     def _can_send(self) -> bool:
