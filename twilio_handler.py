@@ -353,6 +353,10 @@ class TwilioHandler:
     
     async def send_json(self, data: Dict[str, Any]) -> bool:
         try:
+            # Si recibe string, asume que ya es JSON
+            if isinstance(data, str):
+                await self.connection.websocket.send_text(data)
+                return True
             # ---- INICIO DEL BLOQUE DE DIAGNÓSTICO ----
             if data.get("event") == "media":
                 payload_b64 = data.get("media", {}).get("payload", "")
