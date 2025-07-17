@@ -98,38 +98,26 @@ class TwilioHandler:
     # ========== MANEJO DE CONEXIÓN ==========
     
     async def handle_websocket(self, websocket: WebSocket) -> None:
-        """
-        🚀 Punto de entrada principal - maneja toda la conexión
-        
-        Args:
-            websocket: WebSocket de FastAPI/Starlette
-            
-        Este es el método que se llama desde main.py
-        """
-        logger.info("🚀 Nueva conexión WebSocket entrante")
-        
-        # Aceptar conexión
+        logger.info("[FUNCIONALIDAD] Nueva conexión WebSocket entrante de Twilio")
+        t0 = time.perf_counter()
         try:
             await websocket.accept()
             logger.info("✅ WebSocket aceptado")
         except Exception as e:
             logger.error(f"❌ Error aceptando WebSocket: {e}")
             return
-        
-        # Crear objeto de conexión
         self.connection = TwilioConnection(
             websocket=websocket,
             connection_start=time.perf_counter()
         )
         self.running = True
-        
-        # Loop principal
         try:
             await self._receive_loop()
         except Exception as e:
             logger.error(f"❌ Error en loop principal: {e}", exc_info=True)
         finally:
             await self._cleanup()
+            logger.info(f"[LATENCIA] Conexión WebSocket Twilio finalizada en {1000*(time.perf_counter()-t0):.1f} ms")
     
     async def _receive_loop(self) -> None:
         """
@@ -170,15 +158,8 @@ class TwilioHandler:
                         break
     
     async def _handle_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """
-        🎯 Procesa un evento específico de Twilio
-        
-        Args:
-            event_type: Tipo de evento (start, media, stop, mark)
-            data: Datos completos del evento
-        """
         logger.debug(f"📨 Evento recibido: {event_type}")
-        
+        t0 = time.perf_counter()
         try:
             if event_type == "start":
                 await self._handle_start(data)
@@ -198,6 +179,7 @@ class TwilioHandler:
                 
             else:
                 logger.warning(f"❓ Evento desconocido: {event_type}")
+            logger.info(f"[LATENCIA] Evento '{event_type}' procesado en {1000*(time.perf_counter()-t0):.1f} ms")
                 
         except Exception as e:
             logger.error(f"❌ Error procesando evento {event_type}: {e}", exc_info=True)
@@ -208,6 +190,10 @@ class TwilioHandler:
         
         Extrae información importante como stream_sid y call_sid
         """
+        if not self.connection:
+            logger.warning("⚠️ No hay conexión establecida en _handle_start")
+            return
+        assert self.connection is not None
         # Extraer IDs
         self.connection.stream_sid = data.get("streamSid")
         
@@ -278,18 +264,10 @@ class TwilioHandler:
     # ========== ENVÍO DE DATOS A TWILIO ==========
     
     async def send_audio(self, audio_base64: str) -> bool:
-        """
-        🔊 Envía audio a Twilio
-        
-        Args:
-            audio_base64: Audio en base64
-            
-        Returns:
-            bool: True si se envió correctamente
-        """
         if not self._can_send():
             return False
-        
+        assert self.connection is not None
+        t0 = time.perf_counter()
         try:
             await self.connection.websocket.send_text(json.dumps({
                 "event": "media",
@@ -298,24 +276,17 @@ class TwilioHandler:
                     "payload": audio_base64
                 }
             }))
+            logger.info(f"[LATENCIA] Audio enviado a Twilio en {1000*(time.perf_counter()-t0):.1f} ms")
             return True
         except Exception as e:
             logger.error(f"❌ Error enviando audio: {e}")
             return False
     
     async def send_mark(self, name: str) -> bool:
-        """
-        🏷️ Envía un mark a Twilio
-        
-        Args:
-            name: Nombre del mark
-            
-        Returns:
-            bool: True si se envió correctamente
-        """
         if not self._can_send():
             return False
-        
+        assert self.connection is not None
+        t0 = time.perf_counter()
         try:
             await self.connection.websocket.send_text(json.dumps({
                 "event": "mark",
@@ -325,37 +296,37 @@ class TwilioHandler:
                 }
             }))
             logger.debug(f"🏷️ Mark enviado: {name}")
+            logger.info(f"[LATENCIA] Mark '{name}' enviado a Twilio en {1000*(time.perf_counter()-t0):.1f} ms")
             return True
         except Exception as e:
             logger.error(f"❌ Error enviando mark: {e}")
             return False
     
     async def clear_buffer(self) -> bool:
-        """
-        🧹 Limpia el buffer de audio en Twilio
-        
-        Returns:
-            bool: True si se envió correctamente
-        """
         if not self._can_send():
             return False
-        
+        assert self.connection is not None
+        t0 = time.perf_counter()
         try:
             await self.connection.websocket.send_text(json.dumps({
                 "event": "clear",
                 "streamSid": self.connection.stream_sid
             }))
             logger.debug("🧹 Buffer limpiado")
+            logger.info(f"[LATENCIA] Buffer limpiado en Twilio en {1000*(time.perf_counter()-t0):.1f} ms")
             return True
         except Exception as e:
             logger.error(f"❌ Error limpiando buffer: {e}")
             return False
     
     async def send_json(self, data: Dict[str, Any]) -> bool:
+        t0 = time.perf_counter()
         try:
             # Si recibe string, asume que ya es JSON
             if isinstance(data, str):
+                assert self.connection is not None
                 await self.connection.websocket.send_text(data)
+                logger.info(f"[LATENCIA] JSON (str) enviado a Twilio en {1000*(time.perf_counter()-t0):.1f} ms")
                 return True
             # ---- INICIO DEL BLOQUE DE DIAGNÓSTICO ----
             if data.get("event") == "media":
@@ -378,9 +349,10 @@ class TwilioHandler:
             json_str = json.dumps(data)
             logger.info(f"[DIAGNÓSTICO] Enviando a Twilio: {json_str[:250]}...") # Imprime los primeros 250 caracteres
             # ---- FIN DEL BLOQUE DE DIAGNÓSTICO ----
-
+            assert self.connection is not None
             # Envío final (usando el método que sabemos que funciona en tu otro proyecto)
             await self.connection.websocket.send_text(json_str)
+            logger.info(f"[LATENCIA] JSON enviado a Twilio en {1000*(time.perf_counter()-t0):.1f} ms")
             return True
         
         except Exception as e:
@@ -419,7 +391,7 @@ class TwilioHandler:
         🧹 Limpia recursos al cerrar
         """
         logger.info("🧹 Limpiando TwilioHandler...")
-        
+        t0 = time.perf_counter()
         self.running = False
         
         # Cerrar WebSocket si está abierto
@@ -438,6 +410,7 @@ class TwilioHandler:
         
         self.connection = None
         logger.info("✅ TwilioHandler limpiado")
+        logger.info(f"[LATENCIA] Cleanup de TwilioHandler completado en {1000*(time.perf_counter()-t0):.1f} ms")
     
     async def close(self) -> None:
         """

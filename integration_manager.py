@@ -95,18 +95,8 @@ class IntegrationManager:
         stt_client,
         on_reconnect: Optional[Callable] = None
     ) -> bool:
-        """
-        🎤 Configura Deepgram STT
-        
-        Args:
-            stt_client: Cliente de Deepgram (DeepgramSTTStreamer)
-            on_reconnect: Callback cuando se reconecta
-            
-        Returns:
-            bool: True si se conectó correctamente
-        """
-        logger.info("🎤 Configurando Deepgram...")
-        
+        logger.info("[FUNCIONALIDAD] Configurando Deepgram STT...")
+        t0 = time.perf_counter()
         self.reconnect_callbacks["deepgram"] = on_reconnect
         self.services_health["deepgram"].status = ServiceStatus.CONNECTING
         
@@ -126,6 +116,7 @@ class IntegrationManager:
                 )
                 
                 logger.info("✅ Deepgram conectado y monitoreado")
+                logger.info(f"[LATENCIA] Deepgram configurado en {1000*(time.perf_counter()-t0):.1f} ms")
                 return True
             else:
                 raise Exception("Deepgram no se inició correctamente")
@@ -166,7 +157,7 @@ class IntegrationManager:
         """
         health = self.services_health["deepgram"]
         health.status = ServiceStatus.RECONNECTING
-        
+        t0 = time.perf_counter()
         # Intentar reconectar
         for attempt in range(INTEGRATION_CONFIG["MAX_RECONNECT_ATTEMPTS"]):
             health.reconnect_attempts = attempt + 1
@@ -190,6 +181,7 @@ class IntegrationManager:
                     health.reconnect_attempts = 0
                     
                     logger.info("✅ Deepgram reconectado exitosamente")
+                    logger.info(f"[LATENCIA] Deepgram reconectado en {1000*(time.perf_counter()-t0):.1f} ms")
                     
                     # Llamar callback
                     if self.reconnect_callbacks["deepgram"]:
@@ -216,18 +208,8 @@ class IntegrationManager:
         tts_client,
         on_reconnect: Optional[Callable] = None
     ) -> bool:
-        """
-        🔊 Configura ElevenLabs TTS
-        
-        Args:
-            tts_client: Cliente de ElevenLabs
-            on_reconnect: Callback cuando se reconecta
-            
-        Returns:
-            bool: True si se conectó correctamente
-        """
-        logger.info("🔊 Configurando ElevenLabs...")
-        
+        logger.info("[FUNCIONALIDAD] Configurando ElevenLabs TTS...")
+        t0 = time.perf_counter()
         self.reconnect_callbacks["elevenlabs"] = on_reconnect
         self.services_health["elevenlabs"].status = ServiceStatus.CONNECTING
         
@@ -254,6 +236,7 @@ class IntegrationManager:
                 )
                 
                 logger.info("✅ ElevenLabs configurado")
+                logger.info(f"[LATENCIA] ElevenLabs configurado en {1000*(time.perf_counter()-t0):.1f} ms")
                 return True
             else:
                 raise Exception("Cliente ElevenLabs inválido")
@@ -381,11 +364,8 @@ class IntegrationManager:
     # ========== LIMPIEZA Y CIERRE ==========
     
     async def shutdown(self) -> None:
-        """
-        🔌 Cierra todas las integraciones
-        """
         logger.info("🔌 Cerrando IntegrationManager...")
-        
+        t0 = time.perf_counter()
         # Cancelar todas las tareas de monitoreo
         for service, task in self.monitor_tasks.items():
             if task and not task.done():
@@ -401,6 +381,7 @@ class IntegrationManager:
             self.services_health[service].status = ServiceStatus.DISCONNECTED
         
         logger.info("✅ IntegrationManager cerrado")
+        logger.info(f"[LATENCIA] IntegrationManager cerrado en {1000*(time.perf_counter()-t0):.1f} ms")
     
     # ========== MÉTODOS DE CONVENIENCIA ==========
     

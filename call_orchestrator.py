@@ -102,8 +102,8 @@ class CallOrchestrator:
             
         Este es el método principal que se llama desde main.py
         """
-        logger.info("📞 Nueva llamada entrante")
-        
+        logger.info("[FUNCIONALIDAD] Nueva llamada entrante")
+        t0 = time.perf_counter()
         try:
             # Configurar estado inicial
             self.call_state = CallState(start_time=time.perf_counter())
@@ -122,6 +122,7 @@ class CallOrchestrator:
         finally:
             # Asegurar limpieza completa
             await self._shutdown("call_complete")
+            logger.info(f"[LATENCIA] Llamada completa finalizada en {1000*(time.perf_counter()-t0):.1f} ms")
     
     # ========== INICIALIZACIÓN Y CONFIGURACIÓN ==========
     
@@ -169,7 +170,7 @@ class CallOrchestrator:
         )
         
         # Inicializar sesión en state_store
-        session_state[self.call_state.call_sid] = {
+        session_state[self.call_state.call_sid or "unknown_call_sid"] = {
             "start_time": datetime.now().isoformat(),
             "events": []
         }
@@ -215,18 +216,20 @@ class CallOrchestrator:
         """
         🚀 Inicializa todos los componentes necesarios
         """
-        logger.info("🚀 Inicializando componentes...")
+        logger.info("[FUNCIONALIDAD] Inicializando componentes de llamada...")
+        t0 = time.perf_counter()
         
         # 1. Audio Manager
         self.audio_manager = AudioManager(
-            stream_sid=self.call_state.stream_sid,
+            stream_sid=self.call_state.stream_sid or "",
             websocket_send=self.twilio_handler.send_json
         )
         
         # 2. Conversation Flow
         self.conversation_flow = ConversationFlow(
-            session_id=self.call_state.call_sid,
-            response_handler=self._handle_ai_response
+            session_id=self.call_state.call_sid or "",
+            response_handler=self._handle_ai_response,
+            audio_manager=self.audio_manager
         )
         
         # 3. Inicializar STT (Deepgram)
@@ -249,6 +252,7 @@ class CallOrchestrator:
         # 5. TTS se inicializa on-demand
         
         logger.info("✅ Componentes inicializados")
+        logger.info(f"[LATENCIA] Componentes inicializados en {1000*(time.perf_counter()-t0):.1f} ms")
     
     # ========== FLUJO DE CONVERSACIÓN ==========
     
@@ -260,11 +264,13 @@ class CallOrchestrator:
         
         greeting = self._generate_greeting()
         logger.info(f"👋 Enviando saludo: '{greeting}'")
-        
-        await self.audio_manager.speak(
-            greeting,
-            on_complete=self._on_greeting_complete
-        )
+        t0 = time.perf_counter()
+        if self.audio_manager:
+            await self.audio_manager.speak(
+                greeting,
+                on_complete=self._on_greeting_complete
+            )
+        logger.info(f"[LATENCIA] Saludo enviado y TTS completado en {1000*(time.perf_counter()-t0):.1f} ms")
     
     def _generate_greeting(self) -> str:
         """
@@ -298,13 +304,16 @@ class CallOrchestrator:
         Args:
             response_text: Texto que la IA quiere decir
         """
+        t0 = time.perf_counter()
         if response_text == "__END_CALL__":
             logger.info("🔚 IA solicitó terminar llamada")
             await cierre_con_despedida(self, "assistant_request", delay=5.0)
             return
         
         # Convertir texto a voz
-        await self.audio_manager.speak(response_text)
+        if self.audio_manager:
+            await self.audio_manager.speak(response_text)
+        logger.info(f"[LATENCIA] Turno de IA (respuesta+TTS) completado en {1000*(time.perf_counter()-t0):.1f} ms")
     
     # ========== MONITOREO Y TIMEOUTS ==========
     
@@ -382,6 +391,7 @@ class CallOrchestrator:
         Args:
             reason: Razón del cierre
         """
+        t0 = time.perf_counter()
         if self.call_state.ended:
             return
             
@@ -414,6 +424,7 @@ class CallOrchestrator:
         # El TwilioHandler se cerrará automáticamente
         
         logger.info(f"✅ Shutdown completado - Razón: {reason}")
+        logger.info(f"[LATENCIA] Shutdown completado en {1000*(time.perf_counter()-t0):.1f} ms")
     
     # ========== UTILIDADES ==========
     

@@ -252,6 +252,49 @@ class AudioManager:
     
     # ========== MANEJO DE AUDIO SALIENTE (IA → Usuario) ==========
     
+    async def prepare_tts_ws(self) -> bool:
+        """
+        Prepara el WebSocket de ElevenLabs para TTS:
+        - Si no está abierto, lo abre y espera.
+        - Si está abierto pero inactivo, envía un keepalive.
+        - Devuelve True si el WS está listo, False si no se pudo abrir.
+        """
+        t0 = time.perf_counter()
+        logger.info("[LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...")
+        if not self.tts_client or not hasattr(self.tts_client, '_ws') or not self.tts_client._ws or getattr(self.tts_client._ws, "closed", False):
+            logger.info("🔄 WebSocket de ElevenLabs no disponible, intentando abrir...")
+            ok = await self.initialize_tts()
+            if not ok:
+                logger.error("❌ No se pudo abrir el WebSocket de ElevenLabs")
+                logger.info(f"[LATENCIA] Preparación de WS ElevenLabs FALLÓ en {1000*(time.perf_counter()-t0):.1f} ms")
+                return False
+            logger.info(f"[LATENCIA] WebSocket ElevenLabs abierto en {1000*(time.perf_counter()-t0):.1f} ms")
+            return True
+        else:
+            # Si está abierto, enviar keepalive si han pasado >10s desde el último uso
+            now = time.perf_counter()
+            if self.last_chunk_time and (now - self.last_chunk_time) > 10:
+                try:
+                    await self.tts_client._ws.send(json.dumps({"text": " "}))
+                    logger.debug("💓 Keepalive enviado a ElevenLabs (por inactividad)")
+                except Exception as e:
+                    logger.warning(f"⚠️ Error enviando keepalive a ElevenLabs: {e}")
+            logger.info(f"[LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en {1000*(time.perf_counter()-t0):.1f} ms")
+            return True
+
+    async def on_user_pause_prepare_tts(self):
+        """
+        Apaga STT y prepara el WebSocket de ElevenLabs antes de procesar con LLM.
+        Llamar esto justo antes de enviar el texto al LLM.
+        """
+        logger.info("[FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...")
+        self.state.ignore_stt = True  # Apaga STT
+        self.state.tts_in_progress = False
+        ws_ready = await self.prepare_tts_ws()
+        if not ws_ready:
+            logger.warning("⚠️ No se pudo preparar el WebSocket de ElevenLabs antes del TTS")
+        return ws_ready
+
     async def speak(self, text: str, on_complete: Optional[Callable] = None) -> bool:
         """
         🗣️ Convierte texto a voz y lo envía al usuario
@@ -270,13 +313,13 @@ class AudioManager:
         4. Si falla → ElevenLabs HTTP (fallback)
         5. Al terminar → reactiva STT
         """
+        t0 = time.perf_counter()
         logger.info(f"🗣️ TTS iniciando: '{text[:50]}...'")
         
         # Guardar callback
         self.on_tts_complete = on_complete
         
         # Activar modo "IA hablando"
-        self.state.ignore_stt = True
         self.state.tts_in_progress = True
         
         # Limpiar buffer de Twilio
@@ -289,7 +332,10 @@ class AudioManager:
         # Si falla, usar HTTP fallback
         if not success:
             logger.warning("⚠️ WebSocket TTS falló, usando HTTP fallback")
+            t1 = time.perf_counter()
+            logger.info(f"[LATENCIA] TTS WebSocket falló tras {1000*(t1-t0):.1f} ms, usando fallback HTTP...")
             await self._http_fallback_tts(text)
+            logger.info(f"[LATENCIA] TTS HTTP fallback completado en {1000*(time.perf_counter()-t0):.1f} ms")
         
         return True
     
@@ -338,6 +384,7 @@ class AudioManager:
         """
         🔄 Fallback a ElevenLabs HTTP (más lento pero confiable)
         """
+        t0 = time.perf_counter()
         try:
             await send_tts_http_to_twilio(
                 text=text,
@@ -346,7 +393,7 @@ class AudioManager:
             )
             # Llamar callback de finalización
             await self._on_tts_complete()
-            
+            logger.info(f"[LATENCIA] HTTP fallback TTS completado en {1000*(time.perf_counter()-t0):.1f} ms")
         except Exception as e:
             logger.error(f"❌ Error en HTTP TTS fallback: {e}")
             await self._on_tts_complete()
@@ -388,6 +435,7 @@ class AudioManager:
         3. Limpia buffers
         4. Llama callback externo
         """
+        logger.info("[FUNCIONALIDAD] TTS completado, reactivando STT...")
         logger.info("✅ TTS completado")
         
         # Cancelar detector de stalls

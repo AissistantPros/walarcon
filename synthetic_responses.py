@@ -8,6 +8,7 @@ import logging
 from typing import Dict, Any, List
 from utils import convertir_hora_a_palabras, format_date_nicely
 from datetime import datetime
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,8 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
     """
     Genera una respuesta sintética basada en el resultado de una herramienta.
     """
+    t0 = time.perf_counter()
+    logger.info(f"[FUNCIONALIDAD] Generando respuesta sintética para tool '{tool_name}'...")
     if tool_name not in TEMPLATES:
         return "Listo!!, está hecho. ¿Hay algo más en lo que pueda ayudarle?"
     
@@ -186,6 +189,7 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
     try:
         # Preparar los datos para la plantilla
         format_data = prepare_format_data(tool_name, result)
+        logger.info(f"[FUNCIONALIDAD] Formateando plantilla sintética para tool '{tool_name}'...")
         
         # Formatear la plantilla con los datos
         return template.format(**format_data)
@@ -193,6 +197,8 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
         # logger.warning(f"Error formateando respuesta sintética: {e}")
         print(f"Advertencia: Error formateando respuesta sintética: {e}") # Usando print si no hay logger
         return template  # Devolver la plantilla sin formatear como fallback
+    finally:
+        logger.info(f"[LATENCIA] Respuesta sintética para tool '{tool_name}' generada en {1000*(time.perf_counter()-t0):.1f} ms")
     
 
 

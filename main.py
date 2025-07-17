@@ -18,6 +18,7 @@ import traceback
 from typing import Optional, Union, List, Dict, Any
 from fastapi import FastAPI, Response, WebSocket, Body, Request
 from pydantic import BaseModel
+import time
 
 # === NUEVA ARQUITECTURA ===
 from call_orchestrator import CallOrchestrator
@@ -72,6 +73,7 @@ async def startup_event():
     """
     🚀 Inicialización al arrancar el servidor
     """
+    t0 = time.perf_counter()
     # Crear directorios necesarios
     os.makedirs("audio", exist_ok=True)
     os.makedirs("audio_debug", exist_ok=True)
@@ -84,6 +86,7 @@ async def startup_event():
         logger.warning(f"Error pre-cargando datos: {e}")
     
     logger.info("🚀 Backend iniciado - Nueva arquitectura modular activa")
+    logger.info(f"[LATENCIA] Backend startup completado en {1000*(time.perf_counter()-t0):.1f} ms")
 
 
 @app.get("/")
@@ -105,7 +108,8 @@ async def twilio_voice():
     
     Responde con TwiML que abre un Stream hacia nuestro WebSocket
     """
-    logger.info("📞 Nueva llamada entrante")
+    logger.info("[FUNCIONALIDAD] Nueva llamada entrante (POST /twilio-voice)")
+    t0 = time.perf_counter()
     
     # TwiML para iniciar streaming
     twiml_response = """<?xml version="1.0" encoding="UTF-8"?>
@@ -117,6 +121,7 @@ async def twilio_voice():
   </Connect>
 </Response>"""
     
+    logger.info(f"[LATENCIA] Respuesta TwiML generada en {1000*(time.perf_counter()-t0):.1f} ms")
     return Response(content=twiml_response, media_type="application/xml")
 
 
@@ -127,8 +132,11 @@ async def twilio_websocket(websocket: WebSocket):
     
     Usa el nuevo CallOrchestrator en lugar del viejo TwilioWebSocketManager
     """
+    logger.info("[FUNCIONALIDAD] WebSocket /twilio-websocket aceptado")
+    t0 = time.perf_counter()
     orchestrator = CallOrchestrator()
     await orchestrator.handle_call(websocket)
+    logger.info(f"[LATENCIA] WebSocket /twilio-websocket completado en {1000*(time.perf_counter()-t0):.1f} ms")
 
 
 # ========== ENDPOINTS DE TEXTO (WEBHOOKS) ==========
@@ -150,7 +158,8 @@ async def receive_n8n_message(message_data: N8NMessage):
     
     Procesa mensajes de WhatsApp, Instagram, etc.
     """
-    logger.info(f"💬 Mensaje de {message_data.user_id}: '{message_data.message_text}'")
+    logger.info(f"[FUNCIONALIDAD] Mensaje de {message_data.user_id}: '{message_data.message_text}' (POST /webhook/n8n_message)")
+    t0 = time.perf_counter()
     
     user_id = message_data.user_id
     conversation_id = message_data.conversation_id or user_id
@@ -188,6 +197,7 @@ async def receive_n8n_message(message_data: N8NMessage):
     if ai_reply:
         history.append({"role": "assistant", "content": ai_reply})
     
+    logger.info(f"[LATENCIA] Mensaje de texto procesado en {1000*(time.perf_counter()-t0):.1f} ms")
     return {"reply_text": ai_reply, "status": status}
 
 
@@ -362,7 +372,9 @@ async def get_call_status():
     
     Útil para debugging y monitoreo
     """
+    t0 = time.perf_counter()
     # TODO: Implementar tracking de llamadas activas
+    logger.info(f"[LATENCIA] Admin call-status consultado en {1000*(time.perf_counter()-t0):.1f} ms")
     return {
         "active_calls": 0,
         "message": "Endpoint en desarrollo"
@@ -376,10 +388,12 @@ async def reload_cache():
     
     Útil cuando se actualizan horarios o información
     """
+    t0 = time.perf_counter()
     try:
         load_consultorio_data_to_cache()
         buscarslot.load_free_slots_to_cache()
         
+        logger.info(f"[LATENCIA] Admin reload-cache completado en {1000*(time.perf_counter()-t0):.1f} ms")
         return {
             "status": "SUCCESS",
             "message": "Caché recargado exitosamente"
@@ -399,6 +413,7 @@ async def health_check():
     
     Verifica el estado de todos los componentes
     """
+    t0 = time.perf_counter()
     health_status = {
         "status": "healthy",
         "components": {
@@ -416,6 +431,7 @@ async def health_check():
         health_status["components"]["cache"] = f"error: {str(e)}"
         health_status["status"] = "degraded"
     
+    logger.info(f"[LATENCIA] Admin health-check completado en {1000*(time.perf_counter()-t0):.1f} ms")
     return health_status
 
 

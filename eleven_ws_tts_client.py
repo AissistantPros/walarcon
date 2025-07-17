@@ -88,6 +88,8 @@ class ElevenLabsWSClient:
 
     def _start_connection(self):
         """Inicia la conexión WebSocket reutilizable"""
+        logger.info("[FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...")
+        self._ws_open_start = time.perf_counter()
         self._ws_task = asyncio.create_task(self._run_websocket())
 
     async def _run_websocket(self):
@@ -98,10 +100,11 @@ class ElevenLabsWSClient:
 
         try:
             logger.debug(f"🔌 Conectando a ElevenLabs WebSocket optimizado: {url}")
-            
+            t0 = time.perf_counter()
             async with websockets.connect(url, additional_headers=headers) as ws:
                 self._ws = ws
                 logger.info("🟢 ElevenLabs WebSocket conectado (reutilizable)")
+                logger.info(f"[LATENCIA] WebSocket ElevenLabs abierto en {1000*(time.perf_counter()-t0):.1f} ms")
                 
                 # ✅ Configuración inicial con auto_mode (EL maneja chunks automáticamente)
                 config_message = {
@@ -139,6 +142,9 @@ class ElevenLabsWSClient:
         finally:
             # ✅ Marcar que estamos cerrando y cancelar keepalive
             self._closing = True
+            logger.info("[FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...")
+            if hasattr(self, '_ws_open_start'):
+                logger.info(f"[LATENCIA] WebSocket ElevenLabs estuvo abierto durante {1000*(time.perf_counter()-self._ws_open_start):.1f} ms")
             
             # Cancelar tarea de keepalive si existe
             if 'keepalive_task' in locals():
@@ -230,6 +236,7 @@ class ElevenLabsWSClient:
         # Fin de stream
         if data.get("isFinal", False):
             logger.info("🔚 ElevenLabs: fin de stream recibido")
+            logger.info(f"[FUNCIONALIDAD] Fin de stream ElevenLabs recibido tras {1000*(time.perf_counter()-self._send_time):.1f} ms desde envío de texto.")
             if self._user_end:
                 if asyncio.iscoroutinefunction(self._user_end):
                     asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
@@ -314,7 +321,7 @@ class ElevenLabsWSClient:
         API compatible con versión anterior para texto completo.
         Para streaming real usar add_text_chunk() + finalize_stream()
         """
-        
+        t0 = time.perf_counter()
         # Esperar conexión
         try:
             await asyncio.wait_for(self._ws_open.wait(), timeout=5.0)
@@ -349,6 +356,7 @@ class ElevenLabsWSClient:
             # Esperar primer chunk
             try:
                 await asyncio.wait_for(self._first_chunk.wait(), timeout_first_chunk)
+                logger.info(f"[LATENCIA] Primer chunk de audio recibido en {1000*(time.perf_counter()-t0):.1f} ms")
                 return True
             except asyncio.TimeoutError:
                 logger.warning(f"⏰ Timeout ({timeout_first_chunk}s) esperando primer chunk")

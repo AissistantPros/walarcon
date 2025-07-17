@@ -71,8 +71,8 @@ async def send_tts_http_to_twilio(
             buffer de Twilio).
         gain: Factor multiplicador de amplitud μ‑law (1.0 = sin cambio).
     """
-
-    logger.info("🗣️ Solicitando TTS a ElevenLabs…")
+    t0 = time.perf_counter()
+    logger.info(f"[FUNCIONALIDAD] Iniciando solicitud HTTP TTS a ElevenLabs para texto de {len(text)} caracteres...")
 
     url = (
         f"https://api.elevenlabs.io/v1/text-to-speech/"
@@ -111,6 +111,7 @@ async def send_tts_http_to_twilio(
             buffer.write(chunk)
 
         audio_raw: bytes = buffer.getvalue()
+        logger.info(f"[LATENCIA] Audio recibido de ElevenLabs en {1000*(time.perf_counter()-t0):.1f} ms, tamaño: {len(audio_raw)} bytes")
     except Exception as exc:
         logger.error("🚨 Error solicitando TTS: %s", exc)
         await _safe_send_mark(websocket_send, stream_sid, "error")
@@ -189,8 +190,10 @@ async def send_tts_http_to_twilio(
     finally:
         envio_ms = (time.perf_counter() - ts_send_start) * 1000
         logger.info("📶 Audio enviado a Twilio en %.1f ms", envio_ms)
+        logger.info(f"[LATENCIA] Envío total de audio a Twilio completado en {1000*(time.perf_counter()-t0):.1f} ms")
 
     # 5️⃣ Marca de fin
+    logger.info("[FUNCIONALIDAD] Enviando mark de fin a Twilio (end_of_tts)...")
     await _safe_send_mark(websocket_send, stream_sid, "end_of_tts")
     logger.info("🏁 Audio completo enviado a Twilio.")
 

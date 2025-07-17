@@ -74,18 +74,20 @@ class ConversationFlow:
     5. Medir latencias
     """
     
-    def __init__(self, session_id: str, response_handler: ResponseHandler):
+    def __init__(self, session_id: str, response_handler: ResponseHandler, audio_manager=None):
         """
         📥 Inicializa el gestor de conversación
         
         Args:
             session_id: ID único de la sesión/llamada
             response_handler: Función que maneja respuestas de IA
+            audio_manager: Referencia al AudioManager para preparar TTS
         """
         self.session_id = session_id
         self.response_handler = response_handler
         self.state = ConversationState()
         self.current_ai_task: Optional[asyncio.Task] = None
+        self.audio_manager = audio_manager
         
         logger.info(f"🗣️ ConversationFlow creado para sesión: {session_id}")
     
@@ -155,11 +157,24 @@ class ConversationFlow:
             
             # Si llegamos aquí, hubo pausa
             logger.info("⏸️ Pausa detectada - procesando mensaje")
+            t0 = time.perf_counter()
+            logger.info("[FUNCIONALIDAD] Pausa detectada, preparando TTS y procesando con LLM...")
             await self._process_accumulated_text()
+            logger.info(f"[LATENCIA] Proceso de pausa (preparar TTS + LLM) completado en {1000*(time.perf_counter()-t0):.1f} ms")
             
         except asyncio.CancelledError:
             # Normal - usuario siguió hablando
             logger.debug("⏲️ Timer cancelado (usuario sigue hablando)")
+    
+    async def prepare_tts_ws(self):
+        """
+        Prepara el WebSocket de ElevenLabs antes de enviar el texto al LLM.
+        """
+        if self.audio_manager:
+            t0 = time.perf_counter()
+            logger.info("[FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...")
+            await self.audio_manager.on_user_pause_prepare_tts()
+            logger.info(f"[LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en {1000*(time.perf_counter()-t0):.1f} ms")
     
     async def _process_accumulated_text(self) -> None:
         """
@@ -198,12 +213,16 @@ class ConversationFlow:
         self.state.turn_start_time = time.perf_counter()
         logger.info(f"🎯 [PERF] INICIO DE TURNO - Usuario dijo: '{full_message}'")
         
+        # Preparar TTS antes de enviar a la IA
+        await self.prepare_tts_ws()
+        t_llm = time.perf_counter()
         # Iniciar procesamiento con IA
         self.state.ai_task_active = True
         self.current_ai_task = asyncio.create_task(
             self._handle_ai_response(full_message),
             name=f"AITask_{self.session_id}"
         )
+        logger.info(f"[LATENCIA] Preparación de TTS + lanzamiento de LLM en {1000*(t_llm-self.state.turn_start_time):.1f} ms")
     
     async def _handle_ai_response(self, user_message: str) -> None:
         """
@@ -220,16 +239,14 @@ class ConversationFlow:
         5. Envía audio de respuesta
         """
         try:
+            t0 = time.perf_counter()
             # Agregar mensaje del usuario al historial
             self.state.history.append({
                 "role": "user",
                 "content": user_message
             })
             logger.info(f"[HISTORIAL] Usuario: '{user_message}'")
-            
-            # Emitir evento de latencia
             emit_latency_event(self.session_id, "ai_request_start")
-            
             # Llamar a la IA
             try:
                 ai_response = await generate_ai_response(
@@ -255,6 +272,7 @@ class ConversationFlow:
             
             # Enviar respuesta como audio
             await self.response_handler(ai_response)
+            logger.info(f"[LATENCIA] Turno completo (LLM + respuesta TTS) en {1000*(time.perf_counter()-t0):.1f} ms")
             
             # Medir latencia total del turno
             if self.state.turn_start_time:
