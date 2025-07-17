@@ -15,7 +15,8 @@ from state_store import session_state
 
 from utils import (
     initialize_google_calendar,
-    GOOGLE_CALENDAR_ID
+    GOOGLE_CALENDAR_ID,
+    normalizar_telefono
     # search_calendar_event_by_phone, # Es llamado por la IA antes de llamar a esta función
 )
 
@@ -86,8 +87,8 @@ def delete_calendar_event(event_id: str, original_start_time_iso: str | None = N
 
     except Exception as e:
         logger.error(f"❌ Error en la función delete_calendar_event al intentar eliminar ID {event_id}: {str(e)}", exc_info=True)
-        # Revisa si el error es porque el evento no existe (ej. 'HttpError 404')
-        if hasattr(e, 'resp') and hasattr(e.resp, 'status') and e.resp.status == 404:
-             logger.warning(f"El evento con ID {event_id} no fue encontrado. Es posible que ya haya sido eliminado.")
-             return {"error": f"La cita con ID {event_id} no fue encontrada. Es posible que ya haya sido eliminada."}
+        # Si el error es por no encontrado, intenta detectar por mensaje
+        if "notFound" in str(e) or "404" in str(e):
+            logger.warning(f"El evento con ID {event_id} no fue encontrado. Es posible que ya haya sido eliminado.")
+            return {"error": f"La cita con ID {event_id} no fue encontrada. Es posible que ya haya sido eliminada."}
         return {"error": f"Ocurrió un error en el servidor al intentar eliminar la cita: {str(e)}"}

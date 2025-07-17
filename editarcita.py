@@ -10,21 +10,21 @@ import logging
 import pytz # Para manejo de zonas horarias si es necesario internamente
 import re # Para parsear la descripción
 from datetime import datetime, timedelta # timedelta podría no ser necesario si new_end_time_iso siempre se provee
+from typing import Dict, Any
 from state_store import session_state
-
-
-
-
 
 # Importaciones de utils deben ser correctas
 from utils import (
     initialize_google_calendar,
-    GOOGLE_CALENDAR_ID
-
+    GOOGLE_CALENDAR_ID,
+    normalizar_telefono
 )
 
 logging.basicConfig(level=logging.INFO) # Ajusta el nivel según necesites
 logger = logging.getLogger(__name__)
+
+# Anotación de tipo para session_state
+session_state: Dict[str, Any]
 
 def _parse_field_from_description(description: str, field_name: str, is_phone: bool = False) -> str | None:
     """
@@ -72,10 +72,9 @@ def edit_calendar_event(
     """
 
     # ─── Parche: si la IA mandó un ID vacío o de ejemplo, usamos el seleccionado ───
-    current_id = session_state.get("current_event_id")
+    current_id = session_state.get("current_event_id")  # type: ignore
     if current_id:
         event_id = current_id
-
 
     logger.info(f"Intentando editar evento ID: {event_id} para nuevo horario: {new_start_time_iso}")
     try:
@@ -130,6 +129,14 @@ def edit_calendar_event(
         elif original_description: # Si no hay nuevos pero había descripción original
             updated_body["description"] = original_description
         # Si no hay nuevos y no había descripción original, no se añade campo description.
+
+        # Normalizar teléfono si se provee uno nuevo
+        if new_phone_for_description:
+            try:
+                new_phone_for_description = normalizar_telefono(new_phone_for_description)
+            except Exception as e:
+                logger.error(f"Error normalizando teléfono: {e}")
+                return {"error": str(e), "status": "invalid_phone"}
 
         # 4. Realizar la actualización (patch)
         updated_event = service.events().patch(

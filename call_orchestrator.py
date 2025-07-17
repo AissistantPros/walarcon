@@ -302,66 +302,124 @@ class CallOrchestrator:
         🤖 Maneja la respuesta de la IA
         
         Args:
-            response_text: Texto que la IA quiere decir
+            response_text: Texto que debe decir la IA
         """
-        t0 = time.perf_counter()
+        if self.call_state.ended:
+            return
+            
+        # Caso especial: IA solicita terminar llamada
         if response_text == "__END_CALL__":
             logger.info("🔚 IA solicitó terminar llamada")
-            await cierre_con_despedida(self, "assistant_request", delay=5.0)
+            await self._handle_ai_end_call()
             return
+            
+        logger.info(f"🤖 IA responde: '{response_text[:50]}...'")
         
-        # Convertir texto a voz
+        # Preparar TTS antes de enviar texto (optimización)
         if self.audio_manager:
-            await self.audio_manager.speak(response_text)
-        logger.info(f"[LATENCIA] Turno de IA (respuesta+TTS) completado en {1000*(time.perf_counter()-t0):.1f} ms")
+            await self.audio_manager.prepare_tts_ws()
+        
+        # Enviar respuesta a través del TTS
+        if self.audio_manager:
+            # Log diagnóstico antes de TTS
+            if self.audio_manager.tts_client:
+                diagnostics = self.audio_manager.tts_client.get_diagnostics()
+                logger.info(f"[DIAGNÓSTICO] Pre-TTS - Conectado: {diagnostics['is_connected']}, "
+                           f"Errores: {diagnostics['total_errors']}, Intentos: {diagnostics['connection_attempts']}")
+            
+            success = await self.audio_manager.speak(
+                response_text,
+                on_complete=self._on_tts_complete
+            )
+            
+            if not success:
+                logger.error("❌ TTS falló completamente")
+                # Log diagnóstico post-fallo
+                if self.audio_manager.tts_client:
+                    diagnostics = self.audio_manager.tts_client.get_diagnostics()
+                    logger.error(f"[DIAGNÓSTICO] Post-fallo TTS - Último error: {diagnostics['last_error']}")
+        else:
+            logger.error("❌ AudioManager no disponible para TTS")
     
-    # ========== MONITOREO Y TIMEOUTS ==========
+    async def _handle_ai_end_call(self) -> None:
+        """
+        🔚 Maneja la terminación de llamada solicitada por la IA
+        
+        Usa el flujo elegante de cierre con despedida
+        """
+        logger.info("🔚 Iniciando terminación de llamada solicitada por IA")
+        
+        try:
+            # Usar el flujo elegante de cierre
+            await cierre_con_despedida(self, "assistant_request", delay=5.0)
+            logger.info("✅ Terminación de llamada completada exitosamente")
+        except Exception as e:
+            logger.error(f"❌ Error en terminación de llamada: {e}")
+            # Fallback a shutdown de emergencia
+            try:
+                await self._shutdown("emergency_shutdown")
+            except Exception as emergency_error:
+                logger.error(f"❌ Error en shutdown de emergencia: {emergency_error}")
+    
+    async def _on_tts_complete(self) -> None:
+        """
+        ✅ Se ejecuta cuando TTS termina de hablar
+        """
+        logger.info("✅ TTS completado, continuando conversación")
+        
+        # Log diagnóstico post-TTS
+        if self.audio_manager:
+            diagnostics = self.audio_manager.get_diagnostics()
+            logger.info(f"[DIAGNÓSTICO] Post-TTS - Estado: {diagnostics['state']}, "
+                       f"STT listo: {diagnostics['stt_ready']}, TTS listo: {diagnostics['tts_ready']}")
+        
+        # La conversación continúa automáticamente cuando STT se reactiva
+        # No necesitamos llamar ningún método específico
     
     async def _monitor_call_health(self) -> None:
         """
-        👁️ Monitorea la salud de la llamada
+        🏥 Monitorea la salud de la llamada
         
         Verifica:
         - Duración máxima
         - Silencio prolongado
         - Estado de servicios
         """
-        logger.info("👁️ Monitor de llamada iniciado")
+        logger.info("🏥 Iniciando monitoreo de salud de llamada")
         
         while not self.call_state.ended:
             try:
-                await asyncio.sleep(CALL_CONFIG["MONITOR_INTERVAL"])
-                
                 # Verificar duración máxima
                 duration = time.perf_counter() - self.call_state.start_time
                 if duration > CALL_CONFIG["MAX_DURATION"]:
-                    logger.warning(f"⏰ Duración máxima excedida ({duration:.1f}s)")
-                    await self._shutdown("max_duration_exceeded")
+                    logger.warning(f"⏰ Llamada excedió duración máxima ({CALL_CONFIG['MAX_DURATION']}s)")
+                    await self._shutdown("max_duration")
                     break
                 
-                # Verificar silencio prolongado
-                if self.conversation_flow and self.audio_manager:
-                    if not self.audio_manager.get_state().ignore_stt:
-                        silence_timeout = await self.conversation_flow.check_silence_timeout(
-                            CALL_CONFIG["SILENCE_TIMEOUT"]
-                        )
-                        if silence_timeout:
-                            logger.warning("🔇 Silencio prolongado detectado")
+                # Verificar silencio
+                if self.audio_manager:
+                    last_activity = self.audio_manager.state.last_audio_activity
+                    if last_activity > 0:
+                        silence_duration = time.perf_counter() - last_activity
+                        if silence_duration > CALL_CONFIG["SILENCE_TIMEOUT"]:
+                            logger.warning(f"🔇 Silencio prolongado ({silence_duration:.1f}s)")
                             await self._shutdown("silence_timeout")
                             break
                 
-                # Log estado de servicios
-                if self.integration_manager:
-                    health = self.integration_manager.get_health_report()
-                    logger.debug(f"📊 Salud de servicios: {health}")
-                    
-            except asyncio.CancelledError:
-                logger.info("Monitor cancelado")
-                break
+                # Log diagnóstico periódico
+                if self.audio_manager and duration % 30 < 1:  # Cada ~30 segundos
+                    diagnostics = self.audio_manager.get_diagnostics()
+                    logger.info(f"[DIAGNÓSTICO] Salud llamada - Duración: {duration:.1f}s, "
+                               f"STT: {diagnostics['stt_ready']}, TTS: {diagnostics['tts_ready']}, "
+                               f"Hablando: {diagnostics['state']['is_speaking']}")
+                
+                await asyncio.sleep(CALL_CONFIG["MONITOR_INTERVAL"])
+                
             except Exception as e:
-                logger.error(f"Error en monitor: {e}")
+                logger.error(f"❌ Error en monitoreo de salud: {e}")
+                await asyncio.sleep(CALL_CONFIG["MONITOR_INTERVAL"])
         
-        logger.info("👁️ Monitor finalizado")
+        logger.info("🏥 Monitoreo de salud terminado")
     
     # ========== MANEJO DE RECONEXIONES ==========
     
@@ -386,45 +444,101 @@ class CallOrchestrator:
     
     async def _shutdown(self, reason: str) -> None:
         """
-        🔌 Cierra todo ordenadamente
+        🔌 Cierra todo ordenadamente con manejo robusto de errores
         
         Args:
             reason: Razón del cierre
         """
         t0 = time.perf_counter()
         if self.call_state.ended:
+            logger.info("🔌 Shutdown ya en progreso, ignorando")
             return
             
         logger.info(f"🔌 Iniciando shutdown - Razón: {reason}")
         self.call_state.ended = True
         self.call_state.ending_reason = reason
         
-        # Cancelar tareas
-        if self.monitor_task and not self.monitor_task.done():
-            self.monitor_task.cancel()
+        try:
+            # === PASO 1: CANCELAR TAREAS ===
+            logger.info("🔄 Cancelando tareas activas...")
             
-        # Cerrar componentes en orden
-        if self.conversation_flow:
-            await self.conversation_flow.shutdown()
+            if self.monitor_task and not self.monitor_task.done():
+                try:
+                    self.monitor_task.cancel()
+                    logger.info("✅ Tarea de monitoreo cancelada")
+                except Exception as e:
+                    logger.error(f"❌ Error cancelando tarea de monitoreo: {e}")
             
-        if self.audio_manager:
-            await self.audio_manager.shutdown()
+            if self.hold_message_task and not self.hold_message_task.done():
+                try:
+                    self.hold_message_task.cancel()
+                    logger.info("✅ Tarea de mensaje de espera cancelada")
+                except Exception as e:
+                    logger.error(f"❌ Error cancelando tarea de mensaje de espera: {e}")
             
-        if self.integration_manager:
-            await self.integration_manager.shutdown()
-        
-        # Terminar llamada en Twilio si es necesario
-        if self.call_state.call_sid and not self.call_state.twilio_terminated:
+            # === PASO 2: CERRAR COMPONENTES EN ORDEN ===
+            logger.info("🔌 Cerrando componentes...")
+            
+            # ConversationFlow primero (puede estar procesando)
+            if self.conversation_flow:
+                try:
+                    await self.conversation_flow.shutdown()
+                    logger.info("✅ ConversationFlow cerrado")
+                except Exception as e:
+                    logger.error(f"❌ Error cerrando ConversationFlow: {e}")
+            
+            # AudioManager (Deepgram + ElevenLabs)
+            if self.audio_manager:
+                try:
+                    await self.audio_manager.shutdown()
+                    logger.info("✅ AudioManager cerrado")
+                except Exception as e:
+                    logger.error(f"❌ Error cerrando AudioManager: {e}")
+            
+            # IntegrationManager
+            if self.integration_manager:
+                try:
+                    await self.integration_manager.shutdown()
+                    logger.info("✅ IntegrationManager cerrado")
+                except Exception as e:
+                    logger.error(f"❌ Error cerrando IntegrationManager: {e}")
+            
+            # === PASO 3: TERMINAR LLAMADA EN TWILIO ===
+            if self.call_state.call_sid and not self.call_state.twilio_terminated:
+                try:
+                    success = await terminar_llamada_twilio(self.call_state.call_sid)
+                    if success:
+                        self.call_state.twilio_terminated = True
+                        logger.info("✅ Llamada terminada en Twilio")
+                    else:
+                        logger.warning("⚠️ No se pudo terminar llamada en Twilio")
+                except Exception as e:
+                    logger.error(f"❌ Error terminando llamada en Twilio: {e}")
+            else:
+                logger.info("ℹ️ Llamada ya terminada en Twilio o sin call_sid")
+            
+            # === PASO 4: LIMPIEZA FINAL ===
+            logger.info("🧹 Limpieza final...")
+            
+            # Limpiar session_state
             try:
-                await terminar_llamada_twilio(self.call_state.call_sid)
-                self.call_state.twilio_terminated = True
+                session_state.clear()
+                logger.info("✅ Session state limpiado")
             except Exception as e:
-                logger.error(f"Error terminando llamada en Twilio: {e}")
-        
-        # El TwilioHandler se cerrará automáticamente
-        
-        logger.info(f"✅ Shutdown completado - Razón: {reason}")
-        logger.info(f"[LATENCIA] Shutdown completado en {1000*(time.perf_counter()-t0):.1f} ms")
+                logger.error(f"❌ Error limpiando session state: {e}")
+            
+            # El TwilioHandler se cerrará automáticamente cuando se cierre el WebSocket
+            
+            logger.info(f"✅ Shutdown completado exitosamente - Razón: {reason}")
+            logger.info(f"[LATENCIA] Shutdown completado en {1000*(time.perf_counter()-t0):.1f} ms")
+            
+        except Exception as e:
+            logger.error(f"❌ Error crítico en shutdown: {e}")
+            logger.error(f"[LATENCIA] Shutdown con errores tras {1000*(time.perf_counter()-t0):.1f} ms")
+        finally:
+            # Asegurar que el estado esté marcado como terminado
+            self.call_state.ended = True
+            logger.info(f"🔚 Shutdown finalizado - Razón: {reason}")
     
     # ========== UTILIDADES ==========
     

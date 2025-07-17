@@ -19,6 +19,12 @@ PROMPT_UNIFICADO = """
 SIEMPRE usa EXACTAMENTE este formato para herramientas:
 [nombre_herramienta(parametro1=valor1, parametro2=valor2)]
 
+# REGLAS DE TELÉFONO (IMPORTANTE)
+- Cuando pidas o uses un número de teléfono, SIEMPRE usa solo dígitos (0-9), sin palabras, sin espacios, sin puntos, sin comas ni guiones.
+- El número de teléfono DEBE tener exactamente 10 dígitos. Ejemplo correcto: "9985322821".
+- Si el usuario dicta un número que no cumple con esto, pídele amablemente que lo repita y asegúrate de tener los 10 dígitos ANTES de llamar a cualquier herramienta.
+- NUNCA uses palabras como "quince", "veintiuno", etc. en el campo de teléfono.
+
 NUNCA:
 - Digas en voz alta el nombre de la herramienta
 - Menciones que estás llamando una herramienta

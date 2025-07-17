@@ -2,14 +2,18 @@
 # Memoriza datos durante UNA llamada (se reinicia cuando Twilio abre un WS nuevo)
 import time
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 
 logger = logging.getLogger(__name__)
 
-session_state = {
+# Definir session_state como un diccionario que puede contener cualquier tipo de valor
+session_state: Dict[str, Any] = {
     "events_found": [],       # lista completa de citas encontradas
     "current_event_id": None  # la cita que el usuario confirmó
 }
+
+# Anotación de tipo explícita para ayudar al linter
+__all__ = ["session_state"]
 
 def emit_latency_event(session_id: str, event_name: str, metadata: Optional[dict] = None) -> None:
     """

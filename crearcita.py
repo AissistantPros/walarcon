@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 import pytz
 from fastapi import APIRouter, HTTPException
-from utils import initialize_google_calendar, GOOGLE_CALENDAR_ID, get_cancun_time
+from utils import initialize_google_calendar, GOOGLE_CALENDAR_ID, get_cancun_time, normalizar_telefono
 
 
 logging.basicConfig(level=logging.INFO)
@@ -47,7 +47,8 @@ def validate_iso_datetime(dt_str: str):
 
 def create_calendar_event(name: str, phone: str, reason: str, start_time: str, end_time: str):
     try:
-        # Validación estricta de teléfono
+        # Normalización estricta de teléfono
+        phone = normalizar_telefono(phone)
         if len(phone) != 10 or not phone.isdigit():
             raise ValueError("Teléfono debe tener 10 dígitos numéricos")
         

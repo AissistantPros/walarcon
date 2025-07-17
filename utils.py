@@ -20,6 +20,7 @@ import re
 from typing import Dict, Optional, List, Any # Añadido Any y List
 from state_store import session_state
 from twilio.rest import Client
+import time
 
       
 logger = logging.getLogger("utils")
@@ -393,48 +394,188 @@ def search_calendar_event_by_phone(phone: str) -> List[Dict[str, Any]]:
 
 async def terminar_llamada_twilio(call_sid: str, motivo: str = "completed"):
     """
-    Marca la llamada como 'completed' en Twilio (cuelga).
+    ☎️ Termina la llamada en Twilio usando la API REST
+    
+    Args:
+        call_sid: ID de la llamada en Twilio
+        motivo: Razón de la terminación (default: "completed")
+    
+    Returns:
+        bool: True si se terminó exitosamente, False si hubo error
     """
-    logger.info("☎️  Terminando llamada %s en Twilio (motivo=%s)…", call_sid, motivo)
-    await asyncio.to_thread(
-        _twilio_client.calls(call_sid).update,
-        status="completed"
-    )
-    logger.info("✅ Twilio confirmó cierre de llamada %s.", call_sid)
+    logger.info(f"☎️ Terminando llamada {call_sid} en Twilio (motivo={motivo})...")
+    t0 = time.perf_counter()
+    
+    try:
+        # Verificar que tenemos el cliente de Twilio
+        if not _twilio_client:
+            logger.error("❌ Cliente de Twilio no inicializado")
+            return False
+        
+        # Verificar que el call_sid es válido
+        if not call_sid or len(call_sid) < 10:
+            logger.error(f"❌ Call SID inválido: {call_sid}")
+            return False
+        
+        # Terminar la llamada usando la API REST
+        await asyncio.to_thread(
+            _twilio_client.calls(call_sid).update,
+            status="completed"
+        )
+        
+        logger.info(f"✅ Twilio confirmó cierre de llamada {call_sid}")
+        logger.info(f"[LATENCIA] Terminación Twilio completada en {1000*(time.perf_counter()-t0):.1f} ms")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error terminando llamada {call_sid} en Twilio: {e}")
+        logger.error(f"[LATENCIA] Error en terminación Twilio tras {1000*(time.perf_counter()-t0):.1f} ms")
+        return False
 
 
 
 
 async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
     """
-    1) Envía despedida TTS.
-    2) Espera `delay` s para que Twilio la reproduzca.
-    3) Cuelga la llamada en Twilio.
-    4) Llama a _shutdown().
+    🔚 FLUJO ELEGANTE DE TERMINACIÓN DE LLAMADA
+    
+    Pasos:
+    1. IA se despide (TTS)
+    2. Espera para reproducción completa (5 segundos)
+    3. Cierra WebSockets (Deepgram, ElevenLabs)
+    4. Termina llamada en Twilio (API REST)
+    5. Limpia memoria, cancela tareas, borra buffers
+    
+    Args:
+        manager: CallOrchestrator instance
+        reason: Razón de la terminación
+        delay: Tiempo de espera para reproducción (default: 5.0s)
     """
     FAREWELL = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
-
+    
+    logger.info(f"🔚 Iniciando cierre elegante de llamada - Razón: {reason}")
+    t0 = time.perf_counter()
+    
     try:
-        # --- MODIFICACIÓN ---
-        # Activamos el modo "ignorar STT" inmediatamente
-        manager.ignorar_stt = True
-        logger.info("🤫 Activando ignorar_stt para la secuencia de cierre.")
-        # --- FIN DE LA MODIFICACIÓN ---
-
-        # 1️⃣  Despedida
-        await manager.handle_tts_response(FAREWELL, None)
-
-        # 2️⃣  Pausa
-        logger.info("⏳ Esperando %.1fs antes de colgar…", delay)
-        await asyncio.sleep(delay)
-
-        # 3️⃣  Cuelga en Twilio
-        if manager.call_sid:
-            await terminar_llamada_twilio(manager.call_sid, reason)
-            manager.twilio_terminated = True
+        # === PASO 1: DESPEDIDA TTS ===
+        logger.info("🎤 Enviando despedida TTS...")
+        
+        # Activar modo "ignorar STT" inmediatamente
+        if hasattr(manager, 'audio_manager') and manager.audio_manager:
+            manager.audio_manager.state.ignore_stt = True
+            manager.audio_manager.state.is_speaking = True
+            logger.info("🤫 Activando ignorar_stt para la secuencia de cierre")
+        
+        # Enviar despedida
+        if hasattr(manager, '_handle_ai_response'):
+            await manager._handle_ai_response(FAREWELL)
+            logger.info("✅ Despedida TTS enviada")
         else:
-            logger.warning("⚠️  Sin call_sid; no se pudo colgar en Twilio.")
-
+            logger.warning("⚠️ No se pudo enviar despedida TTS")
+        
+        # === PASO 2: ESPERA PARA REPRODUCCIÓN ===
+        logger.info(f"⏳ Esperando {delay}s para reproducción completa...")
+        await asyncio.sleep(delay)
+        
+        # === PASO 3: CIERRE ELEGANTE DE WEBSOCKETS ===
+        logger.info("🔌 Cerrando WebSockets...")
+        
+        # Cerrar AudioManager (Deepgram + ElevenLabs)
+        if hasattr(manager, 'audio_manager') and manager.audio_manager:
+            try:
+                await manager.audio_manager.shutdown()
+                logger.info("✅ AudioManager cerrado")
+            except Exception as e:
+                logger.error(f"❌ Error cerrando AudioManager: {e}")
+        
+        # Cerrar ConversationFlow
+        if hasattr(manager, 'conversation_flow') and manager.conversation_flow:
+            try:
+                await manager.conversation_flow.shutdown()
+                logger.info("✅ ConversationFlow cerrado")
+            except Exception as e:
+                logger.error(f"❌ Error cerrando ConversationFlow: {e}")
+        
+        # Cerrar IntegrationManager
+        if hasattr(manager, 'integration_manager') and manager.integration_manager:
+            try:
+                await manager.integration_manager.shutdown()
+                logger.info("✅ IntegrationManager cerrado")
+            except Exception as e:
+                logger.error(f"❌ Error cerrando IntegrationManager: {e}")
+        
+        # === PASO 4: TERMINACIÓN EN TWILIO ===
+        logger.info("☎️ Terminando llamada en Twilio...")
+        
+        if hasattr(manager, 'call_state') and manager.call_state.call_sid:
+            try:
+                await terminar_llamada_twilio(manager.call_state.call_sid, reason)
+                manager.call_state.twilio_terminated = True
+                logger.info("✅ Llamada terminada en Twilio")
+            except Exception as e:
+                logger.error(f"❌ Error terminando llamada en Twilio: {e}")
+        else:
+            logger.warning("⚠️ Sin call_sid; no se pudo terminar en Twilio")
+        
+        # === PASO 5: LIMPIEZA COMPLETA ===
+        logger.info("🧹 Limpieza final de memoria y tareas...")
+        
+        # Cancelar tareas de monitoreo
+        if hasattr(manager, 'monitor_task') and manager.monitor_task:
+            try:
+                manager.monitor_task.cancel()
+                logger.info("✅ Tarea de monitoreo cancelada")
+            except Exception as e:
+                logger.error(f"❌ Error cancelando tarea de monitoreo: {e}")
+        
+        # Limpiar session_state
+        try:
+            session_state.clear()
+            logger.info("✅ Session state limpiado")
+        except Exception as e:
+            logger.error(f"❌ Error limpiando session state: {e}")
+        
+        # Marcar llamada como terminada
+        if hasattr(manager, 'call_state'):
+            manager.call_state.ended = True
+            manager.call_state.ending_reason = reason
+        
+        logger.info(f"✅ Cierre elegante completado en {1000*(time.perf_counter()-t0):.1f} ms")
+        
+    except Exception as e:
+        logger.error(f"❌ Error en cierre elegante: {e}")
+        # Intentar shutdown de emergencia
+        try:
+            if hasattr(manager, '_shutdown'):
+                await manager._shutdown(f"emergency_shutdown ({reason})")
+        except Exception as emergency_error:
+            logger.error(f"❌ Error en shutdown de emergencia: {emergency_error}")
     finally:
-        # 4️⃣  Shutdown normal
-        await manager._shutdown(reason=f"assistant_farewell ({reason})")
+        logger.info(f"🔚 Cierre de llamada finalizado - Razón: {reason}")
+
+
+def normalizar_telefono(texto: str) -> str:
+    """
+    Normaliza un número de teléfono:
+    - Convierte palabras numéricas a dígitos (soporta hasta 99).
+    - Elimina cualquier carácter que no sea dígito.
+    - Valida que el resultado tenga exactamente 10 dígitos.
+    - Lanza ValueError si no es posible obtener un teléfono válido.
+    """
+    import re
+    # Diccionario básico de palabras a números (puedes expandir según necesidad)
+    palabras_a_digitos = {
+        "cero": "0", "uno": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5", "seis": "6", "siete": "7", "ocho": "8", "nueve": "9",
+        "diez": "10", "once": "11", "doce": "12", "trece": "13", "catorce": "14", "quince": "15", "dieciséis": "16", "dieciseis": "16", "diecisiete": "17", "dieciocho": "18", "diecinueve": "19",
+        "veinte": "20", "veintiuno": "21", "veintidós": "22", "veintidos": "22", "veintitrés": "23", "veintitres": "23", "veinticuatro": "24", "veinticinco": "25", "veintiséis": "26", "veintiseis": "26", "veintisiete": "27", "veintiocho": "28", "veintinueve": "29",
+        "treinta": "30", "cuarenta": "40", "cincuenta": "50", "sesenta": "60", "setenta": "70", "ochenta": "80", "noventa": "90"
+    }
+    # Reemplaza palabras por dígitos
+    texto = texto.lower()
+    for palabra, digito in palabras_a_digitos.items():
+        texto = re.sub(rf"\\b{palabra}\\b", digito, texto)
+    # Elimina todo lo que no sea dígito
+    solo_digitos = re.sub(r"\D", "", texto)
+    if len(solo_digitos) != 10:
+        raise ValueError("El teléfono debe tener exactamente 10 dígitos después de normalizar. Recibido: " + solo_digitos)
+    return solo_digitos

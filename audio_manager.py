@@ -297,47 +297,43 @@ class AudioManager:
 
     async def speak(self, text: str, on_complete: Optional[Callable] = None) -> bool:
         """
-        🗣️ Convierte texto a voz y lo envía al usuario
+        🔊 Convierte texto a audio y lo envía a Twilio
         
         Args:
-            text: Texto a convertir en voz
-            on_complete: Callback cuando termina de hablar
+            text: Texto a convertir
+            on_complete: Callback cuando termina
             
         Returns:
-            bool: True si se envió correctamente
-            
-        Proceso:
-        1. Activa ignore_stt (silencia entrada)
-        2. Limpia buffer de Twilio
-        3. Intenta ElevenLabs WebSocket
-        4. Si falla → ElevenLabs HTTP (fallback)
-        5. Al terminar → reactiva STT
+            bool: True si se inició correctamente
         """
+        if not text.strip():
+            logger.warning("⚠️ Texto vacío para TTS")
+            return False
+        
+        logger.info(f"🔊 Iniciando TTS: '{text[:50]}...' ({len(text)} chars)")
         t0 = time.perf_counter()
-        logger.info(f"🗣️ TTS iniciando: '{text[:50]}...'")
         
-        # Guardar callback
+        # Configurar callback
         self.on_tts_complete = on_complete
-        
-        # Activar modo "IA hablando"
         self.state.tts_in_progress = True
+        self.state.is_speaking = True
+        self.state.ignore_stt = True  # Ignorar entrada mientras habla
         
         # Limpiar buffer de Twilio
         await self._clear_twilio_buffer()
         
-        # Intentar con WebSocket primero
-        success = await self._try_websocket_tts(text)
+        # Intentar WebSocket primero (baja latencia)
+        ws_success = await self._try_websocket_tts(text)
         
-
-        # Si falla, usar HTTP fallback
-        if not success:
-            logger.warning("⚠️ WebSocket TTS falló, usando HTTP fallback")
-            t1 = time.perf_counter()
-            logger.info(f"[LATENCIA] TTS WebSocket falló tras {1000*(t1-t0):.1f} ms, usando fallback HTTP...")
+        if ws_success:
+            logger.info(f"[LATENCIA] WebSocket TTS iniciado en {1000*(time.perf_counter()-t0):.1f} ms")
+            return True
+        else:
+            logger.warning("⚠️ WebSocket TTS falló, usando fallback HTTP")
+            # Fallback a HTTP
             await self._http_fallback_tts(text)
-            logger.info(f"[LATENCIA] TTS HTTP fallback completado en {1000*(time.perf_counter()-t0):.1f} ms")
-        
-        return True
+            logger.info(f"[LATENCIA] HTTP fallback TTS iniciado en {1000*(time.perf_counter()-t0):.1f} ms")
+            return True
     
     async def _try_websocket_tts(self, text: str) -> bool:
         """
@@ -348,36 +344,49 @@ class AudioManager:
         """
         if not self.tts_client:
             # Intentar crear cliente si no existe
+            logger.info("🔄 Intentando inicializar TTS WebSocket...")
             await self.initialize_tts()
             
         if not self.tts_client:
+            logger.error("❌ No se pudo inicializar TTS WebSocket")
             return False
         
         try:
+            # Verificar diagnóstico del cliente
+            diagnostics = self.tts_client.get_diagnostics()
+            logger.info(f"[DIAGNÓSTICO] TTS WebSocket - Intentos: {diagnostics['connection_attempts']}, "
+                       f"Errores: {diagnostics['total_errors']}, Conectado: {diagnostics['is_connected']}")
+            
             # Callback para enviar chunks
             async def send_chunk(chunk: bytes):
                 await self._send_audio_to_twilio(chunk)
                 self.last_chunk_time = time.perf_counter()
             
-            # Hablar
+            # Hablar con timeout más agresivo
             ok = await self.tts_client.speak(
                 text,
                 on_chunk=send_chunk,
                 on_end=self._on_tts_complete,
-                timeout_first_chunk=1.0
+                timeout_first_chunk=0.8  # Reducido de 1.0s a 0.8s
             )
             
             if ok:
+                logger.info("✅ WebSocket TTS iniciado correctamente")
                 # Iniciar detector de stalls
                 self.stall_detector_task = asyncio.create_task(
                     self._monitor_tts_stall()
                 )
                 return True
             else:
+                logger.error("❌ WebSocket TTS falló en speak()")
                 return False
                 
         except Exception as e:
             logger.error(f"❌ Error en WebSocket TTS: {e}")
+            # Log diagnóstico adicional
+            if self.tts_client:
+                diagnostics = self.tts_client.get_diagnostics()
+                logger.error(f"[DIAGNÓSTICO] Error TTS - Último error: {diagnostics['last_error']}")
             return False
     
     async def _http_fallback_tts(self, text: str) -> None:
@@ -385,6 +394,8 @@ class AudioManager:
         🔄 Fallback a ElevenLabs HTTP (más lento pero confiable)
         """
         t0 = time.perf_counter()
+        logger.info("🔄 Usando fallback HTTP TTS...")
+        
         try:
             await send_tts_http_to_twilio(
                 text=text,
@@ -396,6 +407,7 @@ class AudioManager:
             logger.info(f"[LATENCIA] HTTP fallback TTS completado en {1000*(time.perf_counter()-t0):.1f} ms")
         except Exception as e:
             logger.error(f"❌ Error en HTTP TTS fallback: {e}")
+            # Aún así llamar callback para reactivar STT
             await self._on_tts_complete()
     
     async def _send_audio_to_twilio(self, audio_chunk: bytes) -> None:
@@ -405,12 +417,15 @@ class AudioManager:
         Args:
             audio_chunk: Audio μ-law 8kHz
         """
-        payload = base64.b64encode(audio_chunk).decode("ascii")
-        await self.websocket_send(json.dumps({
-            "event": "media",
-            "streamSid": self.stream_sid,
-            "media": {"payload": payload}
-        }))
+        try:
+            payload = base64.b64encode(audio_chunk).decode("ascii")
+            await self.websocket_send(json.dumps({
+                "event": "media",
+                "streamSid": self.stream_sid,
+                "media": {"payload": payload}
+            }))
+        except Exception as e:
+            logger.error(f"❌ Error enviando audio a Twilio: {e}")
     
     async def _clear_twilio_buffer(self) -> None:
         """
@@ -462,13 +477,19 @@ class AudioManager:
         
         Si pasan 300ms sin chunks → asume que falló y reactiva STT
         """
+        stall_count = 0
         while self.state.tts_in_progress:
             if self.last_chunk_time:
                 elapsed = time.perf_counter() - self.last_chunk_time
                 if elapsed > 0.3:  # 300ms sin chunks
-                    logger.warning("🚨 TTS stall detectado! Reactivando STT")
-                    await self._on_tts_complete()
-                    break
+                    stall_count += 1
+                    logger.warning(f"🚨 TTS stall #{stall_count} detectado! ({elapsed*1000:.1f}ms sin chunks)")
+                    if stall_count >= 2:  # Dos stalls consecutivos
+                        logger.error("🚨 TTS stall persistente! Reactivando STT")
+                        await self._on_tts_complete()
+                        break
+                else:
+                    stall_count = 0  # Resetear contador si recibimos chunks
             await asyncio.sleep(0.05)
     
     async def reactivate_stt(self) -> None:
@@ -546,7 +567,33 @@ class AudioManager:
         return self.state
     
     def is_ready(self) -> bool:
-        """✅ Verifica si todos los servicios están listos"""
-        stt_ready = self.stt_streamer and self.stt_streamer._started
-        # TTS se puede crear on-demand, así que no es requisito
-        return bool(stt_ready)
+        """Verifica si el AudioManager está listo para procesar audio"""
+        return (
+            self.stt_streamer is not None and 
+            self.stt_streamer._started
+        )
+    
+    def get_diagnostics(self) -> dict:
+        """Retorna métricas de diagnóstico del AudioManager"""
+        diagnostics = {
+            "stream_sid": self.stream_sid,
+            "state": {
+                "is_speaking": self.state.is_speaking,
+                "ignore_stt": self.state.ignore_stt,
+                "tts_in_progress": self.state.tts_in_progress,
+                "last_audio_activity": self.state.last_audio_activity
+            },
+            "buffers": {
+                "buffer_size": self.buffer_size,
+                "buffer_chunks": len(self.audio_buffer)
+            },
+            "stt_ready": self.stt_streamer is not None and self.stt_streamer._started if self.stt_streamer else False,
+            "tts_ready": self.tts_client is not None
+        }
+        
+        # Agregar diagnóstico del TTS si está disponible
+        if self.tts_client:
+            tts_diagnostics = self.tts_client.get_diagnostics()
+            diagnostics["tts_diagnostics"] = tts_diagnostics
+        
+        return diagnostics
