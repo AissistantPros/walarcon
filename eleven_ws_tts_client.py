@@ -250,7 +250,12 @@ class ElevenLabsWSClient:
         return audio_bytes
 
     async def _handle_message(self, data: dict):
-        """Procesa mensajes del WebSocket con logs detallados"""
+        """Procesa mensajes del WebSocket con logs detallados y validaciones robustas"""
+        
+        # Validar que data no sea None
+        if data is None:
+            logger.warning("⚠️ Mensaje None recibido del WebSocket")
+            return
         
         # Mensaje de audio
         if "audio" in data:
@@ -258,20 +263,36 @@ class ElevenLabsWSClient:
             try:
                 # FIX: Validar que audio_b64 no sea None o vacío
                 if not audio_b64:
-                    logger.warning("⚠️ Audio base64 vacío o None recibido")
+                    logger.debug("🔇 Audio base64 vacío recibido (ignorando)")
                     return
                 
-                # Decodificar audio
-                audio_bytes = base64.b64decode(audio_b64)
+                # Validar que audio_b64 sea string
+                if not isinstance(audio_b64, str):
+                    logger.warning(f"⚠️ Audio base64 no es string: {type(audio_b64)}")
+                    return
+                
+                # Decodificar audio con manejo de errores mejorado
+                try:
+                    audio_bytes = base64.b64decode(audio_b64)
+                except Exception as e:
+                    logger.error(f"❌ Error decodificando base64: {e}")
+                    self._total_errors += 1
+                    return
+                
+                # Validar que audio_bytes no sea None o vacío
+                if not audio_bytes:
+                    logger.debug("🔇 Audio decodificado vacío (ignorando)")
+                    return
+                
                 self._total_audio_chunks += 1
                 
-                # FIX: Validar que audio_bytes no sea None
-                if audio_bytes is None:
-                    logger.warning("⚠️ Audio decodificado es None")
-                    return
-                
                 # Limpiar headers MP3 si es necesario
-                audio_bytes = self._clean_mp3_headers(audio_bytes)
+                try:
+                    audio_bytes = self._clean_mp3_headers(audio_bytes)
+                except Exception as e:
+                    logger.error(f"❌ Error limpiando headers MP3: {e}")
+                    self._total_errors += 1
+                    return
                 
                 # Log del primer chunk con latencia detallada
                 if self._first_chunk and not self._first_chunk.is_set():
@@ -282,14 +303,19 @@ class ElevenLabsWSClient:
                         logger.info(f"[DIAGNÓSTICO] Primer chunk recibido tras {self._total_audio_chunks} intentos")
                     self._loop.call_soon_threadsafe(self._first_chunk.set)
                 
-                # Enviar chunk al callback
+                # Enviar chunk al callback con validación adicional
                 if self._user_chunk:
-                    if asyncio.iscoroutinefunction(self._user_chunk):
-                        asyncio.run_coroutine_threadsafe(
-                            self._user_chunk(audio_bytes), self._loop
-                        )
-                    else:
-                        self._loop.call_soon_threadsafe(self._user_chunk, audio_bytes)
+                    try:
+                        if asyncio.iscoroutinefunction(self._user_chunk):
+                            asyncio.run_coroutine_threadsafe(
+                                self._user_chunk(audio_bytes), self._loop
+                            )
+                        else:
+                            self._loop.call_soon_threadsafe(self._user_chunk, audio_bytes)
+                    except Exception as e:
+                        logger.error(f"❌ Error en callback de chunk: {e}")
+                        self._total_errors += 1
+                        return
                 
                 logger.debug(f"🔊 Chunk μ-law enviado: {len(audio_bytes)} bytes (total: {self._total_audio_chunks})")
                 
@@ -304,17 +330,28 @@ class ElevenLabsWSClient:
                 total_time = time.perf_counter() - self._send_time
                 logger.info(f"[FUNCIONALIDAD] Fin de stream ElevenLabs recibido tras {1000*total_time:.1f} ms desde envío de texto.")
                 logger.info(f"[DIAGNÓSTICO] Chunks procesados en esta sesión: {self._total_audio_chunks}")
+            
+            # Llamar callback de fin con validación
             if self._user_end:
-                if asyncio.iscoroutinefunction(self._user_end):
-                    asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
-                else:
-                    self._loop.call_soon_threadsafe(self._user_end)
+                try:
+                    if asyncio.iscoroutinefunction(self._user_end):
+                        asyncio.run_coroutine_threadsafe(self._user_end(), self._loop)
+                    else:
+                        self._loop.call_soon_threadsafe(self._user_end)
+                except Exception as e:
+                    logger.error(f"❌ Error en callback de fin: {e}")
+                    self._total_errors += 1
 
         # Mensajes de error
         if "error" in data:
             error_msg = data["error"]
             logger.error(f"❌ Error de ElevenLabs: {error_msg}")
             self._total_errors += 1
+            
+        # Mensajes de estado (nuevos)
+        if "status" in data:
+            status_msg = data["status"]
+            logger.debug(f"📊 Estado ElevenLabs: {status_msg}")
 
     async def _keepalive_loop(self):
         """Envía espacios cada 15 segundos para mantener viva la conexión"""

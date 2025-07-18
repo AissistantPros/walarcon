@@ -260,7 +260,16 @@ class ConversationFlow:
             # Manejar respuestas especiales
             if ai_response == "__END_CALL__":
                 logger.info("🔚 IA solicitó terminar la llamada")
-                # TODO: Implementar lógica de cierre
+                # NUEVO: Ejecutar terminación de llamada
+                if hasattr(self, 'response_handler') and self.response_handler:
+                    # Buscar el manager en el response_handler
+                    # El response_handler es _handle_ai_response del CallOrchestrator
+                    # Necesitamos acceder al manager desde ahí
+                    try:
+                        # Intentar ejecutar la terminación directamente
+                        await self._execute_end_call()
+                    except Exception as e:
+                        logger.error(f"❌ Error ejecutando terminación de llamada: {e}")
                 return
             
             # Agregar respuesta al historial
@@ -285,6 +294,39 @@ class ConversationFlow:
         finally:
             self.state.ai_task_active = False
             emit_latency_event(self.session_id, "ai_response_complete")
+    
+    async def _execute_end_call(self) -> None:
+        """
+        🔚 Ejecuta la terminación de llamada cuando la IA lo solicita
+        
+        Este método busca el manager y ejecuta la terminación
+        """
+        logger.info("🔚 Ejecutando terminación de llamada solicitada por IA")
+        
+        # Buscar el manager a través del response_handler
+        # El response_handler es _handle_ai_response del CallOrchestrator
+        # Necesitamos acceder al manager desde el contexto del response_handler
+        
+        # Intentar obtener el manager desde el contexto del response_handler
+        try:
+            # El response_handler es un método del CallOrchestrator
+            # Podemos intentar acceder al manager a través de una referencia
+            if hasattr(self, '_manager_reference'):
+                manager = self._manager_reference
+                if hasattr(manager, '_handle_ai_end_call'):
+                    await manager._handle_ai_end_call()
+                    logger.info("✅ Terminación de llamada ejecutada correctamente")
+                else:
+                    logger.error("❌ Manager no tiene método _handle_ai_end_call")
+            else:
+                logger.error("❌ No se encontró referencia al manager")
+        except Exception as e:
+            logger.error(f"❌ Error ejecutando terminación de llamada: {e}")
+            # Fallback: intentar shutdown directo
+            try:
+                await self.shutdown()
+            except Exception as shutdown_error:
+                logger.error(f"❌ Error en shutdown de emergencia: {shutdown_error}")
     
     # ========== CONTROL DE TIMEOUTS ==========
     
