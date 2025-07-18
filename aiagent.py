@@ -24,7 +24,10 @@ logger = logging.getLogger("aiagent")
 
 # --- Clientes y Gestores ---
 try:
-    client = AsyncGroq(api_key=config("GROQ_API_KEY"))
+    api_key = config("GROQ_API_KEY", default=None)
+    if not api_key:
+        raise ValueError("GROQ_API_KEY no está configurada")
+    client = AsyncGroq(api_key=str(api_key))
     logger.info("Cliente AsyncGroq inicializado correctamente.")
 except Exception as e:
     logger.critical(f"No se pudo inicializar el cliente Groq. Verifica GROQ_API_KEY: {e}")
@@ -89,6 +92,13 @@ class ToolEngine:
     def parse_tool_calls(self, text: str) -> List[Dict]:
         """Parsea el texto crudo del LLM y extrae las llamadas a herramientas."""
         tool_calls = []
+        
+        # FIX: Detectar alucinación de end_call
+        if 'end_call({"reason"' in text and '[end_call' not in text:
+            logger.warning("⚠️ Detectada alucinación de end_call sin corchetes")
+            # Convertir al formato correcto
+            text = text.replace('end_call({"reason": "user_request"})', '[end_call(reason="user_request")]')
+            text = text.replace('end_call({"reason": "no_response"})', '[end_call(reason="no_response")]')
         
         # Intentar con todos los formatos
         # 1. Formato preferido [tool(args)]
@@ -214,6 +224,10 @@ class ToolEngine:
         text = self.JSON_PATTERN.sub('', text)
         text = self.XML_PATTERN.sub('', text)
         text = self.PYTHON_TAG_PATTERN.sub('', text)
+        
+        # FIX: Eliminar también la alucinación de end_call
+        text = re.sub(r'end_call\s*\(\s*\{[^}]*\}\s*\)', '', text)
+        
         return text.strip()
 
 # --- Agente Principal de IA (Orquestador) ---
@@ -249,6 +263,9 @@ class AIAgent:
             logger.info(f"[PERF] Iniciando llamada a Groq (modelo: {self.model})")
             t_start_llm = perf_counter()
             first_chunk_time = None
+
+            if self.groq_client is None:
+                raise Exception("Cliente Groq no está inicializado")
 
             stream = await self.groq_client.chat.completions.create(
                 model=self.model, 
@@ -286,9 +303,7 @@ class AIAgent:
             results = await asyncio.gather(*tool_tasks)
             emit_latency_event(session_id, "tool_exec_end")
             
-            # Logueo del historial
-            history.append({"role": "assistant", "content": full_response_text})
-            logger.info(f"[HISTORIAL] Agregado 'assistant' con tool_calls: {full_response_text}")
+            # NO agregar al historial aquí todavía
 
             for tool_call, result in zip(tool_calls, results):
                 tool_content = json.dumps(result, ensure_ascii=False)
@@ -303,9 +318,14 @@ class AIAgent:
             # Verificar si alguna herramienta pidió terminar la llamada
             for result in results:
                 if isinstance(result, dict) and result.get("__terminate__"):
+                    # Agregar SOLO UNA VEZ antes de terminar
                     history.append({"role": "assistant", "content": full_response_text})
                     logger.info("[HISTORIAL] IA solicitó terminar llamada")
                     return "__END_CALL__"
+
+            # Si llegamos aquí, agregar al historial SOLO UNA VEZ
+            history.append({"role": "assistant", "content": full_response_text})
+            logger.info(f"[HISTORIAL] Agregado 'assistant' con tool_calls: {full_response_text}")
 
 
 
