@@ -319,7 +319,7 @@ class AudioManager:
         self.state.is_speaking = True
         self.state.ignore_stt = True  # Ignorar entrada mientras habla
         
-        # Limpiar buffer de Twilio
+        # FIX: Limpiar buffer de Twilio ANTES de cualquier intento
         await self._clear_twilio_buffer()
         
         # Intentar WebSocket primero (baja latencia)
@@ -330,6 +330,8 @@ class AudioManager:
             return True
         else:
             logger.warning("⚠️ WebSocket TTS falló, usando fallback HTTP")
+            # FIX: Limpiar buffer de nuevo antes del fallback HTTP para evitar duplicación
+            await self._clear_twilio_buffer()
             # Fallback a HTTP
             await self._http_fallback_tts(text)
             logger.info(f"[LATENCIA] HTTP fallback TTS iniciado en {1000*(time.perf_counter()-t0):.1f} ms")
@@ -379,6 +381,10 @@ class AudioManager:
                 return True
             else:
                 logger.error("❌ WebSocket TTS falló en speak()")
+                # FIX: Cancelar cualquier tarea de stall que se haya iniciado
+                if self.stall_detector_task:
+                    self.stall_detector_task.cancel()
+                    self.stall_detector_task = None
                 return False
                 
         except Exception as e:

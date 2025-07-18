@@ -216,6 +216,15 @@ class ElevenLabsWSClient:
 
     def _clean_mp3_headers(self, audio_bytes: bytes) -> bytes:
         """Remueve headers ID3 del MP3, manteniendo solo datos de audio"""
+        # FIX: Validar que audio_bytes no sea None
+        if audio_bytes is None:
+            logger.warning("⚠️ audio_bytes es None en _clean_mp3_headers")
+            return b""
+        
+        if len(audio_bytes) < 3:
+            logger.warning("⚠️ audio_bytes demasiado corto para verificar header ID3")
+            return audio_bytes
+            
         if audio_bytes[:3] == b"ID3":
             # Header ID3v2: ID3 + version(2) + flags(1) + size(4)
             if len(audio_bytes) >= 10:
@@ -247,9 +256,19 @@ class ElevenLabsWSClient:
         if "audio" in data:
             audio_b64 = data["audio"]
             try:
+                # FIX: Validar que audio_b64 no sea None o vacío
+                if not audio_b64:
+                    logger.warning("⚠️ Audio base64 vacío o None recibido")
+                    return
+                
                 # Decodificar audio
                 audio_bytes = base64.b64decode(audio_b64)
                 self._total_audio_chunks += 1
+                
+                # FIX: Validar que audio_bytes no sea None
+                if audio_bytes is None:
+                    logger.warning("⚠️ Audio decodificado es None")
+                    return
                 
                 # Limpiar headers MP3 si es necesario
                 audio_bytes = self._clean_mp3_headers(audio_bytes)

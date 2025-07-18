@@ -350,6 +350,15 @@ class CallOrchestrator:
         logger.info("🔚 Iniciando terminación de llamada solicitada por IA")
         
         try:
+            # Verificar que no esté ya terminada
+            if self.call_state.ended:
+                logger.info("🔚 Llamada ya está en proceso de terminación")
+                return
+            
+            # Marcar como terminando
+            self.call_state.ended = True
+            self.call_state.ending_reason = "assistant_request"
+            
             # Usar el flujo elegante de cierre
             await cierre_con_despedida(self, "assistant_request", delay=5.0)
             logger.info("✅ Terminación de llamada completada exitosamente")
