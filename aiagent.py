@@ -253,10 +253,15 @@ class AIAgent:
         
         # Obtener clima de Cancún para el system message
         clima = get_cancun_weather()
-        # Extraer datos del clima correctamente
+        # Extraer y formatear datos del clima correctamente
         if 'cancun_weather' in clima and 'current' in clima['cancun_weather']:
             current = clima['cancun_weather']['current']
-            clima_contextual = f"Temperatura: {current.get('temperature', 'N/A')}, Sensación térmica: {current.get('feels_like', 'N/A')}, Estado: {current.get('description', 'N/A')}"
+            clima_contextual = f"""El clima en Cancún es:
+Temperatura: {current.get('temperature', 'N/A')}
+Sensación térmica: {current.get('feels_like', 'N/A')}
+Condición: {current.get('description', 'N/A')}
+Humedad: {current.get('humidity', 'N/A')}
+Velocidad del viento: {current.get('wind_speed', 'N/A')}"""
         else:
             # Si hay error, usar mensaje genérico
             clima_contextual = "Información del clima no disponible en este momento."
