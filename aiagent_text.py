@@ -1,8 +1,16 @@
 import os
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, cast, Any
 from decouple import config
 from openai import OpenAI
+
+# Fix para config
+def get_api_key() -> str:
+    """Obtiene la API key con validación de tipo"""
+    key = config("CHATGPT_SECRET_KEY", default="")
+    if not key:
+        raise ValueError("CHATGPT_SECRET_KEY no configurada")
+    return str(key)
 
 # 1. Importamos la función para generar el prompt desde tu archivo prompt_text.py
 from prompt_text import generate_openai_prompt
@@ -12,7 +20,7 @@ CLIENT_INIT_ERROR = None
 client = None
 try:
     print("[aiagent_text.py] Intentando inicializar cliente OpenAI...")
-    client = OpenAI(api_key=config("CHATGPT_SECRET_KEY"))
+    client = OpenAI(api_key=get_api_key())
 except Exception as e_client:
     CLIENT_INIT_ERROR = str(e_client)
     print(f"[aiagent_text.py] ERROR al inicializar OpenAI: {CLIENT_INIT_ERROR}")
@@ -177,10 +185,14 @@ def process_text_message(
             f"Mensajes: {len(messages_for_api)}"
         )
 
+        # Validar que el cliente esté disponible
+        if not client:
+            raise ValueError("Cliente OpenAI no inicializado")
+
         chat_completion = client.chat.completions.create(
             model=MODEL_TO_USE,
-            messages=messages_for_api,
-            tools=TOOLS,
+            messages=messages_for_api,  # type: ignore
+            tools=TOOLS,  # type: ignore
             tool_choice="auto",
 
             # ← AQUÍ pones tus ajustes
@@ -201,7 +213,22 @@ def process_text_message(
                 f"[{conv_id_for_logs}] GPT solicitó {len(tool_calls)} tool_call(s): {tool_calls}"
             )
 
-            messages_for_api.append(response_message)  # tool_call en historial
+            # Convertir ChatCompletionMessage a dict para el historial
+            response_dict = {
+                "role": "assistant",
+                "content": response_message.content,
+                "tool_calls": [
+                    {
+                        "id": tool_call.id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_call.function.name,
+                            "arguments": tool_call.function.arguments
+                        }
+                    } for tool_call in response_message.tool_calls or []
+                ]
+            }
+            messages_for_api.append(response_dict)  # tool_call en historial
             tool_call = tool_calls[0]
             func_name = tool_call.function.name
             func_args = json.loads(tool_call.function.arguments or "{}")
@@ -251,20 +278,24 @@ def process_text_message(
             )
 
             # 3) Segunda pasada para respuesta final
+            # Validar que el cliente esté disponible
+            if not client:
+                raise ValueError("Cliente OpenAI no inicializado")
+                
             second_chat_completion = client.chat.completions.create(
                 model=MODEL_TO_USE,
-                messages=messages_for_api,
+                messages=messages_for_api,  # type: ignore
                 temperature=0.4,
                 max_tokens=512,
                 top_p=0.9,
             )
 
-            ai_final_response_content = (
-                second_chat_completion.choices[0].message.content.strip()
-            )
+            content = second_chat_completion.choices[0].message.content
+            ai_final_response_content = (content or "").strip()
             status_message = "success_with_tool"
         else:
-            ai_final_response_content = response_message.content.strip()
+            content = response_message.content
+            ai_final_response_content = (content or "").strip()
             status_message = "success_no_tool"
 
         print(

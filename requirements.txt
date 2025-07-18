@@ -1,43 +1,54 @@
-fastapi
-starlette
-uvicorn
-pydantic
-httpx
-requests
-websockets
-python-dotenv
-python-decouple
-twilio
-deepgram-sdk
-google-api-python-client
-google-auth
-google-auth-httplib2
-google-auth-oauthlib
-google-cloud-speech
-googleapis-common-protos
-gspread
-oauth2client
-oauthlib
-proto-plus
-protobuf
-rsa
-pyasn1
-pyasn1_modules
-httplib2
-pytz
-dateparser
-python-dateutil
-elevenlabs
-openai
+# Core Web Framework
+fastapi==0.115.6
+uvicorn==0.34.0
+starlette==0.41.3
+websockets==14.2
+
+# API Clients
+openai==1.60.0
+twilio==9.4.3
+deepgram-sdk==3.10.1
+elevenlabs==1.51.0
 groq
-langdetect
+
+# Google Services
+google-api-python-client==2.159.0
+google-auth==2.37.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.1
+google-cloud-speech==2.31.0
+gspread==6.1.4
+
+# Data Validation & Types
+pydantic==2.10.5
+pydantic_core==2.27.2
+annotated-types==0.7.0
+typing_extensions==4.12.2
+
+# HTTP & Networking
+httpx==0.28.1
+requests==2.32.3
+aiohttp==3.11.11
+
+# Configuration
+python-decouple
+python-dotenv==1.0.1
+
+# Date/Time
+pytz==2024.2
+dateparser>=1.2,<2
+python-dateutil==2.9.0.post0
+
+# Utilities
+langdetect==1.0.9
 PyYAML
-setuptools
-six
+
+# Core dependencies (no borrar)
 certifi
+urllib3
 idna
 charset-normalizer
-urllib3
-h11
+setuptools
+six
 anyio
 sniffio

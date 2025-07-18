@@ -96,7 +96,7 @@ def edit_calendar_event(
             return {"error": "El nuevo formato de hora para la cita es inválido."}
 
         # 3. Preparar el cuerpo del evento para la actualización (patch)
-        updated_body = {
+        updated_body: Dict[str, Any] = {
             "start": {"dateTime": new_start_time_iso, "timeZone": "America/Cancun"}, # Google Calendar maneja la zona horaria
             "end": {"dateTime": new_end_time_iso, "timeZone": "America/Cancun"}
         }

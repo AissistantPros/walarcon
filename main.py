@@ -161,9 +161,9 @@ async def receive_n8n_message(message_data: N8NMessage):
     logger.info(f"[FUNCIONALIDAD] Mensaje de {message_data.user_id}: '{message_data.message_text}' (POST /webhook/n8n_message)")
     t0 = time.perf_counter()
     
-    user_id = message_data.user_id
+    user_id = message_data.user_id or "unknown_user"
     conversation_id = message_data.conversation_id or user_id
-    current_message = message_data.message_text
+    current_message = message_data.message_text or ""
     
     # Gestionar historial
     if conversation_id not in conversation_histories:
@@ -226,9 +226,9 @@ async def n8n_process_appointment_request(
             year_param=year_param,
             fixed_weekday_param=fixed_weekday_param,
             explicit_time_preference_param=explicit_time_preference_param,
-            is_urgent_param=is_urgent_param,
-            more_late_param=more_late_param,
-            more_early_param=more_early_param
+            is_urgent_param=is_urgent_param or False,
+            more_late_param=more_late_param or False,
+            more_early_param=more_early_param or False
         )
         return result
     except Exception as e:
