@@ -367,13 +367,6 @@ ALL_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "get_cancun_weather",
-            "description": "Obtener el estado del tiempo actual en Cancún, como temperatura, descripción (soleado, nublado, lluvia), y sensación térmica. Útil si el usuario pregunta específicamente por el clima."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "set_mode",
             "description": "Cambia el modo de operación del asistente. Úsala cuando detectes una intención clara del usuario de agendar, editar o eliminar una cita.",
             "parameters": {

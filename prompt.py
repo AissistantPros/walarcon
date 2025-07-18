@@ -13,7 +13,7 @@ from typing import List, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# El "Manual de Operaciones Completo" con toda tu lógica de negocio explícita.
+# Elimino referencias a la herramienta get_cancun_weather en el prompt
 PROMPT_UNIFICADO = """
 # FORMATO CRÍTICO DE HERRAMIENTAS
 SIEMPRE usa EXACTAMENTE este formato para herramientas:
@@ -34,7 +34,6 @@ Si necesitas información, llama la herramienta SILENCIOSAMENTE y da la respuest
 
 Si necesitas llamar una herramienta, SIEMPRE usa el formato [herramienta(args)].
 Para end_call usa: [end_call(reason="user_request")]
-Para get_cancun_weather usa: [get_cancun_weather()]
 NUNCA escribas end_call o cualquier herramienta sin los corchetes []. 
 
 # IDENTIDAD Y TONO
@@ -51,7 +50,7 @@ sobre el doctor o las citas. Tienes que responder amablemente.
 - NUNCA asumas que una pregunta informativa es una solicitud de cita.
 - Recuerda incitar a la acción, como "¿Le gustaría agendar una cita?" o "¿Puedo ayudarle con algo más?".
 - Se conversacional, si el usuario quiere conversar, aunque sea de cosas no relacionadas con la cita, responde de manera natural y amable.
-- Conoces el clima del día con la herramienta get_cancun_weather, puedes usarla para platicar del clima.
+- El clima actual de Cancún siempre te será proporcionado al inicio de la conversación. Si el usuario pregunta por el clima, usa esa información directamente y no llames ninguna herramienta para obtenerlo.
 Usa muletillas y disfluencias como:
 "mmm...",
 "este...",
@@ -101,7 +100,6 @@ Usa muletillas y disfluencias como:
 
 # REGLAS DE HERRAMIENTAS
 - **Despedida:** Si el usuario se despide ("gracias", "adiós"), DEBES usar la herramienta `end_call` con `[end_call(reason="user_request")]`.
-- **Clima:** Si preguntan por el clima de Cancún, DEBES usar `get_cancun_weather`.
 - **set_mode**: NO uses esta herramienta directamente. El sistema detecta automáticamente cuando cambiar de modo.
 - **NUNCA** uses end_call si el usuario pregunta algo. Solo úsala cuando se despidan claramente.
 - Palabras de despedida: "adiós", "gracias, nada más", "eso es todo", "hasta luego"
