@@ -460,14 +460,10 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
     try:
         # === PASO 1: DESPEDIDA TTS ===
         logger.info("🎤 Enviando despedida TTS...")
-        
-        # Activar modo "ignorar STT" inmediatamente
         if hasattr(manager, 'audio_manager') and manager.audio_manager:
             manager.audio_manager.state.ignore_stt = True
             manager.audio_manager.state.is_speaking = True
             logger.info("🤫 Activando ignorar_stt para la secuencia de cierre")
-        
-        # --- Espera explícita del TTS ---
         despedida_event = asyncio.Event()
         async def on_complete():
             despedida_event.set()
@@ -479,41 +475,9 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
         else:
             logger.warning("⚠️ No se pudo enviar despedida TTS")
             await asyncio.sleep(delay)
-        
-        # === PASO 2: ESPERA PARA REPRODUCCIÓN ===
-        logger.info(f"⏳ Esperando {delay}s para reproducción completa...")
-        await asyncio.sleep(delay)
-        
-        # === PASO 3: CIERRE ELEGANTE DE WEBSOCKETS ===
-        logger.info("🔌 Cerrando WebSockets...")
-        
-        # Cerrar AudioManager (Deepgram + ElevenLabs)
-        if hasattr(manager, 'audio_manager') and manager.audio_manager:
-            try:
-                await manager.audio_manager.shutdown()
-                logger.info("✅ AudioManager cerrado")
-            except Exception as e:
-                logger.error(f"❌ Error cerrando AudioManager: {e}")
-        
-        # Cerrar ConversationFlow
-        if hasattr(manager, 'conversation_flow') and manager.conversation_flow:
-            try:
-                await manager.conversation_flow.shutdown()
-                logger.info("✅ ConversationFlow cerrado")
-            except Exception as e:
-                logger.error(f"❌ Error cerrando ConversationFlow: {e}")
-        
-        # Cerrar IntegrationManager
-        if hasattr(manager, 'integration_manager') and manager.integration_manager:
-            try:
-                await manager.integration_manager.shutdown()
-                logger.info("✅ IntegrationManager cerrado")
-            except Exception as e:
-                logger.error(f"❌ Error cerrando IntegrationManager: {e}")
-        
-        # === PASO 4: TERMINACIÓN EN TWILIO ===
-        logger.info("☎️ Terminando llamada en Twilio...")
-        
+
+        # === PASO 2: TERMINAR LLAMADA EN TWILIO ===
+        logger.info("☎️ Terminando llamada en Twilio (INMEDIATAMENTE después del audio de despedida)...")
         if hasattr(manager, 'call_state') and manager.call_state.call_sid:
             try:
                 await terminar_llamada_twilio(manager.call_state.call_sid, reason)
@@ -523,6 +487,31 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
                 logger.error(f"❌ Error terminando llamada en Twilio: {e}")
         else:
             logger.warning("⚠️ Sin call_sid; no se pudo terminar en Twilio")
+
+        # === PASO 3: ESPERA PARA REPRODUCCIÓN (opcional, por robustez) ===
+        logger.info(f"⏳ Esperando {delay}s para reproducción completa...")
+        await asyncio.sleep(delay)
+
+        # === PASO 4: CIERRE ELEGANTE DE WEBSOCKETS ===
+        logger.info("🔌 Cerrando WebSockets...")
+        if hasattr(manager, 'audio_manager') and manager.audio_manager:
+            try:
+                await manager.audio_manager.shutdown()
+                logger.info("✅ AudioManager cerrado")
+            except Exception as e:
+                logger.error(f"❌ Error cerrando AudioManager: {e}")
+        if hasattr(manager, 'conversation_flow') and manager.conversation_flow:
+            try:
+                await manager.conversation_flow.shutdown()
+                logger.info("✅ ConversationFlow cerrado")
+            except Exception as e:
+                logger.error(f"❌ Error cerrando ConversationFlow: {e}")
+        if hasattr(manager, 'integration_manager') and manager.integration_manager:
+            try:
+                await manager.integration_manager.shutdown()
+                logger.info("✅ IntegrationManager cerrado")
+            except Exception as e:
+                logger.error(f"❌ Error cerrando IntegrationManager: {e}")
         
         # === PASO 5: LIMPIEZA COMPLETA ===
         logger.info("🧹 Limpieza final de memoria y tareas...")
