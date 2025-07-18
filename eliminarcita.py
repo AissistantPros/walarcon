@@ -89,6 +89,6 @@ def delete_calendar_event(event_id: str, original_start_time_iso: str | None = N
         logger.error(f"❌ Error en la función delete_calendar_event al intentar eliminar ID {event_id}: {str(e)}", exc_info=True)
         # Si el error es por no encontrado, intenta detectar por mensaje
         if "notFound" in str(e) or "404" in str(e):
-            logger.warning(f"El evento con ID {event_id} no fue encontrado. Es posible que ya haya sido eliminado.")
-            return {"error": f"La cita con ID {event_id} no fue encontrada. Es posible que ya haya sido eliminada."}
+             logger.warning(f"El evento con ID {event_id} no fue encontrado. Es posible que ya haya sido eliminado.")
+             return {"error": f"La cita con ID {event_id} no fue encontrada. Es posible que ya haya sido eliminada."}
         return {"error": f"Ocurrió un error en el servidor al intentar eliminar la cita: {str(e)}"}
