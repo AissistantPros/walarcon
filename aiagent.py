@@ -253,7 +253,13 @@ class AIAgent:
         
         # Obtener clima de Cancún para el system message
         clima = get_cancun_weather()
-        clima_contextual = f"Temperatura: {clima.get('temperature', 'N/A')}°C, Sensación térmica: {clima.get('feels_like', 'N/A')}°C, Estado: {clima.get('description', 'N/A')}"
+        # Extraer datos del clima correctamente
+        if 'cancun_weather' in clima and 'current' in clima['cancun_weather']:
+            current = clima['cancun_weather']['current']
+            clima_contextual = f"Temperatura: {current.get('temperature', 'N/A')}, Sensación térmica: {current.get('feels_like', 'N/A')}, Estado: {current.get('description', 'N/A')}"
+        else:
+            # Si hay error, usar mensaje genérico
+            clima_contextual = "Información del clima no disponible en este momento."
         # Generar el prompt pasándole el clima contextual
         full_prompt = self.prompt_engine.generate_prompt(history, current_mode, clima_contextual=clima_contextual)
         
@@ -325,12 +331,6 @@ class AIAgent:
                     logger.info("[HISTORIAL] IA solicitó terminar llamada")
                     return "__END_CALL__"
 
-            # Si llegamos aquí, agregar al historial SOLO UNA VEZ
-            history.append({"role": "assistant", "content": full_response_text})
-            logger.info(f"[HISTORIAL] Agregado 'assistant' con tool_calls: {full_response_text}")
-
-
-
             # Generación de respuesta sintética si es necesario
             if not user_facing_text:
                 from synthetic_responses import generate_synthetic_response
@@ -352,9 +352,10 @@ class AIAgent:
                     logger.info(f"[HISTORIAL] Respuesta sintética generada: '{user_facing_text}'")
                 else:
                     user_facing_text = "He procesado su solicitud."
-            # Solo agregar la respuesta final de la IA después de tool-calling
+            
+            # Agregar SOLO UNA VEZ la respuesta final de la IA
             history.append({"role": "assistant", "content": user_facing_text})
-            logger.info(f"[HISTORIAL] Agregado 'assistant' con tool_calls: {user_facing_text}")
+            logger.info(f"[HISTORIAL] Agregado 'assistant' con respuesta final: '{user_facing_text}'")
         else:
             # Logueo del historial para respuestas directas
             history.append({"role": "assistant", "content": user_facing_text})
