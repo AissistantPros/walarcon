@@ -27,7 +27,7 @@ from editarcita import edit_calendar_event
 from eliminarcita import delete_calendar_event
 from utils import search_calendar_event_by_phone
 from selectevent import select_calendar_event_by_index
-from consultarinfo import get_consultorio_data_from_cache  # versión con caché
+from consultarinfo import get_consultorio_data
 from weather_utils import get_cancun_weather
 
 def handle_detect_intent(**kwargs) -> Dict:
@@ -35,7 +35,6 @@ def handle_detect_intent(**kwargs) -> Dict:
 
 # ====== Mapeo de funciones reales (tool name → función Python) ======
 tool_functions_map = {
-    "read_sheet_data": get_consultorio_data_from_cache,
     "process_appointment_request": process_appointment_request,
     "create_calendar_event": create_calendar_event,
     "search_calendar_event_by_phone": search_calendar_event_by_phone,
@@ -48,20 +47,6 @@ tool_functions_map = {
 
 # ═════════════════ UNIFIED TOOLS DEFINITION ══════════════════════
 TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "read_sheet_data",
-            "description": "Obtener información general del consultorio: costos, políticas de cancelación, horarios. No usar para verificar disponibilidad de citas."
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_cancun_weather",
-            "description": "Obtener el estado del tiempo actual y la temperatura en Cancún. Útil si el usuario pregunta específicamente por el clima."
-        }
-    },
     {
         "type": "function",
         "function": {

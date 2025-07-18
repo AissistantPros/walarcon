@@ -28,7 +28,6 @@ from audio_manager import AudioManager
 from conversation_flow import ConversationFlow
 from integration_manager import IntegrationManager
 from buscarslot import load_free_slots_to_cache
-from consultarinfo import load_consultorio_data_to_cache
 from utils import get_cancun_time, cierre_con_despedida, terminar_llamada_twilio
 from state_store import session_state
 
@@ -136,7 +135,6 @@ class CallOrchestrator:
         try:
             await asyncio.gather(
                 asyncio.to_thread(load_free_slots_to_cache, 90),
-                asyncio.to_thread(load_consultorio_data_to_cache),
                 return_exceptions=True
             )
             logger.info("✅ Datos pre-cargados")
@@ -329,15 +327,15 @@ class CallOrchestrator:
             hour = now.hour
             
             if 5 <= hour < 12:
-                return "¡Buenos días! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+                return "¡Buenos días! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
             elif 12 <= hour < 19:
-                return "¡Buenas tardes! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+            return "¡Buenas tardes! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
             else:
-                return "¡Buenas noches! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+                return "¡Buenas noches! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
                 
         except Exception as e:
             logger.error(f"Error generando saludo: {e}")
-            return "Consultorio del Doctor Wilfrido Alarcón, Soy Dany, asistente de Inteligencia Artificial. ¿Cómo puedo ayudarle?"
+            return "Consultorio del Doctor Alejandro Jiménez, Soy Dany, asistente de Inteligencia Artificial. ¿Cómo puedo ayudarle?"
     
     async def _on_greeting_complete(self) -> None:
         """

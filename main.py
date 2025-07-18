@@ -25,7 +25,6 @@ from call_orchestrator import CallOrchestrator
 
 # === MÓDULOS EXISTENTES ===
 from consultarinfo import router as consultorio_router
-from consultarinfo import get_consultorio_data_from_cache, load_consultorio_data_to_cache
 from aiagent_text import process_text_message
 import buscarslot
 from crearcita import create_calendar_event
@@ -80,7 +79,6 @@ async def startup_event():
     
     # Pre-cargar datos en caché
     try:
-        load_consultorio_data_to_cache()
         buscarslot.load_free_slots_to_cache()
     except Exception as e:
         logger.warning(f"Error pre-cargando datos: {e}")
@@ -161,9 +159,9 @@ async def receive_n8n_message(message_data: N8NMessage):
     logger.info(f"[FUNCIONALIDAD] Mensaje de {message_data.user_id}: '{message_data.message_text}' (POST /webhook/n8n_message)")
     t0 = time.perf_counter()
     
-    user_id = message_data.user_id
+    user_id = message_data.user_id or ""
     conversation_id = message_data.conversation_id or user_id
-    current_message = message_data.message_text
+    current_message = message_data.message_text or ""
     
     # Gestionar historial
     if conversation_id not in conversation_histories:
@@ -226,9 +224,9 @@ async def n8n_process_appointment_request(
             year_param=year_param,
             fixed_weekday_param=fixed_weekday_param,
             explicit_time_preference_param=explicit_time_preference_param,
-            is_urgent_param=is_urgent_param,
-            more_late_param=more_late_param,
-            more_early_param=more_early_param
+            is_urgent_param=is_urgent_param or False,
+            more_late_param=more_late_param or False,
+            more_early_param=more_early_param or False
         )
         return result
     except Exception as e:
@@ -390,7 +388,6 @@ async def reload_cache():
     """
     t0 = time.perf_counter()
     try:
-        load_consultorio_data_to_cache()
         buscarslot.load_free_slots_to_cache()
         
         logger.info(f"[LATENCIA] Admin reload-cache completado en {1000*(time.perf_counter()-t0):.1f} ms")
@@ -425,8 +422,8 @@ async def health_check():
     
     # Verificar caché
     try:
-        cache_data = get_consultorio_data_from_cache()
-        health_status["components"]["cache"] = "healthy" if cache_data else "empty"
+        # No hay caché de datos de consultorio, solo slots de calendario
+        health_status["components"]["cache"] = "healthy" 
     except Exception as e:
         health_status["components"]["cache"] = f"error: {str(e)}"
         health_status["status"] = "degraded"
