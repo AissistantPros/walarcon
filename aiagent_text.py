@@ -179,15 +179,12 @@ def process_text_message(
             messages=messages_for_api,  # type: ignore
             tools=TOOLS,  # type: ignore
             tool_choice="auto",
-
-            # ← AQUÍ pones tus ajustes
             temperature=0.4,        # 0-1 (0 = ultra-determinista)
             max_tokens=512,         # tope de la respuesta
             top_p=0.9,              # nucleus sampling
             presence_penalty=0.3,   # incentiva temas nuevos
             frequency_penalty=0.2,  # evita repeticiones
         )
-
 
         response_message = chat_completion.choices[0].message
         tool_calls = response_message.tool_calls
@@ -218,15 +215,12 @@ def process_text_message(
             func_name = tool_call.function.name
             func_args = json.loads(tool_call.function.arguments or "{}")
 
-            
             # Ejecutamos la función real con timeout
             if func_name in tool_functions_map:
                 try:
-                    # Timeout de 10 segundos para herramientas
                     import asyncio
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
-                    
                     tool_result = loop.run_until_complete(
                         asyncio.wait_for(
                             asyncio.to_thread(tool_functions_map[func_name], **func_args),
@@ -249,7 +243,6 @@ def process_text_message(
                     loop.close()
             else:
                 tool_result = {"error": f"Función {func_name} no registrada."}
-            
             print(f"[{conv_id_for_logs}] Resultado tool {func_name}: {tool_result}")
 
             # System message con la respuesta de la tool
@@ -266,7 +259,8 @@ def process_text_message(
             # Validar que el cliente esté disponible
             if not client:
                 raise ValueError("Cliente OpenAI no inicializado")
-                
+
+            # Segunda llamada al LLM para que formule la respuesta final
             second_chat_completion = client.chat.completions.create(
                 model=MODEL_TO_USE,
                 messages=messages_for_api,  # type: ignore
