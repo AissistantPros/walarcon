@@ -473,26 +473,19 @@ class AudioManager:
         1. Cancela detector de stalls
         2. Reactiva STT
         3. Limpia buffers
-        4. Llama callback externo
+        4. Llama callback externo SOLO si es despedida
         5. NUEVO: Limpia el texto actual del lock
         """
         logger.info("[FUNCIONALIDAD] TTS completado, reactivando STT...")
         logger.info("✅ TTS completado")
-        
-        # NUEVO: Limpiar el texto actual del lock
         async with self.tts_lock:
             self.current_tts_text = None
-        
-        # Cancelar detector de stalls
         if self.stall_detector_task:
             self.stall_detector_task.cancel()
             self.stall_detector_task = None
-        
-        # Reactivar STT
         await self.reactivate_stt()
-        
-        # Callback externo
-        if self.on_tts_complete:
+        # Callback externo SOLO si es despedida (texto de despedida)
+        if self.on_tts_complete and self.current_tts_text and "placer atenderle" in self.current_tts_text:
             try:
                 if asyncio.iscoroutinefunction(self.on_tts_complete):
                     await self.on_tts_complete()
@@ -504,14 +497,14 @@ class AudioManager:
     async def _monitor_tts_stall(self) -> None:
         """
         🚨 Detecta si TTS se congela (no envía chunks)
-        
-        Si pasan 300ms sin chunks → asume que falló y reactiva STT
+        Si pasan 1.0s sin chunks → asume que falló y reactiva STT
+        Solo marca error si no se recibe ningún chunk después del primero y no se recibe fin de stream.
         """
         stall_count = 0
         while self.state.tts_in_progress:
             if self.last_chunk_time:
                 elapsed = time.perf_counter() - self.last_chunk_time
-                if elapsed > 0.3:  # 300ms sin chunks
+                if elapsed > 1.0:  # 1.0s sin chunks
                     stall_count += 1
                     logger.warning(f"🚨 TTS stall #{stall_count} detectado! ({elapsed*1000:.1f}ms sin chunks)")
                     if stall_count >= 2:  # Dos stalls consecutivos
@@ -519,8 +512,8 @@ class AudioManager:
                         await self._on_tts_complete()
                         break
                 else:
-                    stall_count = 0  # Resetear contador si recibimos chunks
-            await asyncio.sleep(0.05)
+                    stall_count = 0
+            await asyncio.sleep(0.2)
     
     async def reactivate_stt(self) -> None:
         """

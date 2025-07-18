@@ -147,12 +147,18 @@ class CallOrchestrator:
         """
         🔧 Configura los handlers para eventos de Twilio
         """
+        # Definir un response_handler que acepte on_complete y lo pase a _handle_ai_response
+        async def response_handler(response_text, on_complete=None):
+            await self._handle_ai_response(response_text, on_complete=on_complete)
         self.twilio_handler.set_handlers(
             on_start=self._handle_stream_start,
             on_media=self._handle_audio_chunk,
             on_stop=self._handle_stream_stop,
             on_mark=self._handle_mark
         )
+        # Inicializar ConversationFlow con el nuevo response_handler
+        if self.conversation_flow:
+            self.conversation_flow.response_handler = response_handler
     
     # ========== HANDLERS DE EVENTOS DE TWILIO ==========
     
@@ -339,28 +345,24 @@ class CallOrchestrator:
         """
         logger.info("✅ Saludo completado, escuchando al usuario...")
     
-    async def _handle_ai_response(self, response_text: str) -> None:
+    async def _handle_ai_response(self, response_text: str, on_complete=None) -> None:
         """
         🤖 Maneja la respuesta de la IA
-        
         Args:
             response_text: Texto que debe decir la IA
+            on_complete: Callback opcional para ejecutar al terminar el TTS (solo para despedida)
         """
         if self.call_state.ended:
             return
-            
         # Caso especial: IA solicita terminar llamada
         if response_text == "__END_CALL__":
             logger.info("🔚 IA solicitó terminar llamada")
             await self._handle_ai_end_call()
             return
-            
         logger.info(f"🤖 IA responde: '{response_text[:50]}...'")
-        
         # Preparar TTS antes de enviar texto (optimización)
         if self.audio_manager:
             await self.audio_manager.prepare_tts_ws()
-        
         # Enviar respuesta a través del TTS
         if self.audio_manager:
             # Log diagnóstico antes de TTS
@@ -368,15 +370,13 @@ class CallOrchestrator:
                 diagnostics = self.audio_manager.tts_client.get_diagnostics()
                 logger.info(f"[DIAGNÓSTICO] Pre-TTS - Conectado: {diagnostics['is_connected']}, "
                            f"Errores: {diagnostics['total_errors']}, Intentos: {diagnostics['connection_attempts']}")
-            
+            # Solo pasar on_complete si está presente (despedida)
             success = await self.audio_manager.speak(
                 response_text,
-                on_complete=self._on_tts_complete
+                on_complete=on_complete if on_complete else self._on_tts_complete
             )
-            
             if not success:
                 logger.error("❌ TTS falló completamente")
-                # Log diagnóstico post-fallo
                 if self.audio_manager.tts_client:
                     diagnostics = self.audio_manager.tts_client.get_diagnostics()
                     logger.error(f"[DIAGNÓSTICO] Post-fallo TTS - Último error: {diagnostics['last_error']}")

@@ -31,3 +31,4 @@ elevenlabs
 openai
 groq
 langdetect
+PyYAML
