@@ -352,6 +352,9 @@ class AIAgent:
                     logger.info(f"[HISTORIAL] Respuesta sintética generada: '{user_facing_text}'")
                 else:
                     user_facing_text = "He procesado su solicitud."
+            # Solo agregar la respuesta final de la IA después de tool-calling
+            history.append({"role": "assistant", "content": user_facing_text})
+            logger.info(f"[HISTORIAL] Agregado 'assistant' con tool_calls: {user_facing_text}")
         else:
             # Logueo del historial para respuestas directas
             history.append({"role": "assistant", "content": user_facing_text})
