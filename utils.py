@@ -451,6 +451,7 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
         reason: Razón de la terminación
         delay: Tiempo de espera para reproducción (default: 5.0s)
     """
+    import asyncio
     FAREWELL = "Fue un placer atenderle. Que tenga un excelente día. ¡Hasta luego!"
     
     logger.info(f"🔚 Iniciando cierre elegante de llamada - Razón: {reason}")
@@ -466,12 +467,18 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
             manager.audio_manager.state.is_speaking = True
             logger.info("🤫 Activando ignorar_stt para la secuencia de cierre")
         
-        # Enviar despedida
+        # --- Espera explícita del TTS ---
+        despedida_event = asyncio.Event()
+        async def on_complete():
+            despedida_event.set()
         if hasattr(manager, '_handle_ai_response'):
-            await manager._handle_ai_response(FAREWELL)
-            logger.info("✅ Despedida TTS enviada")
+            await manager._handle_ai_response(FAREWELL, on_complete=on_complete)
+            logger.info("✅ Despedida TTS enviada, esperando a que termine el audio...")
+            await despedida_event.wait()
+            logger.info("✅ Audio de despedida reproducido completamente")
         else:
             logger.warning("⚠️ No se pudo enviar despedida TTS")
+            await asyncio.sleep(delay)
         
         # === PASO 2: ESPERA PARA REPRODUCCIÓN ===
         logger.info(f"⏳ Esperando {delay}s para reproducción completa...")

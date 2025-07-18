@@ -161,9 +161,6 @@ class ElevenLabsWSClient:
                 # Marcar como conectado
                 self._loop.call_soon_threadsafe(self._ws_open.set)
 
-                # ✅ Iniciar tarea de keepalive
-                keepalive_task = asyncio.create_task(self._keepalive_loop())
-                
                 # Bucle de recepción
                 async for message in ws:
                     if self._closing:  # Verificar si estamos en proceso de cierre
@@ -199,17 +196,6 @@ class ElevenLabsWSClient:
                 logger.info(f"[DIAGNÓSTICO] Chunks de audio procesados: {self._total_audio_chunks}")
                 logger.info(f"[DIAGNÓSTICO] Errores totales: {self._total_errors}")
             
-            # Cancelar tarea de keepalive si existe
-            if 'keepalive_task' in locals():
-                try:
-                    if isinstance(keepalive_task, asyncio.Task) and not keepalive_task.done():
-                        keepalive_task.cancel()
-                        await keepalive_task
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.debug(f"Error al cancelar keepalive: {e}")
-
             self._ws = None
             self._loop.call_soon_threadsafe(self._ws_close.set)
             logger.info("🔒 ElevenLabs WebSocket cerrado")
@@ -352,32 +338,6 @@ class ElevenLabsWSClient:
         if "status" in data:
             status_msg = data["status"]
             logger.debug(f"📊 Estado ElevenLabs: {status_msg}")
-
-    async def _keepalive_loop(self):
-        """Envía espacios cada 15 segundos para mantener viva la conexión"""
-        keepalive_count = 0
-        while not self._closing:
-            try:
-                if self._ws:
-                    try:
-                        # Verificar si el WebSocket está cerrado de forma segura
-                        if not getattr(self._ws, 'closed', True):
-                            await self._ws.send(json.dumps({"text": " "}))
-                            keepalive_count += 1
-                            logger.debug(f"💓 Keepalive #{keepalive_count} enviado a ElevenLabs")
-                        else:
-                            logger.warning("⚠️ WebSocket cerrado durante keepalive")
-                            break
-                    except Exception as e:
-                        logger.warning(f"⚠️ Error en keepalive: {e}")
-                        break
-                await asyncio.sleep(15)
-            except asyncio.CancelledError:
-                logger.debug("🔄 Keepalive cancelado")
-                break
-            except Exception as e:
-                logger.debug(f"Error en keepalive: {e}")
-                break
 
     # ─────────────────────────────────── API pública ────────────────────────────────────
 

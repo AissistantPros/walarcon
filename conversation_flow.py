@@ -156,11 +156,11 @@ class ConversationFlow:
             await asyncio.sleep(TIMING_CONFIG["PAUSE_DETECTION"])
             
             # Si llegamos aquí, hubo pausa
-            logger.info("⏸️ Pausa detectada - procesando mensaje")
+            logger.debug("⏸️ Pausa detectada - procesando mensaje")
             t0 = time.perf_counter()
-            logger.info("[FUNCIONALIDAD] Pausa detectada, preparando TTS y procesando con LLM...")
+            logger.debug("[FUNCIONALIDAD] Pausa detectada, preparando TTS y procesando con LLM...")
             await self._process_accumulated_text()
-            logger.info(f"[LATENCIA] Proceso de pausa (preparar TTS + LLM) completado en {1000*(time.perf_counter()-t0):.1f} ms")
+            logger.debug(f"[LATENCIA] Proceso de pausa (preparar TTS + LLM) completado en {1000*(time.perf_counter()-t0):.1f} ms")
             
         except asyncio.CancelledError:
             # Normal - usuario siguió hablando
