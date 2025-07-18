@@ -1,21 +1,64 @@
 # info_negocio.yaml
 # Llena aquí la información de tu consultorio. Puedes eliminar los comentarios (#) después de llenarlo.
 
-nombre: ""
-especialidad: ""
-historia: |
-  # Escribe aquí la historia del médico o consultorio
-  
-preparacion: |
-  # Lista de títulos, especialidades, certificaciones, etc.
-  
-servicios:
-  # Ejemplo:
-  # - Consulta general: 1000
-  # - Electrocardiograma: 500
-  # - Holter: 1500
-  # - Consulta de seguimiento: 800
-  
-ubicacion: ""
-horario: ""
-contacto: "" 
+informacion_consultorio:
+  nombre_doctor: "Dr. Alejandro Jiménez"
+  especialidad_principal: "Cardiólogo Intervencionista"
+  historia_doctor: >
+    El Dr. Alejandro Jiménez es un reconocido cardiólogo con más de 15 años de experiencia 
+    en procedimientos intervencionistas. Egresado de la Universidad Nacional Autónoma de 
+    México (UNAM), realizó su especialidad en el Instituto Nacional de Cardiología y 
+    cuenta con múltiples certificaciones internacionales en hemodinámica y cardiología 
+    estructural. Su enfoque se centra en ofrecer tratamientos de mínima invasión para 
+    enfermedades coronarias y valvulares.
+  recepcionista:
+    nombre: "Laura García"
+    telefono_oficina: "998-843-5566"
+    whatsapp: "998-123-4567"
+  ubicacion:
+    direccion: "Av. Bonampak, SM 6, Manzana 2, Lote 5, Consultorio 305"
+    edificio: "Torre Médica Bonampak"
+    ciudad: "Cancún"
+    estado: "Quintana Roo"
+    codigo_postal: "77500"
+    referencia: "Frente al centro comercial Malecón Américas, a un costado de la Plaza de Toros."
+  horarios:
+    lunes_a_sabado: "09:30 - 14:00"
+    domingo: "Cerrado"
+  metodos_pago:
+    - "Efectivo"
+    - "Tarjeta de crédito (Visa, Mastercard, American Express)"
+    - "Tarjeta de débito"
+  redes_sociales:
+    facebook: "https://facebook.com/drajimenezcardio"
+    instagram: "@drajimenez.cardio"
+    sitio_web: "www.ajimenezcardio.com"
+  servicios_y_precios:
+    consultas:
+      - nombre: "Consulta de Cardiología"
+        precio: "1,000 pesos"
+        incluye: "Electrocardiograma en consultorio, si es necesario."
+      - nombre: "Valoración de Riesgo Cardiovascular"
+        precio: "2,000 pesos"
+    estudios_diagnosticos:
+      - nombre: "MAPA (Monitorización Ambulatoria de Presión Arterial)"
+        precio: "1,500 pesos"
+      - nombre: "Ecocardiograma (Ultrasonido del Corazón)"
+        precio: "2,500 pesos"
+      - nombre: "Monitorización Holter"
+        precio: "2,500 pesos"
+      - nombre: "Prueba de esfuerzo"
+        precio: "2,500 pesos"
+  padecimientos_tratados:
+    - "Arritmias"
+    - "Colesterol elevado"
+    - "Infarto Agudo del Miocardio"
+    - "Síncope (mareos y desmayos)"
+    - "Valoración Cardiovascular"
+    - "Valoración preoperatoria"
+    - "Hipertensión arterial"
+    - "Soplos en el corazón"
+    - "Dolor de pecho (angina de pecho)"
+  contacto_emergencias:
+    hospital_afiliado: "Hospital Galenia"
+    telefono_emergencias: "998-891-5200"
