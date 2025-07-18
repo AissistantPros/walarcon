@@ -473,19 +473,26 @@ class AudioManager:
         1. Cancela detector de stalls
         2. Reactiva STT
         3. Limpia buffers
-        4. Llama callback externo SOLO si es despedida
-        5. NUEVO: Limpia el texto actual del lock
+        4. Llama callback externo si existe
+        5. Limpia el texto actual del lock
         """
         logger.info("[FUNCIONALIDAD] TTS completado, reactivando STT...")
         logger.info("✅ TTS completado")
+        
+        # Limpiar el texto actual del lock
         async with self.tts_lock:
             self.current_tts_text = None
+        
+        # Cancelar detector de stalls
         if self.stall_detector_task:
             self.stall_detector_task.cancel()
             self.stall_detector_task = None
+        
+        # Reactivar STT
         await self.reactivate_stt()
-        # Callback externo SOLO si es despedida (texto de despedida)
-        if self.on_tts_complete and self.current_tts_text and "placer atenderle" in self.current_tts_text:
+        
+        # Callback externo - ejecutar SIEMPRE si existe
+        if self.on_tts_complete:
             try:
                 if asyncio.iscoroutinefunction(self.on_tts_complete):
                     await self.on_tts_complete()

@@ -466,18 +466,30 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
             logger.info("🤫 Activando ignorar_stt para la secuencia de cierre")
         despedida_event = asyncio.Event()
         async def on_complete():
+            logger.info("✅ Callback de despedida ejecutado")
             despedida_event.set()
         if hasattr(manager, '_handle_ai_response'):
+            # Enviar despedida con el callback
             await manager._handle_ai_response(FAREWELL, on_complete=on_complete)
             logger.info("✅ Despedida TTS enviada, esperando a que termine el audio...")
-            await despedida_event.wait()
-            logger.info("✅ Audio de despedida reproducido completamente")
+            # Esperar con timeout para evitar bloqueo infinito
+            try:
+                await asyncio.wait_for(despedida_event.wait(), timeout=10.0)
+                logger.info("✅ Audio de despedida reproducido completamente")
+            except asyncio.TimeoutError:
+                logger.warning("⏰ Timeout esperando reproducción de despedida")
         else:
             logger.warning("⚠️ No se pudo enviar despedida TTS")
             await asyncio.sleep(delay)
 
-        # === PASO 2: TERMINAR LLAMADA EN TWILIO ===
-        logger.info("☎️ Terminando llamada en Twilio (INMEDIATAMENTE después del audio de despedida)...")
+        # === PASO 2: MARCAR LLAMADA COMO TERMINADA ===
+        # IMPORTANTE: Hacerlo DESPUÉS de la despedida
+        if hasattr(manager, 'call_state'):
+            manager.call_state.ended = True
+            manager.call_state.ending_reason = reason
+
+        # === PASO 3: TERMINAR LLAMADA EN TWILIO ===
+        logger.info("☎️ Terminando llamada en Twilio...")
         if hasattr(manager, 'call_state') and manager.call_state.call_sid:
             try:
                 await terminar_llamada_twilio(manager.call_state.call_sid, reason)
@@ -488,11 +500,11 @@ async def cierre_con_despedida(manager, reason: str, delay: float = 5.0):
         else:
             logger.warning("⚠️ Sin call_sid; no se pudo terminar en Twilio")
 
-        # === PASO 3: ESPERA PARA REPRODUCCIÓN (opcional, por robustez) ===
-        logger.info(f"⏳ Esperando {delay}s para reproducción completa...")
+        # === PASO 4: ESPERA ADICIONAL (opcional, por robustez) ===
+        logger.info(f"⏳ Esperando {delay}s adicionales por robustez...")
         await asyncio.sleep(delay)
 
-        # === PASO 4: CIERRE ELEGANTE DE WEBSOCKETS ===
+        # === PASO 5: CIERRE ELEGANTE DE WEBSOCKETS ===
         logger.info("🔌 Cerrando WebSockets...")
         if hasattr(manager, 'audio_manager') and manager.audio_manager:
             try:

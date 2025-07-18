@@ -350,7 +350,8 @@ class CallOrchestrator:
             response_text: Texto que debe decir la IA
             on_complete: Callback opcional para ejecutar al terminar el TTS (solo para despedida)
         """
-        if self.call_state.ended:
+        # Permitir despedidas aunque ended=True si hay on_complete
+        if self.call_state.ended and not on_complete:
             logger.warning("[DEBUG] _handle_ai_response: llamada ya marcada como terminada, ignorando respuesta IA")
             return
         # Caso especial: IA solicita terminar llamada
@@ -384,10 +385,19 @@ class CallOrchestrator:
                     if self.audio_manager.tts_client:
                         diagnostics = self.audio_manager.tts_client.get_diagnostics()
                         logger.error(f"[DIAGNÓSTICO] Post-fallo TTS - Último error: {diagnostics['last_error']}")
+                    # Si el TTS falla pero hay on_complete (despedida), ejecutarlo igual
+                    if on_complete:
+                        await on_complete()
             except Exception as e:
                 logger.error(f"❌ [DEBUG] Error durante audio_manager.speak: {e}", exc_info=True)
+                # Si hay error pero es despedida, ejecutar callback
+                if on_complete:
+                    await on_complete()
         else:
             logger.error("❌ AudioManager no disponible para TTS")
+            # Si no hay audio manager pero es despedida, ejecutar callback
+            if on_complete:
+                await on_complete()
     
     async def _handle_ai_end_call(self) -> None:
         """
@@ -400,8 +410,8 @@ class CallOrchestrator:
             if self.call_state.ended:
                 logger.info("🔚 Llamada ya está en proceso de terminación (en _handle_ai_end_call)")
                 return
-            # Marcar como terminando
-            self.call_state.ended = True
+            # NO marcar como terminada aquí, dejar que cierre_con_despedida lo haga
+            # self.call_state.ended = True
             self.call_state.ending_reason = "assistant_request"
             logger.info("[DEBUG] Llamando a cierre_con_despedida desde _handle_ai_end_call...")
             await cierre_con_despedida(self, "assistant_request", delay=5.0)
