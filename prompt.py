@@ -241,7 +241,8 @@ class LlamaPromptEngine:
     def generate_prompt(
         self,
         conversation_history: List[Dict],
-        detected_intent: Optional[str] = None
+        detected_intent: Optional[str] = None,
+        clima_contextual: Optional[str] = None
     ) -> str:
         """
         Construye el prompt nativo completo para Llama 3.3.
@@ -250,39 +251,36 @@ class LlamaPromptEngine:
         from utils import get_cancun_time
         now = get_cancun_time()
         fecha_actual = now.strftime("%A %d de %B de %Y")
-        # Traducir día y mes al español
         dias = {"Monday": "Lunes", "Tuesday": "Martes", "Wednesday": "Miércoles", 
                 "Thursday": "Jueves", "Friday": "Viernes", "Saturday": "Sábado", "Sunday": "Domingo"}
         meses = {"January": "Enero", "February": "Febrero", "March": "Marzo", "April": "Abril",
                 "May": "Mayo", "June": "Junio", "July": "Julio", "August": "Agosto",
                 "September": "Septiembre", "October": "Octubre", "November": "Noviembre", "December": "Diciembre"}
-        
         for en, es in dias.items():
             fecha_actual = fecha_actual.replace(en, es)
         for en, es in meses.items():
             fecha_actual = fecha_actual.replace(en, es)
-        
-        system_prompt = f"# FECHA Y HORA ACTUAL\nHoy es {fecha_actual}. Hora actual en Cancún: {now.strftime('%H:%M')}.\nIMPORTANTE: Todas las citas deben ser para {now.year} o años posteriores.\n\n"
+        system_prompt = f"# FECHA Y HORA ACTUAL\nHoy es {fecha_actual}. Hora actual en Cancún: {now.strftime('%H:%M')}.\nIMPORTANTE: Todas las citas deben ser para {now.year} o años posteriores.\n"
+        # Inyectar clima contextual si está disponible
+        if clima_contextual:
+            system_prompt += f"\n# CLIMA ACTUAL EN CANCÚN\n{clima_contextual}\n"
+        system_prompt += "\n"
+        # Refuerzo de tono conversacional
+        system_prompt += "\n# INSTRUCCIÓN DE TONO\nResponde siempre de forma conversacional, cálida, humana y natural. Usa muletillas, frases coloquiales y muestra empatía. No seas robótico ni demasiado formal. Puedes bromear suavemente si el contexto lo permite.\n"
         system_prompt += PROMPT_UNIFICADO
-        
         tools_json = json.dumps([tool["function"] for tool in self.tool_definitions], indent=2, ensure_ascii=False)
         system_prompt += f"\n\n## HERRAMIENTAS DISPONIBLES\n{tools_json}"
-        
         if detected_intent:
             intent_context = {"active_mode": detected_intent, "action": f"Sigue estrictamente las instrucciones del módulo <module id='{detected_intent}'>"}
             system_prompt += f"\n\n# CONTEXTO ACTIVO\n{json.dumps(intent_context)}"
-        
         prompt_str = f"<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\n{system_prompt}<|eot_id|>"
-        
         for message in conversation_history:
             role = message.get("role")
             content = str(message.get("content", ""))
             if role in ["user", "assistant", "tool"]:
                 prompt_role = "system" if role == "tool" else role
                 prompt_str += f"<|start_header_id|>{prompt_role}<|end_header_id|>\n\n{content}<|eot_id|>"
-        
         prompt_str += "<|start_header_id|>assistant<|end_header_id|>\n\n"
-        
         return self._truncate(prompt_str, self.MAX_PROMPT_TOKENS)
 
     def _truncate(self, prompt: str, max_tokens: int) -> str:

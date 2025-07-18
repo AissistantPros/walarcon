@@ -17,6 +17,7 @@ from groq import AsyncGroq
 
 # Importamos nuestro motor de prompts final del paso anterior
 from prompt import LlamaPromptEngine
+from weather_utils import get_cancun_weather
 
 # --- Configuración ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)5s | %(name)s: %(message)s", datefmt="%H:%M:%S")
@@ -70,7 +71,6 @@ class ToolEngine:
         from editarcita import edit_calendar_event
         from eliminarcita import delete_calendar_event
         from utils import search_calendar_event_by_phone
-        from weather_utils import get_cancun_weather
         import buscarslot
 
         return {
@@ -251,9 +251,11 @@ class AIAgent:
         session_state = self.session_manager.get_state(session_id)
         current_mode = session_state.get("mode") # Esto será 'crear', 'editar', o None
         
-        # Generamos el prompt pasándole el modo actual.
-        # La función está diseñada para manejarlo incluso si es None.
-        full_prompt = self.prompt_engine.generate_prompt(history, current_mode)
+        # Obtener clima de Cancún para el system message
+        clima = get_cancun_weather()
+        clima_contextual = f"Temperatura: {clima.get('temperature', 'N/A')}°C, Sensación térmica: {clima.get('feels_like', 'N/A')}°C, Estado: {clima.get('description', 'N/A')}"
+        # Generar el prompt pasándole el clima contextual
+        full_prompt = self.prompt_engine.generate_prompt(history, current_mode, clima_contextual=clima_contextual)
         
         emit_latency_event(session_id, "chunk_received")
 
@@ -270,7 +272,7 @@ class AIAgent:
             stream = await self.groq_client.chat.completions.create(
                 model=self.model, 
                 messages=[{"role": "user", "content": full_prompt}],
-                temperature=0.2, 
+                temperature=0.7,  # Más conversacional
                 stream=True
             )
             full_response_text = ""
