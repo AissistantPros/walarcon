@@ -351,11 +351,16 @@ class CallOrchestrator:
             on_complete: Callback opcional para ejecutar al terminar el TTS (solo para despedida)
         """
         if self.call_state.ended:
+            logger.warning("[DEBUG] _handle_ai_response: llamada ya marcada como terminada, ignorando respuesta IA")
             return
         # Caso especial: IA solicita terminar llamada
         if response_text == "__END_CALL__":
-            logger.info("🔚 IA solicitó terminar llamada")
-            await self._handle_ai_end_call()
+            logger.info("🔚 IA solicitó terminar llamada (recibido en _handle_ai_response)")
+            try:
+                await self._handle_ai_end_call()
+                logger.info("[DEBUG] _handle_ai_end_call fue invocado correctamente desde _handle_ai_response")
+            except Exception as e:
+                logger.error(f"❌ [DEBUG] Error al invocar _handle_ai_end_call: {e}", exc_info=True)
             return
         logger.info(f"🤖 IA responde: '{response_text[:50]}...'")
         # Preparar TTS antes de enviar texto (optimización)
@@ -369,46 +374,45 @@ class CallOrchestrator:
                 logger.info(f"[DIAGNÓSTICO] Pre-TTS - Conectado: {diagnostics['is_connected']}, "
                            f"Errores: {diagnostics['total_errors']}, Intentos: {diagnostics['connection_attempts']}")
             # Solo pasar on_complete si está presente (despedida)
-            success = await self.audio_manager.speak(
-                response_text,
-                on_complete=on_complete if on_complete else self._on_tts_complete
-            )
-            if not success:
-                logger.error("❌ TTS falló completamente")
-                if self.audio_manager.tts_client:
-                    diagnostics = self.audio_manager.tts_client.get_diagnostics()
-                    logger.error(f"[DIAGNÓSTICO] Post-fallo TTS - Último error: {diagnostics['last_error']}")
+            try:
+                success = await self.audio_manager.speak(
+                    response_text,
+                    on_complete=on_complete if on_complete else self._on_tts_complete
+                )
+                if not success:
+                    logger.error("❌ TTS falló completamente")
+                    if self.audio_manager.tts_client:
+                        diagnostics = self.audio_manager.tts_client.get_diagnostics()
+                        logger.error(f"[DIAGNÓSTICO] Post-fallo TTS - Último error: {diagnostics['last_error']}")
+            except Exception as e:
+                logger.error(f"❌ [DEBUG] Error durante audio_manager.speak: {e}", exc_info=True)
         else:
             logger.error("❌ AudioManager no disponible para TTS")
     
     async def _handle_ai_end_call(self) -> None:
         """
         🔚 Maneja la terminación de llamada solicitada por la IA
-        
         Usa el flujo elegante de cierre con despedida
         """
-        logger.info("🔚 Iniciando terminación de llamada solicitada por IA")
-        
+        logger.info("🔚 Iniciando terminación de llamada solicitada por IA (en _handle_ai_end_call)")
         try:
             # Verificar que no esté ya terminada
             if self.call_state.ended:
-                logger.info("🔚 Llamada ya está en proceso de terminación")
+                logger.info("🔚 Llamada ya está en proceso de terminación (en _handle_ai_end_call)")
                 return
-            
             # Marcar como terminando
             self.call_state.ended = True
             self.call_state.ending_reason = "assistant_request"
-            
-            # Usar el flujo elegante de cierre
+            logger.info("[DEBUG] Llamando a cierre_con_despedida desde _handle_ai_end_call...")
             await cierre_con_despedida(self, "assistant_request", delay=5.0)
-            logger.info("✅ Terminación de llamada completada exitosamente")
+            logger.info("✅ Terminación de llamada completada exitosamente (cierre_con_despedida terminó)")
         except Exception as e:
-            logger.error(f"❌ Error en terminación de llamada: {e}")
+            logger.error(f"❌ Error en terminación de llamada: {e}", exc_info=True)
             # Fallback a shutdown de emergencia
             try:
                 await self._shutdown("emergency_shutdown")
             except Exception as emergency_error:
-                logger.error(f"❌ Error en shutdown de emergencia: {emergency_error}")
+                logger.error(f"❌ Error en shutdown de emergencia: {emergency_error}", exc_info=True)
     
     async def _on_tts_complete(self) -> None:
         """
