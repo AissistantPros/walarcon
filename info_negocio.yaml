@@ -1,0 +1,21 @@
+# info_negocio.yaml
+# Llena aquí la información de tu consultorio. Puedes eliminar los comentarios (#) después de llenarlo.
+
+nombre: ""
+especialidad: ""
+historia: |
+  # Escribe aquí la historia del médico o consultorio
+  
+preparacion: |
+  # Lista de títulos, especialidades, certificaciones, etc.
+  
+servicios:
+  # Ejemplo:
+  # - Consulta general: 1000
+  # - Electrocardiograma: 500
+  # - Holter: 1500
+  # - Consulta de seguimiento: 800
+  
+ubicacion: ""
+horario: ""
+contacto: "" 

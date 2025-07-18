@@ -327,7 +327,7 @@ class TwilioHandler:
             if isinstance(data, str):
                 assert self.connection is not None
                 await self.connection.websocket.send_text(data)
-                logger.info(f"[LATENCIA] JSON (str) enviado a Twilio en {1000*(time.perf_counter()-t0):.1f} ms")
+                logger.debug(f"[LATENCIA] JSON (str) enviado a Twilio en {1000*(time.perf_counter()-t0):.1f} ms")
                 return True
             # ---- INICIO DEL BLOQUE DE DIAGNÓSTICO ----
             if data.get("event") == "media":
@@ -348,7 +348,7 @@ class TwilioHandler:
             
             # 3. Imprimir el JSON que se va a enviar
             json_str = json.dumps(data)
-            logger.info(f"[DIAGNÓSTICO] Enviando a Twilio: {json_str[:250]}...") # Imprime los primeros 250 caracteres
+            logger.debug(f"[DIAGNÓSTICO] Enviando a Twilio: {json_str[:250]}...") # Imprime los primeros 250 caracteres
             # ---- FIN DEL BLOQUE DE DIAGNÓSTICO ----
             assert self.connection is not None
             # Envío final (usando el método que sabemos que funciona en tu otro proyecto)

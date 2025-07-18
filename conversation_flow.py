@@ -156,11 +156,11 @@ class ConversationFlow:
             await asyncio.sleep(TIMING_CONFIG["PAUSE_DETECTION"])
             
             # Si llegamos aquí, hubo pausa
-            logger.info("⏸️ Pausa detectada - procesando mensaje")
+            logger.debug("⏸️ Pausa detectada - procesando mensaje")
             t0 = time.perf_counter()
-            logger.info("[FUNCIONALIDAD] Pausa detectada, preparando TTS y procesando con LLM...")
+            logger.debug("[FUNCIONALIDAD] Pausa detectada, preparando TTS y procesando con LLM...")
             await self._process_accumulated_text()
-            logger.info(f"[LATENCIA] Proceso de pausa (preparar TTS + LLM) completado en {1000*(time.perf_counter()-t0):.1f} ms")
+            logger.debug(f"[LATENCIA] Proceso de pausa (preparar TTS + LLM) completado en {1000*(time.perf_counter()-t0):.1f} ms")
             
         except asyncio.CancelledError:
             # Normal - usuario siguió hablando
@@ -224,30 +224,21 @@ class ConversationFlow:
         )
         logger.info(f"[LATENCIA] Preparación de TTS + lanzamiento de LLM en {1000*(t_llm-self.state.turn_start_time):.1f} ms")
     
-    async def _handle_ai_response(self, user_message: str) -> None:
+    async def _handle_ai_response(self, user_message: str, on_complete=None) -> None:
         """
         🤖 Maneja la interacción con la IA
-        
         Args:
             user_message: Mensaje del usuario para la IA
-            
-        Este método:
-        1. Agrega el mensaje al historial
-        2. Llama a la IA
-        3. Procesa la respuesta
-        4. Actualiza el historial
-        5. Envía audio de respuesta
+            on_complete: Callback opcional para ejecutar al terminar el TTS (solo para despedida)
         """
         try:
             t0 = time.perf_counter()
-            # Agregar mensaje del usuario al historial
             self.state.history.append({
                 "role": "user",
                 "content": user_message
             })
             logger.info(f"[HISTORIAL] Usuario: '{user_message}'")
             emit_latency_event(self.session_id, "ai_request_start")
-            # Llamar a la IA
             try:
                 ai_response = await generate_ai_response(
                     session_id=self.session_id,
@@ -256,35 +247,67 @@ class ConversationFlow:
             except Exception as e:
                 logger.error(f"❌ Error llamando a IA: {e}", exc_info=True)
                 ai_response = "Disculpe, tuve un problema técnico. ¿Podría repetir?"
-            
-            # Manejar respuestas especiales
             if ai_response == "__END_CALL__":
                 logger.info("🔚 IA solicitó terminar la llamada")
-                # TODO: Implementar lógica de cierre
+                if hasattr(self, 'response_handler') and self.response_handler:
+                    try:
+                        await self._execute_end_call()
+                    except Exception as e:
+                        logger.error(f"❌ Error ejecutando terminación de llamada: {e}")
                 return
-            
-            # Agregar respuesta al historial
             self.state.history.append({
                 "role": "assistant",
                 "content": ai_response
             })
             logger.info(f"[HISTORIAL] Asistente: '{ai_response}'")
-            
-            # Enviar respuesta como audio
-            await self.response_handler(ai_response)
+            # Enviar respuesta como audio, pasando on_complete si está presente
+            if on_complete:
+                await self.response_handler(ai_response, on_complete=on_complete)
+            else:
+                await self.response_handler(ai_response)
             logger.info(f"[LATENCIA] Turno completo (LLM + respuesta TTS) en {1000*(time.perf_counter()-t0):.1f} ms")
-            
-            # Medir latencia total del turno
             if self.state.turn_start_time:
                 total_latency = (time.perf_counter() - self.state.turn_start_time) * 1000
                 logger.info(f"⏱️ [PERF] FIN DE TURNO - Latencia total: {total_latency:.1f}ms")
                 self.state.turn_start_time = None
-            
         except Exception as e:
             logger.error(f"❌ Error en _handle_ai_response: {e}", exc_info=True)
         finally:
             self.state.ai_task_active = False
             emit_latency_event(self.session_id, "ai_response_complete")
+    
+    async def _execute_end_call(self) -> None:
+        """
+        🔚 Ejecuta la terminación de llamada cuando la IA lo solicita
+        
+        Este método busca el manager y ejecuta la terminación
+        """
+        logger.info("🔚 Ejecutando terminación de llamada solicitada por IA")
+        
+        # Buscar el manager a través del response_handler
+        # El response_handler es _handle_ai_response del CallOrchestrator
+        # Necesitamos acceder al manager desde el contexto del response_handler
+        
+        # Intentar obtener el manager desde el contexto del response_handler
+        try:
+            # El response_handler es un método del CallOrchestrator
+            # Podemos intentar acceder al manager a través de una referencia
+            if hasattr(self, '_manager_reference'):
+                manager = self._manager_reference
+                if hasattr(manager, '_handle_ai_end_call'):
+                    await manager._handle_ai_end_call()
+                    logger.info("✅ Terminación de llamada ejecutada correctamente")
+                else:
+                    logger.error("❌ Manager no tiene método _handle_ai_end_call")
+            else:
+                logger.error("❌ No se encontró referencia al manager")
+        except Exception as e:
+            logger.error(f"❌ Error ejecutando terminación de llamada: {e}")
+            # Fallback: intentar shutdown directo
+            try:
+                await self.shutdown()
+            except Exception as shutdown_error:
+                logger.error(f"❌ Error en shutdown de emergencia: {shutdown_error}")
     
     # ========== CONTROL DE TIMEOUTS ==========
     

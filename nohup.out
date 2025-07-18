@@ -1,0 +1,24 @@
+❌ Variable DEEPGRAM_KEY no encontrada. DeepgramSTTStreamer no funcionará.
+Traceback (most recent call last):
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/main.py", line 24, in <module>
+    from call_orchestrator import CallOrchestrator
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/call_orchestrator.py", line 27, in <module>
+    from audio_manager import AudioManager
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/audio_manager.py", line 27, in <module>
+    from eleven_http_client import send_tts_http_to_twilio
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/eleven_http_client.py", line 31, in <module>
+    import audioop  # type: ignore
+    ^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'audioop'
+❌ Variable DEEPGRAM_KEY no encontrada. DeepgramSTTStreamer no funcionará.
+Traceback (most recent call last):
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/main.py", line 24, in <module>
+    from call_orchestrator import CallOrchestrator
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/call_orchestrator.py", line 27, in <module>
+    from audio_manager import AudioManager
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/audio_manager.py", line 27, in <module>
+    from eleven_http_client import send_tts_http_to_twilio
+  File "/Users/esteban/Documents/Asistentes Virtuales/W-Alarcon/eleven_http_client.py", line 31, in <module>
+    import audioop  # type: ignore
+    ^^^^^^^^^^^^^^
+ModuleNotFoundError: No module named 'audioop'

@@ -20,6 +20,7 @@ from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 from fastapi import WebSocket
+import base64
 
 # Importar nuestros módulos
 from twilio_handler import TwilioHandler
@@ -27,7 +28,6 @@ from audio_manager import AudioManager
 from conversation_flow import ConversationFlow
 from integration_manager import IntegrationManager
 from buscarslot import load_free_slots_to_cache
-from consultarinfo import load_consultorio_data_to_cache
 from utils import get_cancun_time, cierre_con_despedida, terminar_llamada_twilio
 from state_store import session_state
 
@@ -135,7 +135,6 @@ class CallOrchestrator:
         try:
             await asyncio.gather(
                 asyncio.to_thread(load_free_slots_to_cache, 90),
-                asyncio.to_thread(load_consultorio_data_to_cache),
                 return_exceptions=True
             )
             logger.info("✅ Datos pre-cargados")
@@ -146,12 +145,18 @@ class CallOrchestrator:
         """
         🔧 Configura los handlers para eventos de Twilio
         """
+        # Definir un response_handler que acepte on_complete y lo pase a _handle_ai_response
+        async def response_handler(response_text, on_complete=None):
+            await self._handle_ai_response(response_text, on_complete=on_complete)
         self.twilio_handler.set_handlers(
             on_start=self._handle_stream_start,
             on_media=self._handle_audio_chunk,
             on_stop=self._handle_stream_stop,
             on_mark=self._handle_mark
         )
+        # Inicializar ConversationFlow con el nuevo response_handler
+        if self.conversation_flow:
+            self.conversation_flow.response_handler = response_handler
     
     # ========== HANDLERS DE EVENTOS DE TWILIO ==========
     
@@ -199,60 +204,101 @@ class CallOrchestrator:
         🛑 Maneja el evento de parada del stream
         """
         logger.info("🛑 Stream detenido por Twilio")
-        await self._shutdown("twilio_stop_event")
+        await self._shutdown("stream_stopped")
     
     async def _handle_mark(self, event: str, data: Dict[str, Any]) -> None:
         """
         🏷️ Maneja eventos mark de Twilio
         """
-        mark_name = data.get("mark", {}).get("name")
+        mark_data = data.get("mark", {})
+        mark_name = mark_data.get("name", "unknown")
         logger.debug(f"🏷️ Mark recibido: {mark_name}")
-        
-        # Por ahora solo logging, pero se puede extender
     
-    # ========== INICIALIZACIÓN DE COMPONENTES ==========
+    def _handle_transcript(self, transcript: str, is_final: bool) -> None:
+        """
+        📝 Maneja transcripciones de Deepgram
+        
+        Args:
+            transcript: Texto transcrito
+            is_final: True si es transcripción final
+        """
+        if self.conversation_flow and not self.call_state.ended:
+            self.conversation_flow.process_transcript(transcript, is_final)
     
     async def _initialize_components(self) -> None:
         """
-        🚀 Inicializa todos los componentes necesarios
+        🔧 Inicializa todos los componentes de la llamada
+        
+        Orden de inicialización:
+        1. AudioManager (STT + TTS)
+        2. ConversationFlow (control de diálogo)
+        3. IntegrationManager (monitoreo)
         """
-        logger.info("[FUNCIONALIDAD] Inicializando componentes de llamada...")
-        t0 = time.perf_counter()
+        logger.info("🔧 Inicializando componentes de la llamada...")
         
-        # 1. Audio Manager
-        self.audio_manager = AudioManager(
-            stream_sid=self.call_state.stream_sid or "",
-            websocket_send=self.twilio_handler.send_json
-        )
-        
-        # 2. Conversation Flow
-        self.conversation_flow = ConversationFlow(
-            session_id=self.call_state.call_sid or "",
-            response_handler=self._handle_ai_response,
-            audio_manager=self.audio_manager
-        )
-        
-        # 3. Inicializar STT (Deepgram)
-        stt_success = await self.audio_manager.initialize_stt(
-            on_transcript=self.conversation_flow.process_transcript,
-            on_disconnect=self._handle_deepgram_disconnect
-        )
-        
-        if not stt_success:
-            logger.error("❌ No se pudo inicializar STT")
-            await self._shutdown("stt_init_failed")
-            return
-        
-        # 4. Configurar monitoreo de integraciones
-        await self.integration_manager.setup_deepgram(
-            self.audio_manager.stt_streamer,
-            on_reconnect=self._handle_deepgram_reconnect
-        )
-        
-        # 5. TTS se inicializa on-demand
-        
-        logger.info("✅ Componentes inicializados")
-        logger.info(f"[LATENCIA] Componentes inicializados en {1000*(time.perf_counter()-t0):.1f} ms")
+        try:
+            # === PASO 1: AUDIO MANAGER ===
+            logger.info("🎵 Inicializando AudioManager...")
+            
+            # Crear AudioManager
+            self.audio_manager = AudioManager(
+                stream_sid=self.call_state.stream_sid or "unknown",
+                websocket_send=self.twilio_handler.send_json
+            )
+            
+            # === PASO 2: CONVERSATION FLOW ===
+            logger.info("🗣️ Inicializando ConversationFlow...")
+            
+            # Crear ConversationFlow
+            self.conversation_flow = ConversationFlow(
+                session_id=self.call_state.call_sid or "unknown_call",
+                response_handler=self._handle_ai_response,
+                audio_manager=self.audio_manager
+            )
+            
+            # NUEVO: Establecer referencia al manager en ConversationFlow
+            setattr(self.conversation_flow, '_manager_reference', self)
+            
+            logger.info("✅ ConversationFlow inicializado")
+            
+            # === PASO 3: INICIALIZAR STT ===
+            logger.info("🎤 Inicializando STT...")
+            
+            stt_success = await self.audio_manager.initialize_stt(
+                on_transcript=self._handle_transcript,
+                on_disconnect=self._handle_deepgram_disconnect
+            )
+            
+            if not stt_success:
+                logger.error("❌ No se pudo inicializar STT")
+                return
+            
+            # === PASO 4: INICIALIZAR TTS ===
+            logger.info("🔊 Inicializando TTS...")
+            
+            tts_success = await self.audio_manager.initialize_tts()
+            
+            if not tts_success:
+                logger.warning("⚠️ No se pudo inicializar TTS WebSocket, usará fallback HTTP")
+            
+            logger.info("✅ AudioManager inicializado")
+            
+            # === PASO 5: CONFIGURAR INTEGRATION MANAGER ===
+            logger.info("🔗 Configurando IntegrationManager...")
+            
+            # Configurar monitoreo de integraciones
+            await self.integration_manager.setup_deepgram(
+                self.audio_manager.stt_streamer,
+                on_reconnect=self._handle_deepgram_reconnect
+            )
+            
+            logger.info("✅ IntegrationManager configurado")
+            
+            logger.info("✅ Todos los componentes inicializados correctamente")
+            
+        except Exception as e:
+            logger.error(f"❌ Error inicializando componentes: {e}", exc_info=True)
+            raise
     
     # ========== FLUJO DE CONVERSACIÓN ==========
     
@@ -281,15 +327,15 @@ class CallOrchestrator:
             hour = now.hour
             
             if 5 <= hour < 12:
-                return "¡Buenos días! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+                return "¡Buenos días! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
             elif 12 <= hour < 19:
-                return "¡Buenas tardes! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+            return "¡Buenas tardes! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
             else:
-                return "¡Buenas noches! Soy Dany, Asistente de Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?"
+                return "¡Buenas noches! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
                 
         except Exception as e:
             logger.error(f"Error generando saludo: {e}")
-            return "Consultorio del Doctor Wilfrido Alarcón, Soy Dany, asistente de Inteligencia Artificial. ¿Cómo puedo ayudarle?"
+            return "Consultorio del Doctor Alejandro Jiménez, Soy Dany, asistente de Inteligencia Artificial. ¿Cómo puedo ayudarle?"
     
     async def _on_greeting_complete(self) -> None:
         """
@@ -297,28 +343,24 @@ class CallOrchestrator:
         """
         logger.info("✅ Saludo completado, escuchando al usuario...")
     
-    async def _handle_ai_response(self, response_text: str) -> None:
+    async def _handle_ai_response(self, response_text: str, on_complete=None) -> None:
         """
         🤖 Maneja la respuesta de la IA
-        
         Args:
             response_text: Texto que debe decir la IA
+            on_complete: Callback opcional para ejecutar al terminar el TTS (solo para despedida)
         """
         if self.call_state.ended:
             return
-            
         # Caso especial: IA solicita terminar llamada
         if response_text == "__END_CALL__":
             logger.info("🔚 IA solicitó terminar llamada")
             await self._handle_ai_end_call()
             return
-            
         logger.info(f"🤖 IA responde: '{response_text[:50]}...'")
-        
         # Preparar TTS antes de enviar texto (optimización)
         if self.audio_manager:
             await self.audio_manager.prepare_tts_ws()
-        
         # Enviar respuesta a través del TTS
         if self.audio_manager:
             # Log diagnóstico antes de TTS
@@ -326,15 +368,13 @@ class CallOrchestrator:
                 diagnostics = self.audio_manager.tts_client.get_diagnostics()
                 logger.info(f"[DIAGNÓSTICO] Pre-TTS - Conectado: {diagnostics['is_connected']}, "
                            f"Errores: {diagnostics['total_errors']}, Intentos: {diagnostics['connection_attempts']}")
-            
+            # Solo pasar on_complete si está presente (despedida)
             success = await self.audio_manager.speak(
                 response_text,
-                on_complete=self._on_tts_complete
+                on_complete=on_complete if on_complete else self._on_tts_complete
             )
-            
             if not success:
                 logger.error("❌ TTS falló completamente")
-                # Log diagnóstico post-fallo
                 if self.audio_manager.tts_client:
                     diagnostics = self.audio_manager.tts_client.get_diagnostics()
                     logger.error(f"[DIAGNÓSTICO] Post-fallo TTS - Último error: {diagnostics['last_error']}")
