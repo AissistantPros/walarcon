@@ -34,7 +34,7 @@ TIMING_CONFIG = {
 }
 
 # ===== TIPOS =====
-ResponseHandler = Callable[[str], Awaitable[None]]
+ResponseHandler = Callable[[str, Optional[Callable]], Awaitable[None]]
 
 
 @dataclass
@@ -262,9 +262,9 @@ class ConversationFlow:
             logger.info(f"[HISTORIAL] Asistente: '{ai_response}'")
             # Enviar respuesta como audio, pasando on_complete si está presente
             if on_complete:
-                await self.response_handler(ai_response, on_complete=on_complete)
+                await self.response_handler(ai_response, on_complete)
             else:
-                await self.response_handler(ai_response)
+                await self.response_handler(ai_response, None)
             logger.info(f"[LATENCIA] Turno completo (LLM + respuesta TTS) en {1000*(time.perf_counter()-t0):.1f} ms")
             if self.state.turn_start_time:
                 total_latency = (time.perf_counter() - self.state.turn_start_time) * 1000
@@ -291,16 +291,16 @@ class ConversationFlow:
         # Intentar obtener el manager desde el contexto del response_handler
         try:
             # El response_handler es un método del CallOrchestrator
-            # Podemos intentar acceder al manager a través de una referencia
-            if hasattr(self, '_manager_reference'):
-                manager = self._manager_reference
+            # Podemos intentar acceder al manager a través del response_handler
+            if hasattr(self.response_handler, '__self__'):
+                manager = self.response_handler.__self__
                 if hasattr(manager, '_handle_ai_end_call'):
                     await manager._handle_ai_end_call()
                     logger.info("✅ Terminación de llamada ejecutada correctamente")
                 else:
                     logger.error("❌ Manager no tiene método _handle_ai_end_call")
             else:
-                logger.error("❌ No se encontró referencia al manager")
+                logger.error("❌ No se pudo acceder al manager desde response_handler")
         except Exception as e:
             logger.error(f"❌ Error ejecutando terminación de llamada: {e}")
             # Fallback: intentar shutdown directo
