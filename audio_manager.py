@@ -388,7 +388,7 @@ class AudioManager:
                 text,
                 on_chunk=send_chunk,
                 on_end=self._on_tts_complete,
-                timeout_first_chunk=1.2  # Aumentado de 0.8s a 1.2s para mayor estabilidad
+                timeout_first_chunk=2.0  # Aumentar a 2.0s para mayor estabilidad
             )
             
             if ok:
@@ -504,23 +504,26 @@ class AudioManager:
     async def _monitor_tts_stall(self) -> None:
         """
         🚨 Detecta si TTS se congela (no envía chunks)
-        Si pasan 1.0s sin chunks → asume que falló y reactiva STT
+        Si pasan 1.5s sin chunks → asume que falló y reactiva STT
         Solo marca error si no se recibe ningún chunk después del primero y no se recibe fin de stream.
         """
         stall_count = 0
+        stall_threshold = 1.5  # Aumentar de 1.0 a 1.5 segundos
+        max_stalls = 3  # Aumentar de 2 a 3 stalls antes de reactivar
+        
         while self.state.tts_in_progress:
             if self.last_chunk_time:
                 elapsed = time.perf_counter() - self.last_chunk_time
-                if elapsed > 1.0:  # 1.0s sin chunks
+                if elapsed > stall_threshold:
                     stall_count += 1
                     logger.warning(f"🚨 TTS stall #{stall_count} detectado! ({elapsed*1000:.1f}ms sin chunks)")
-                    if stall_count >= 2:  # Dos stalls consecutivos
+                    if stall_count >= max_stalls:  # Cambiar de 2 a 3
                         logger.error("🚨 TTS stall persistente! Reactivando STT")
                         await self._on_tts_complete()
                         break
                 else:
-                    stall_count = 0
-            await asyncio.sleep(0.2)
+                    stall_count = 0  # Reset si recibimos chunks
+            await asyncio.sleep(0.3)  # Aumentar de 0.2 a 0.3
     
     async def reactivate_stt(self) -> None:
         """

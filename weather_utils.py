@@ -71,8 +71,8 @@ def get_cancun_weather() -> dict:
 
         weather_data_payload["current"] = {
             "description": description,
-            "temperature": f"{temperature}°C" if isinstance(temperature, (int, float)) else str(temperature),
-            "feels_like": f"{feels_like}°C" if isinstance(feels_like, (int, float)) else str(feels_like),
+            "temperature": f"{temperature} grados" if isinstance(temperature, (int, float)) else str(temperature),
+            "feels_like": f"{feels_like} grados" if isinstance(feels_like, (int, float)) else str(feels_like),
             "humidity": f"{humidity}%" if isinstance(humidity, (int, float)) else str(humidity),
             "wind_speed": f"{wind_speed} m/s" if isinstance(wind_speed, (int, float)) else str(wind_speed),
             "icon_code": icon_code

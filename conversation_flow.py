@@ -255,11 +255,8 @@ class ConversationFlow:
                     except Exception as e:
                         logger.error(f"❌ Error ejecutando terminación de llamada: {e}")
                 return
-            self.state.history.append({
-                "role": "assistant",
-                "content": ai_response
-            })
-            logger.info(f"[HISTORIAL] Asistente: '{ai_response}'")
+            # NO agregar al historial aquí - ya se hace en aiagent.py
+            logger.info(f"[HISTORIAL] Respuesta de IA recibida: '{ai_response}'")
             # Enviar respuesta como audio, pasando on_complete si está presente
             if on_complete:
                 await self.response_handler(ai_response, on_complete)

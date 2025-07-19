@@ -172,6 +172,11 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
     # Obtener el status del resultado
     status = result.get("status", "default")
     
+    # DEBUG: Agregar logging para verificar la generación
+    logger.info(f"[DEBUG] Generando respuesta sintética - tool: {tool_name}, status: {status}")
+    logger.info(f"[DEBUG] Templates disponibles: {list(TEMPLATES[tool_name].keys())}")
+    logger.info(f"[DEBUG] Resultado completo: {result}")
+    
     # Obtener las plantillas para este status
     status_templates = TEMPLATES[tool_name].get(status, TEMPLATES[tool_name].get("default", []))
     
