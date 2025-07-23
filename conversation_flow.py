@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 # ===== CONFIGURACIÓN DE TIEMPOS =====
 TIMING_CONFIG = {
     # ⏱️ CRÍTICO: No cambiar sin pruebas exhaustivas
-    "PAUSE_DETECTION": 0.8,        # Segundos de silencio = usuario terminó (aumentado para tolerar pausas naturales)
-    "MAX_WAIT_TIME": 8.0,          # Máximo espera antes de forzar envío
+    "PAUSE_DETECTION": 0.5,        # Segundos de silencio = usuario terminó (aumentado para tolerar pausas naturales)
+    "MAX_WAIT_TIME": 15.0,          # Máximo espera antes de forzar envío
     "MIN_TEXT_LENGTH": 2,          # Mínimo de caracteres para procesar
     "LATENCY_THRESHOLD": 0.05,     # 50ms para mensaje de espera
 }
