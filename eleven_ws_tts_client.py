@@ -85,11 +85,11 @@ class ElevenLabsWSClient:
         self._total_errors = 0
        
         self.voice_settings = {
-            "stability": 0.5,
-            "style": 0.2,
+            "stability": 0.2,
+            "style": 0.0,
             #"similarity_boost": 0.4,
             "use_speaker_boost": False,
-            "speed": 1.2,
+            "speed": 1.1,
         }
 
         # Iniciar conexión WebSocket REUTILIZABLE

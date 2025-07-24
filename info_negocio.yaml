@@ -2,10 +2,10 @@
 # Llena aquí la información de tu consultorio. Puedes eliminar los comentarios (#) después de llenarlo.
 
 informacion_consultorio:
-  nombre_doctor: "Dr. Alejandro Jiménez"
+  nombre_doctor: "Dr. Wilfrido Alarcón"
   especialidad_principal: "Cardiólogo Intervencionista"
   historia_doctor: >
-    El Dr. Alejandro Jiménez es un reconocido cardiólogo con más de 15 años de experiencia 
+    El Dr. Wilfrido Alarcón es un reconocido cardiólogo con más de 15 años de experiencia 
     en procedimientos intervencionistas. Egresado de la Universidad Nacional Autónoma de 
     México (UNAM), realizó su especialidad en el Instituto Nacional de Cardiología y 
     cuenta con múltiples certificaciones internacionales en hemodinámica y cardiología 

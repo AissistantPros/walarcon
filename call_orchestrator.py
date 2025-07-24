@@ -331,15 +331,15 @@ class CallOrchestrator:
             hour = now.hour
             
             if 5 <= hour < 12:
-                return "¡Buenos días! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
+                return "¡Buenos días! Soy Dany, Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?. For English, say -English please-"
             elif 12 <= hour < 19:
-                return "¡Buenas tardes! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
+                return "¡Buenas tardes! Soy Dany, Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?. For English, say -English please-"
             else:
-                return "¡Buenas noches! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?"
+                return "¡Buenas noches! Soy Dany, Inteligencia Artificial del doctor Wilfrido Alarcón. ¿Cómo puedo ayudarle hoy?. For English, say -English please-"
                 
         except Exception as e:
             logger.error(f"Error generando saludo: {e}")
-            return "Consultorio del Doctor Alejandro Jiménez, Soy Dany, asistente de Inteligencia Artificial. ¿Cómo puedo ayudarle?"
+            return "Consultorio del Doctor Wilfrido Alarcón, Soy Dany, Inteligencia Artificial. ¿Cómo puedo ayudarle?. For English, say -English please-"
     
     async def _on_greeting_complete(self) -> None:
         """
