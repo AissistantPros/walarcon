@@ -508,8 +508,8 @@ class AudioManager:
         Solo marca error si no se recibe ningún chunk después del primero y no se recibe fin de stream.
         """
         stall_count = 0
-        stall_threshold = 1.5  # Aumentar de 1.0 a 1.5 segundos
-        max_stalls = 3  # Aumentar de 2 a 3 stalls antes de reactivar
+        stall_threshold = 5.0  
+        max_stalls = 3  
         
         while self.state.tts_in_progress:
             if self.last_chunk_time:
