@@ -1,514 +1,508 @@
-23:52:07 |  INFO | main: [FUNCIONALIDAD] Nueva llamada entrante (POST /twilio-voice)
-23:52:07 |  INFO | main: [LATENCIA] Respuesta TwiML generada en 0.0 ms
-23:52:07 |  INFO | main: [FUNCIONALIDAD] WebSocket /twilio-websocket aceptado
-23:52:07 |  INFO | twilio_handler: 📞 TwilioHandler inicializado
-23:52:07 |  INFO | integration_manager: 🔌 IntegrationManager inicializado
-23:52:07 |  INFO | call_orchestrator: ✅ Audio de espera cargado (11960 bytes)
-23:52:07 |  INFO | call_orchestrator: 🎭 CallOrchestrator inicializado
-23:52:07 |  INFO | call_orchestrator: [FUNCIONALIDAD] Nueva llamada entrante
-23:52:07 |  INFO | call_orchestrator: 📦 Pre-cargando datos...
-23:52:07 |  INFO | buscarslot: ⏳ Cargando slots libres desde Google Calendar…
-23:52:07 |  INFO | utils: 🔍 Inicializando Google Calendar...
-23:52:07 |  INFO | googleapiclient.discovery_cache: file_cache is only supported with oauth2client<4.0.0
-23:52:07 |  INFO | buscarslot: ✅ Slots libres precargados (90 días)
-23:52:07 |  INFO | call_orchestrator: ✅ Datos pre-cargados
-23:52:07 |  INFO | twilio_handler: 🔧 Handlers configurados
-23:52:07 |  INFO | twilio_handler: [FUNCIONALIDAD] Nueva conexión WebSocket entrante de Twilio
-INFO:     ('34.227.173.74', 0) - "WebSocket /twilio-websocket" [accepted]
-23:52:07 |  INFO | twilio_handler: ✅ WebSocket aceptado
-23:52:07 |  INFO | twilio_handler: 🔄 Iniciando loop de recepción
-INFO:     connection open
-23:52:07 |  INFO | twilio_handler: ✅ Twilio confirmó conexión establecida
-23:52:07 |  INFO | twilio_handler: [LATENCIA] Evento 'connected' procesado en 0.1 ms
-23:52:07 |  INFO | twilio_handler: 🏁 Stream iniciado - StreamSID: MZ1cb6be45f3711cf7078822494934d714, CallSID: CA2ac7f6a485ad87c559c96cea46fe9584
-23:52:07 |  INFO | call_orchestrator: 🏁 Stream iniciado - CallSID: CA2ac7f6a485ad87c559c96cea46fe9584, StreamSID: MZ1cb6be45f3711cf7078822494934d714
-23:52:07 |  INFO | call_orchestrator: 🔧 Inicializando componentes de la llamada...
-23:52:07 |  INFO | call_orchestrator: 🎵 Inicializando AudioManager...
-23:52:07 |  INFO | audio_manager: 🎵 AudioManager creado para stream: MZ1cb6be45f3711cf7078822494934d714
-23:52:07 |  INFO | call_orchestrator: 🗣️ Inicializando ConversationFlow...
-23:52:07 |  INFO | conversation_flow: 🗣️ ConversationFlow creado para sesión: CA2ac7f6a485ad87c559c96cea46fe9584
-23:52:07 |  INFO | call_orchestrator: ✅ ConversationFlow inicializado
-23:52:07 |  INFO | call_orchestrator: 🎤 Inicializando STT...
-23:52:07 |  INFO | audio_manager: 🎤 Iniciando Deepgram STT...
-23:52:07 |  INFO | deepgram_stt_streamer: Intentando CONECTAR con Deepgram...
-23:52:07 |  INFO | deepgram_stt_streamer: 🔛 Conexión Deepgram ABIERTA (evento Open recibido).
-23:52:07 |  INFO | audio_manager: ✅ Deepgram STT iniciado correctamente
-23:52:07 |  INFO | call_orchestrator: 🔊 Inicializando TTS...
-23:52:07 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:52:07 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:52:07 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:52:07 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 103.3 ms
-23:52:07 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:52:07 |  INFO | call_orchestrator: ✅ AudioManager inicializado
-23:52:07 |  INFO | call_orchestrator: 🔗 Configurando IntegrationManager...
-23:52:07 |  INFO | integration_manager: [FUNCIONALIDAD] Configurando Deepgram STT...
-23:52:07 |  INFO | deepgram_stt_streamer: Deepgram ya estaba iniciado y conectado.
-23:52:07 |  INFO | integration_manager: ✅ Deepgram conectado y monitoreado
-23:52:07 |  INFO | integration_manager: [LATENCIA] Deepgram configurado en 0.1 ms
-23:52:07 |  INFO | call_orchestrator: ✅ IntegrationManager configurado
-23:52:07 |  INFO | call_orchestrator: ✅ Todos los componentes inicializados correctamente
-23:52:07 |  INFO | call_orchestrator: 🏥 Iniciando monitoreo de salud de llamada
-23:52:07 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 0.7s, STT: True, TTS: True, Hablando: False
-23:52:08 |  INFO | call_orchestrator: 👋 Enviando saludo: '¡Buenas tardes! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?'
-23:52:08 |  INFO | audio_manager: 🔊 Iniciando TTS: '¡Buenas tardes! Soy Dany, Asistente de Inteligenci...' (118 chars)
-23:52:08 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:52:08 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 118 chars (modo legacy)
-23:52:09 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 752.7 ms
-23:52:09 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:52:09 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 753.7 ms
-23:52:09 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:52:09 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 754.1 ms
-23:52:09 |  INFO | call_orchestrator: [LATENCIA] Saludo enviado y TTS completado en 754.3 ms
-23:52:09 |  INFO | twilio_handler: [LATENCIA] Evento 'start' procesado en 1625.0 ms
-23:52:10 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1184.8ms sin chunks)
-23:52:10 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1385.8ms sin chunks)
-23:52:10 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:52:10 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:52:10 |  INFO | audio_manager: ✅ TTS completado
-23:52:10 |  INFO | audio_manager: 🟢 Reactivando STT
-23:52:10 |  INFO | call_orchestrator: ✅ Saludo completado, escuchando al usuario...
-23:52:11 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:52:11 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3218.9 ms
-23:52:11 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 5
-23:52:11 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:52:11 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:52:15 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
-23:52:19 |  INFO | conversation_flow: 📥 Final recibido: 'Hola, Dani. ¿Cómo estás?'
-23:52:19 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Hola, Dani. ¿Cómo estás?'
-23:52:19 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
-23:52:19 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
-23:52:19 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:52:19 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
-23:52:19 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:52:19 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:52:19 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:52:19 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 68.0 ms
-23:52:19 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:52:19 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 68.6 ms
-23:52:19 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 68.8 ms
-23:52:19 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 68.9 ms
-23:52:19 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Hola, Dani. ¿Cómo estás?'
-23:52:19 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
-23:52:20 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
-23:52:20 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 150.2 ms
-23:52:20 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.0 ms
-23:52:20 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: 'Estoy muy bien, gracias! ¿Y tú? ¿En qué puedo ayudarte hoy?'
-23:52:20 |  INFO | conversation_flow: [HISTORIAL] Asistente: 'Estoy muy bien, gracias! ¿Y tú? ¿En qué puedo ayudarte hoy?'
-23:52:20 |  INFO | call_orchestrator: 🤖 IA responde: 'Estoy muy bien, gracias! ¿Y tú? ¿En qué puedo ayud...'
-23:52:20 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:52:20 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
-23:52:20 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
-23:52:20 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Estoy muy bien, gracias! ¿Y tú? ¿En qué puedo ayud...' (59 chars)
-23:52:20 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:52:20 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 59 chars (modo legacy)
-23:52:21 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 556.9 ms
-23:52:21 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:52:21 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 557.8 ms
-23:52:21 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:52:21 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 558.1 ms
-23:52:21 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1319.9 ms
-23:52:21 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1388.9ms
-23:52:22 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1133.3ms sin chunks)
-23:52:22 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1334.3ms sin chunks)
-23:52:22 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:52:22 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:52:22 |  INFO | audio_manager: ✅ TTS completado
-23:52:22 |  INFO | audio_manager: 🟢 Reactivando STT
-23:52:22 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
-23:52:22 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 2020234.002288687}, STT listo: True, TTS listo: True
-23:52:23 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:52:23 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3293.9 ms
-23:52:23 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 3
-23:52:23 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:52:23 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:52:24 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
-23:52:28 |  INFO | conversation_flow: 📥 Final recibido: 'Todo muy bien, hace mucho calor hoy.'
-23:52:29 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Todo muy bien, hace mucho calor hoy.'
-23:52:29 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
-23:52:29 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
-23:52:29 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:52:29 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
-23:52:29 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:52:29 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:52:29 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:52:29 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 77.4 ms
-23:52:29 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:52:29 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 78.2 ms
-23:52:29 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 78.3 ms
-23:52:29 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 78.6 ms
-23:52:29 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Todo muy bien, hace mucho calor hoy.'
-23:52:29 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
-23:52:29 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
-23:52:29 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 157.2 ms
-23:52:30 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.0 ms
-23:52:30 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: 'Sí, es cierto. El clima en Cancún puede ser bastante caluroso, especialmente en esta época del año. Hoy hace 30 grados con sensación de 37 grados y está lloviendo ligeramente, ¿verdad? ¿Te gusta el clima cálido o prefieres algo más fresco?'
-23:52:30 |  INFO | conversation_flow: [HISTORIAL] Asistente: 'Sí, es cierto. El clima en Cancún puede ser bastante caluroso, especialmente en esta época del año. Hoy hace 30 grados con sensación de 37 grados y está lloviendo ligeramente, ¿verdad? ¿Te gusta el clima cálido o prefieres algo más fresco?'
-23:52:30 |  INFO | call_orchestrator: 🤖 IA responde: 'Sí, es cierto. El clima en Cancún puede ser bastan...'
-23:52:30 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:52:30 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.0 ms
-23:52:30 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
-23:52:30 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Sí, es cierto. El clima en Cancún puede ser bastan...' (239 chars)
-23:52:30 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:52:30 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 239 chars (modo legacy)
-23:52:31 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 781.3 ms
-23:52:31 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:52:31 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 782.0 ms
-23:52:31 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:52:31 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 782.3 ms
-23:52:31 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1779.7 ms
-23:52:31 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1858.6ms
-23:52:33 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1111.8ms sin chunks)
-23:52:33 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1312.2ms sin chunks)
-23:52:33 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:52:33 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:52:33 |  INFO | audio_manager: ✅ TTS completado
-23:52:33 |  INFO | audio_manager: 🟢 Reactivando STT
-23:52:33 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
-23:52:33 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 2020243.462265287}, STT listo: True, TTS listo: True
-23:52:33 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:52:33 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 4595.1 ms
-23:52:33 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 8
-23:52:33 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:52:33 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:52:37 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 30.7s, STT: True, TTS: True, Hablando: False
-23:52:43 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
-23:52:49 |  INFO | conversation_flow: 📥 Final recibido: 'Sí, sí me gusta el clima cálido.'
-23:52:50 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Sí, sí me gusta el clima cálido.'
-23:52:50 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
-23:52:50 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
-23:52:50 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:52:50 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
-23:52:50 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:52:50 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:52:50 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:52:50 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 87.6 ms
-23:52:50 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:52:50 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 88.3 ms
-23:52:50 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 88.4 ms
-23:52:50 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 88.6 ms
-23:52:50 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Sí, sí me gusta el clima cálido.'
-23:52:50 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
-23:52:50 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
-23:52:50 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 82.5 ms
-23:52:50 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.0 ms
-23:52:50 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: 'Genial, el clima cálido puede ser muy agradable, especialmente en un lugar tan hermoso como Cancún. ¿Qué planes tienes para hoy? ¿Algo especial o simplemente disfrutando del día? ¿Necesitas ayuda con algo o simplemente quieres charlar un rato?'
-23:52:50 |  INFO | conversation_flow: [HISTORIAL] Asistente: 'Genial, el clima cálido puede ser muy agradable, especialmente en un lugar tan hermoso como Cancún. ¿Qué planes tienes para hoy? ¿Algo especial o simplemente disfrutando del día? ¿Necesitas ayuda con algo o simplemente quieres charlar un rato?'
-23:52:50 |  INFO | call_orchestrator: 🤖 IA responde: 'Genial, el clima cálido puede ser muy agradable, e...'
-23:52:50 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:52:50 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
-23:52:50 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
-23:52:50 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Genial, el clima cálido puede ser muy agradable, e...' (243 chars)
-23:52:50 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:52:50 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 243 chars (modo legacy)
-23:52:51 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 791.9 ms
-23:52:51 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:52:51 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 793.2 ms
-23:52:51 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:52:51 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 793.5 ms
-23:52:51 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1592.2 ms
-23:52:51 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1681.0ms
-23:52:53 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1092.4ms sin chunks)
-23:52:53 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1292.7ms sin chunks)
-23:52:53 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:52:53 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:52:53 |  INFO | audio_manager: ✅ TTS completado
-23:52:53 |  INFO | audio_manager: 🟢 Reactivando STT
-23:52:53 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
-23:52:53 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 2020264.142724302}, STT listo: True, TTS listo: True
-23:52:54 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:52:54 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 4423.5 ms
-23:52:54 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 8
-23:52:54 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:52:54 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:53:02 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
-23:53:07 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 60.7s, STT: True, TTS: True, Hablando: False
-23:53:08 |  INFO | conversation_flow: 📥 Final recibido: 'Quiero una cita con el doctor, por favor.'
-23:53:08 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Quiero una cita con el doctor, por favor.'
-23:53:08 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
-23:53:08 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
-23:53:08 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:53:08 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
-23:53:08 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:53:08 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:53:09 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:53:09 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 92.5 ms
-23:53:09 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:53:09 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 93.1 ms
-23:53:09 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 93.4 ms
-23:53:09 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 93.6 ms
-23:53:09 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Quiero una cita con el doctor, por favor.'
-23:53:09 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
-23:53:09 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
-23:53:09 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 99.4 ms
-23:53:09 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.0 ms
-23:53:09 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: '¡Claro! Me alegra que hayas pensado en el Dr. Alejandro Jiménez para tu consulta. ¿Tienes alguna fecha o hora en mente para la cita, o prefieres que busque lo más pronto posible?'
-23:53:09 |  INFO | conversation_flow: [HISTORIAL] Asistente: '¡Claro! Me alegra que hayas pensado en el Dr. Alejandro Jiménez para tu consulta. ¿Tienes alguna fecha o hora en mente para la cita, o prefieres que busque lo más pronto posible?'
-23:53:09 |  INFO | call_orchestrator: 🤖 IA responde: '¡Claro! Me alegra que hayas pensado en el Dr. Alej...'
-23:53:09 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:53:09 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
-23:53:09 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
-23:53:09 |  INFO | audio_manager: 🔊 Iniciando TTS: '¡Claro! Me alegra que hayas pensado en el Dr. Alej...' (178 chars)
-23:53:09 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:53:09 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 178 chars (modo legacy)
-23:53:10 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 754.2 ms
-23:53:10 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:53:10 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 754.8 ms
-23:53:10 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:53:10 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 755.1 ms
-23:53:10 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1550.0 ms
-23:53:10 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1643.7ms
-23:53:12 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1146.5ms sin chunks)
-23:53:12 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1347.0ms sin chunks)
-23:53:12 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:53:12 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:53:12 |  INFO | audio_manager: ✅ TTS completado
-23:53:12 |  INFO | audio_manager: 🟢 Reactivando STT
-23:53:12 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
-23:53:12 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 2020283.103747951}, STT listo: True, TTS listo: True
-23:53:13 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:53:13 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 4139.1 ms
-23:53:13 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 7
-23:53:13 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:53:13 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:53:19 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
-23:53:24 |  INFO | conversation_flow: 📥 Final recibido: 'Lo más pronto posible.'
-23:53:25 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Lo más pronto posible.'
-23:53:25 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
-23:53:25 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
-23:53:25 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:53:25 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
-23:53:25 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:53:25 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:53:25 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:53:25 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 66.8 ms
-23:53:25 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:53:25 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 67.5 ms
-23:53:25 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 67.6 ms
-23:53:25 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 67.8 ms
-23:53:25 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Lo más pronto posible.'
-23:53:25 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
-23:53:25 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
-23:53:25 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 154.1 ms
-23:53:25 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.2 ms
-23:53:25 |  INFO | aiagent: Ejecutando: process_appointment_request con {'user_query_for_date_time': 'lo más pronto posible', 'is_urgent_param': True}
-23:53:25 |  INFO | aiagent: [PERF] Herramienta 'process_appointment_request' ejecutada en 1.4 ms
-23:53:25 |  INFO | aiagent: [HISTORIAL] Agregado 'tool' (process_appointment_request): {"status": "SLOT_LIST", "date_iso": "2025-07-19", "available_slots": ["10:15", "11:00", "11:45", "12:30"], "available_pretty": ["las diez quince de la mañana", "las once en punto de la mañana", "las o...
-23:53:25 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta final: 'Mmm... déjeme ver qué hay disponible...'
-23:53:25 |  INFO | conversation_flow: [HISTORIAL] Asistente: 'Mmm... déjeme ver qué hay disponible...'
-23:53:25 |  INFO | call_orchestrator: 🤖 IA responde: 'Mmm... déjeme ver qué hay disponible......'
-23:53:25 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:53:25 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
-23:53:25 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
-23:53:25 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Mmm... déjeme ver qué hay disponible......' (39 chars)
-23:53:25 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:53:25 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 39 chars (modo legacy)
-23:53:26 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 440.9 ms
-23:53:26 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:53:26 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 441.4 ms
-23:53:26 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:53:26 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 441.7 ms
-23:53:26 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1253.7 ms
-23:53:26 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1321.5ms
-23:53:27 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1195.6ms sin chunks)
-23:53:27 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1396.7ms sin chunks)
-23:53:27 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:53:27 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:53:27 |  INFO | audio_manager: ✅ TTS completado
-23:53:27 |  INFO | audio_manager: 🟢 Reactivando STT
-23:53:27 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
-23:53:27 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 2020299.143339494}, STT listo: True, TTS listo: True
-23:53:28 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:53:28 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3157.8 ms
-23:53:28 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 2
-23:53:28 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:53:28 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:53:28 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
-23:53:37 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 90.7s, STT: True, TTS: True, Hablando: False
-23:53:42 |  INFO | conversation_flow: 📥 Final recibido: 'Hola. ¿Qué tienes disponible?'
-23:53:42 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Hola. ¿Qué tienes disponible?'
-23:53:42 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
-23:53:42 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
-23:53:42 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:53:42 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
-23:53:42 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:53:42 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:53:42 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:53:42 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 68.5 ms
-23:53:42 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:53:42 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 69.2 ms
-23:53:42 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 69.3 ms
-23:53:42 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 69.5 ms
-23:53:42 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Hola. ¿Qué tienes disponible?'
-23:53:42 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
-23:53:42 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
-23:53:43 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 111.0 ms
-23:53:43 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.0 ms
-23:53:43 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: 'Para el 19 de julio, tenemos disponibles las siguientes horas: diez quince de la mañana, once en punto de la mañana, once cuarenta y cinco de la mañana y doce treinta del mediodía. ¿Alguna de estas horas le funciona?'
-23:53:43 |  INFO | conversation_flow: [HISTORIAL] Asistente: 'Para el 19 de julio, tenemos disponibles las siguientes horas: diez quince de la mañana, once en punto de la mañana, once cuarenta y cinco de la mañana y doce treinta del mediodía. ¿Alguna de estas horas le funciona?'
-23:53:43 |  INFO | call_orchestrator: 🤖 IA responde: 'Para el 19 de julio, tenemos disponibles las sigui...'
-23:53:43 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:53:43 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
-23:53:43 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
-23:53:43 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Para el 19 de julio, tenemos disponibles las sigui...' (216 chars)
-23:53:43 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:53:43 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 216 chars (modo legacy)
-23:53:44 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 879.7 ms
-23:53:44 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:53:44 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 880.3 ms
-23:53:44 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 2 intentos
-23:53:44 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 882.1 ms
-23:53:44 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:53:44 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 882.9 ms
-23:53:44 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1688.5 ms
-23:53:44 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1758.3ms
-23:53:46 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1176.8ms sin chunks)
-23:53:46 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1377.5ms sin chunks)
-23:53:46 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:53:46 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:53:46 |  INFO | audio_manager: ✅ TTS completado
-23:53:46 |  INFO | audio_manager: 🟢 Reactivando STT
-23:53:46 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
-23:53:46 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 2020316.970621131}, STT listo: True, TTS listo: True
-23:53:47 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:53:47 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 4419.6 ms
-23:53:47 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 9
-23:53:47 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:53:47 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:53:56 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
-23:54:01 |  INFO | conversation_flow: 📥 Final recibido: 'Eso sería todo. Gracias. Hasta luego.'
-23:54:02 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Eso sería todo. Gracias. Hasta luego.'
-23:54:02 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
-23:54:02 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
-23:54:02 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:54:02 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
-23:54:02 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
-23:54:02 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
-23:54:02 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
-23:54:02 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 71.7 ms
-23:54:02 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
-23:54:02 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 72.3 ms
-23:54:02 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 72.5 ms
-23:54:02 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 72.6 ms
-23:54:02 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Eso sería todo. Gracias. Hasta luego.'
-23:54:02 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
-23:54:02 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
-23:54:02 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 160.0 ms
-23:54:03 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.1 ms
-23:54:03 |  INFO | aiagent: Ejecutando: end_call con {'reason': 'user_request'}
-23:54:03 |  INFO | aiagent: [PERF] Herramienta 'end_call' ejecutada en 0.1 ms
-23:54:03 |  INFO | aiagent: [HISTORIAL] Agregado 'tool' (end_call): {"action": "end_call", "reason": "user_request", "__terminate__": true}...
-23:54:03 |  INFO | aiagent: [HISTORIAL] IA solicitó terminar llamada
-23:54:03 |  INFO | conversation_flow: 🔚 IA solicitó terminar la llamada
-23:54:03 |  INFO | conversation_flow: 🔚 Ejecutando terminación de llamada solicitada por IA
-23:54:03 |  INFO | call_orchestrator: 🔚 Iniciando terminación de llamada solicitada por IA (en _handle_ai_end_call)
-23:54:03 |  INFO | call_orchestrator: [DEBUG] Llamando a cierre_con_despedida desde _handle_ai_end_call...
-23:54:03 |  INFO | utils: 🔚 Iniciando cierre elegante de llamada - Razón: assistant_request
-23:54:03 |  INFO | utils: 🎤 Enviando despedida TTS...
-23:54:03 |  INFO | utils: 🤫 Activando ignorar_stt para la secuencia de cierre
-23:54:03 |  INFO | call_orchestrator: 🤖 IA responde: 'Fue un placer atenderle. Que tenga un excelente dí...'
-23:54:03 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
-23:54:03 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
-23:54:03 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
-23:54:03 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Fue un placer atenderle. Que tenga un excelente dí...' (66 chars)
-23:54:03 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
-23:54:03 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 66 chars (modo legacy)
-23:54:04 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 564.1 ms
-23:54:04 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
-23:54:04 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 564.8 ms
-23:54:04 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
-23:54:04 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 565.1 ms
-23:54:04 |  INFO | utils: ✅ Despedida TTS enviada, esperando a que termine el audio...
-23:54:05 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1192.9ms sin chunks)
-23:54:05 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1393.9ms sin chunks)
-23:54:05 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
-23:54:05 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
-23:54:05 |  INFO | audio_manager: ✅ TTS completado
-23:54:05 |  INFO | audio_manager: 🟢 Reactivando STT
-23:54:05 |  INFO | utils: ✅ Callback de despedida ejecutado
-23:54:05 |  INFO | utils: ✅ Audio de despedida reproducido completamente
-23:54:05 |  INFO | utils: ☎️ Terminando llamada en Twilio...
-23:54:05 |  INFO | utils: ☎️ Terminando llamada CA2ac7f6a485ad87c559c96cea46fe9584 en Twilio (motivo=assistant_request)...
-23:54:05 |  INFO | utils: ✅ Twilio confirmó cierre de llamada CA2ac7f6a485ad87c559c96cea46fe9584
-23:54:05 |  INFO | utils: [LATENCIA] Terminación Twilio completada en 62.5 ms
-23:54:05 |  INFO | utils: ✅ Llamada terminada en Twilio
-23:54:05 |  INFO | utils: ⏳ Esperando 5.0s adicionales por robustez...
-23:54:05 |  INFO | twilio_handler: 🛑 Evento STOP recibido
-23:54:05 |  INFO | call_orchestrator: 🛑 Stream detenido por Twilio
-23:54:05 |  INFO | call_orchestrator: 🔌 Shutdown ya en progreso, ignorando
-23:54:05 |  INFO | twilio_handler: [LATENCIA] Evento 'stop' procesado en 1.4 ms
-23:54:05 |  INFO | twilio_handler: 🧹 Limpiando TwilioHandler...
-23:54:05 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
-23:54:05 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3220.6 ms
-23:54:05 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 3
-23:54:05 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
-23:54:05 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
-23:54:06 |  INFO | twilio_handler: ✅ WebSocket cerrado correctamente
-23:54:06 |  INFO | twilio_handler: 📊 Duración de la conexión: 119.1 segundos
-23:54:06 |  INFO | twilio_handler: ✅ TwilioHandler limpiado
-23:54:06 |  INFO | twilio_handler: [LATENCIA] Cleanup de TwilioHandler completado en 998.6 ms
-23:54:06 |  INFO | twilio_handler: [LATENCIA] Conexión WebSocket Twilio finalizada en 119062.5 ms
-23:54:06 |  INFO | call_orchestrator: 🔌 Shutdown ya en progreso, ignorando
-23:54:06 |  INFO | call_orchestrator: [LATENCIA] Llamada completa finalizada en 119345.2 ms
-23:54:06 |  INFO | main: [LATENCIA] WebSocket /twilio-websocket completado en 119345.5 ms
-INFO:     connection closed
-23:54:07 |  INFO | call_orchestrator: 🏥 Monitoreo de salud terminado
-23:54:10 |  INFO | utils: 🔌 Cerrando WebSockets...
-23:54:10 |  INFO | audio_manager: 🔌 Cerrando AudioManager...
-23:54:10 |  INFO | deepgram_stt_streamer: Iniciando cierre de conexión Deepgram...
-23:54:10 |  INFO | deepgram_stt_streamer: 📨 'CloseStream' enviado a Deepgram.
-23:54:10 | WARNING | deepgram_stt_streamer: 🔒 Conexión Deepgram CERRADA (evento Close [()] [{'close': CloseResponse(type=<WebSocketEvents.Close: 'Close'>)}] recibido desde Deepgram).
-23:54:10 |  INFO | deepgram_stt_streamer: Evento _on_close: Notificando al manager para posible reconexión.
-23:54:10 | WARNING | call_orchestrator: 🔌 Deepgram desconectado
-tasks cancelled error: 
-23:54:12 | ERROR | deepgram.clients.common.v1.abstract_async_websocket: tasks cancelled error: 
-23:54:12 |  INFO | deepgram_stt_streamer: ✅ Conexión Deepgram finalizada (método finish() del SDK).
-23:54:12 |  INFO | deepgram_stt_streamer: 🧹 Estado de DeepgramSTTStreamer limpiado después del cierre.
-23:54:12 |  INFO | audio_manager: ✅ Deepgram STT cerrado
-23:54:12 |  INFO | eleven_ws_tts_client: 🔒 Cerrando ElevenLabs WebSocket...
-23:54:12 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Sesión total: 9.9s, chunks: 3, errores: 0
-23:54:12 |  INFO | eleven_ws_tts_client: ✅ ElevenLabs WebSocket cerrado
-23:54:12 |  INFO | audio_manager: ✅ ElevenLabs TTS cerrado
-23:54:12 |  INFO | audio_manager: ✅ AudioManager cerrado completamente
-23:54:12 |  INFO | utils: ✅ AudioManager cerrado
-23:54:12 |  INFO | conversation_flow: 🔌 Cerrando ConversationFlow...
-23:54:12 | WARNING | conversation_flow: ⚠️ Cancelando tarea de IA activa...
-23:54:12 |  INFO | conversation_flow: 📊 Conversación finalizada - Total: 22 mensajes (Usuario: 7, Asistente: 13)
-23:54:12 |  INFO | conversation_flow: 📜 HISTORIAL COMPLETO:
-23:54:12 |  INFO | conversation_flow:   [0] user: Hola, Dani. ¿Cómo estás?
-23:54:12 |  INFO | conversation_flow:   [1] assistant: Estoy muy bien, gracias! ¿Y tú? ¿En qué puedo ayudarte hoy?
-23:54:12 |  INFO | conversation_flow:   [2] assistant: Estoy muy bien, gracias! ¿Y tú? ¿En qué puedo ayudarte hoy?
-23:54:12 |  INFO | conversation_flow:   [3] user: Todo muy bien, hace mucho calor hoy.
-23:54:12 |  INFO | conversation_flow:   [4] assistant: Sí, es cierto. El clima en Cancún puede ser bastante caluroso, especialmente en esta época del año. Hoy hace 30 grados con sensación de 37 grados y está lloviendo ligeramente, ¿verdad? ¿Te gusta el clima cálido o prefieres algo más fresco?
-23:54:12 |  INFO | conversation_flow:   [5] assistant: Sí, es cierto. El clima en Cancún puede ser bastante caluroso, especialmente en esta época del año. Hoy hace 30 grados con sensación de 37 grados y está lloviendo ligeramente, ¿verdad? ¿Te gusta el clima cálido o prefieres algo más fresco?
-23:54:12 |  INFO | conversation_flow:   [6] user: Sí, sí me gusta el clima cálido.
-23:54:12 |  INFO | conversation_flow:   [7] assistant: Genial, el clima cálido puede ser muy agradable, especialmente en un lugar tan hermoso como Cancún. ¿Qué planes tienes para hoy? ¿Algo especial o simplemente disfrutando del día? ¿Necesitas ayuda con algo o simplemente quieres charlar un rato?
-23:54:12 |  INFO | conversation_flow:   [8] assistant: Genial, el clima cálido puede ser muy agradable, especialmente en un lugar tan hermoso como Cancún. ¿Qué planes tienes para hoy? ¿Algo especial o simplemente disfrutando del día? ¿Necesitas ayuda con algo o simplemente quieres charlar un rato?
-23:54:12 |  INFO | conversation_flow:   [9] user: Quiero una cita con el doctor, por favor.
-23:54:12 |  INFO | conversation_flow:   [10] assistant: ¡Claro! Me alegra que hayas pensado en el Dr. Alejandro Jiménez para tu consulta. ¿Tienes alguna fecha o hora en mente para la cita, o prefieres que busque lo más pronto posible?
-23:54:12 |  INFO | conversation_flow:   [11] assistant: ¡Claro! Me alegra que hayas pensado en el Dr. Alejandro Jiménez para tu consulta. ¿Tienes alguna fecha o hora en mente para la cita, o prefieres que busque lo más pronto posible?
-23:54:12 |  INFO | conversation_flow:   [12] user: Lo más pronto posible.
-23:54:12 |  INFO | conversation_flow:   [13] tool: {"status": "SLOT_LIST", "date_iso": "2025-07-19", "available_slots": ["10:15", "11:00", "11:45", "12:30"], "available_pretty": ["las diez quince de la mañana", "las once en punto de la mañana", "las once cuarenta y cinco de la mañana", "las doce treinta del mediodía"], "available_text_format": ["10:15am", "11:00am", "11:45am", "12:30pm"], "requested_time_kw": null}
-23:54:12 |  INFO | conversation_flow:   [14] assistant: Mmm... déjeme ver qué hay disponible...
-23:54:12 |  INFO | conversation_flow:   [15] assistant: Mmm... déjeme ver qué hay disponible...
-23:54:12 |  INFO | conversation_flow:   [16] user: Hola. ¿Qué tienes disponible?
-23:54:12 |  INFO | conversation_flow:   [17] assistant: Para el 19 de julio, tenemos disponibles las siguientes horas: diez quince de la mañana, once en punto de la mañana, once cuarenta y cinco de la mañana y doce treinta del mediodía. ¿Alguna de estas horas le funciona?
-23:54:12 |  INFO | conversation_flow:   [18] assistant: Para el 19 de julio, tenemos disponibles las siguientes horas: diez quince de la mañana, once en punto de la mañana, once cuarenta y cinco de la mañana y doce treinta del mediodía. ¿Alguna de estas horas le funciona?
-23:54:12 |  INFO | conversation_flow:   [19] user: Eso sería todo. Gracias. Hasta luego.
-23:54:12 |  INFO | conversation_flow:   [20] tool: {"action": "end_call", "reason": "user_request", "__terminate__": true}
-23:54:12 |  INFO | conversation_flow:   [21] assistant: [end_call(reason="user_request")]
-23:54:12 |  INFO | conversation_flow: ✅ ConversationFlow cerrado
-23:54:12 |  INFO | utils: ✅ ConversationFlow cerrado
-23:54:12 |  INFO | integration_manager: 🔌 Cerrando IntegrationManager...
-23:54:12 |  INFO | integration_manager: ✅ IntegrationManager cerrado
-23:54:12 |  INFO | integration_manager: [LATENCIA] IntegrationManager cerrado en 0.1 ms
-23:54:12 |  INFO | utils: ✅ IntegrationManager cerrado
-23:54:12 |  INFO | utils: 🧹 Limpieza final de memoria y tareas...
-23:54:12 |  INFO | utils: ✅ Tarea de monitoreo cancelada
-23:54:12 |  INFO | utils: ✅ Session state limpiado
-23:54:12 |  INFO | utils: ✅ Cierre elegante completado en 9141.6 ms
-23:54:12 |  INFO | utils: 🔚 Cierre de llamada finalizado - Razón: assistant_request
-23:54:12 |  INFO | call_orchestrator: ✅ Terminación de llamada completada exitosamente (cierre_con_despedida terminó)
-23:54:12 |  INFO | conversation_flow: ✅ Terminación de llamada ejecutada correctamente
-23:54:13 | WARNING | deepgram_stt_streamer: 🔒 Conexión Deepgram CERRADA (evento Close [()] [{'close': CloseResponse(type=<WebSocketEvents.Close: 'Close'>)}] recibido desde Deepgram).
-23:54:13 |  INFO | deepgram_stt_streamer: Evento _on_close: Notificando al manager para posible reconexión.
-23:54:13 | WARNING | call_orchestrator: 🔌 Deepgram desconectado
+2025-07-24T01:26:23.655093968Z 01:26:23 |  INFO | main: [FUNCIONALIDAD] Nueva llamada entrante (POST /twilio-voice)
+2025-07-24T01:26:23.655132699Z 01:26:23 |  INFO | main: [LATENCIA] Respuesta TwiML generada en 0.0 ms
+2025-07-24T01:26:23.715455037Z 01:26:23 |  INFO | main: [FUNCIONALIDAD] WebSocket /twilio-websocket aceptado
+2025-07-24T01:26:23.715476108Z 01:26:23 |  INFO | twilio_handler: 📞 TwilioHandler inicializado
+2025-07-24T01:26:23.715545969Z 01:26:23 |  INFO | integration_manager: 🔌 IntegrationManager inicializado
+2025-07-24T01:26:23.715680092Z 01:26:23 |  INFO | call_orchestrator: ✅ Audio de espera cargado (11960 bytes)
+2025-07-24T01:26:23.715725624Z 01:26:23 |  INFO | call_orchestrator: 🎭 CallOrchestrator inicializado
+2025-07-24T01:26:23.715742524Z 01:26:23 |  INFO | call_orchestrator: [FUNCIONALIDAD] Nueva llamada entrante
+2025-07-24T01:26:23.715811275Z 01:26:23 |  INFO | call_orchestrator: 📦 Pre-cargando datos...
+2025-07-24T01:26:23.716277026Z 01:26:23 |  INFO | buscarslot: ⏳ Cargando slots libres desde Google Calendar…
+2025-07-24T01:26:23.716420419Z 01:26:23 |  INFO | utils: 🔍 Inicializando Google Calendar...
+2025-07-24T01:26:23.718116878Z 01:26:23 |  INFO | googleapiclient.discovery_cache: file_cache is only supported with oauth2client<4.0.0
+2025-07-24T01:26:24.015594996Z 01:26:24 |  INFO | buscarslot: ✅ Slots libres precargados (90 días)
+2025-07-24T01:26:24.015836102Z 01:26:24 |  INFO | call_orchestrator: ✅ Datos pre-cargados
+2025-07-24T01:26:24.015891973Z 01:26:24 |  INFO | twilio_handler: 🔧 Handlers configurados
+2025-07-24T01:26:24.015901403Z 01:26:24 |  INFO | twilio_handler: [FUNCIONALIDAD] Nueva conexión WebSocket entrante de Twilio
+2025-07-24T01:26:24.016097157Z INFO:     ('44.201.114.143', 0) - "WebSocket /twilio-websocket" [accepted]
+2025-07-24T01:26:24.016237201Z 01:26:24 |  INFO | twilio_handler: ✅ WebSocket aceptado
+2025-07-24T01:26:24.016284242Z 01:26:24 |  INFO | twilio_handler: 🔄 Iniciando loop de recepción
+2025-07-24T01:26:24.016757903Z INFO:     connection open
+2025-07-24T01:26:24.021790718Z 01:26:24 |  INFO | twilio_handler: ✅ Twilio confirmó conexión establecida
+2025-07-24T01:26:24.021838559Z 01:26:24 |  INFO | twilio_handler: [LATENCIA] Evento 'connected' procesado en 0.1 ms
+2025-07-24T01:26:24.021968532Z 01:26:24 |  INFO | twilio_handler: 🏁 Stream iniciado - StreamSID: MZ6ea1dcdf85714087f146c029541ccda0, CallSID: CAbd607a7bdbc8f2be4345038927389275
+2025-07-24T01:26:24.022002092Z 01:26:24 |  INFO | call_orchestrator: 🏁 Stream iniciado - CallSID: CAbd607a7bdbc8f2be4345038927389275, StreamSID: MZ6ea1dcdf85714087f146c029541ccda0
+2025-07-24T01:26:24.022014973Z 01:26:24 |  INFO | call_orchestrator: 🔧 Inicializando componentes de la llamada...
+2025-07-24T01:26:24.022105605Z 01:26:24 |  INFO | call_orchestrator: 🎵 Inicializando AudioManager...
+2025-07-24T01:26:24.022148366Z 01:26:24 |  INFO | audio_manager: 🎵 AudioManager creado para stream: MZ6ea1dcdf85714087f146c029541ccda0
+2025-07-24T01:26:24.022156646Z 01:26:24 |  INFO | call_orchestrator: 🗣️ Inicializando ConversationFlow...
+2025-07-24T01:26:24.022242498Z 01:26:24 |  INFO | conversation_flow: 🗣️ ConversationFlow creado para sesión: CAbd607a7bdbc8f2be4345038927389275
+2025-07-24T01:26:24.022271729Z 01:26:24 |  INFO | call_orchestrator: ✅ ConversationFlow inicializado
+2025-07-24T01:26:24.02231702Z 01:26:24 |  INFO | call_orchestrator: 🎤 Inicializando STT...
+2025-07-24T01:26:24.024624372Z 01:26:24 |  INFO | audio_manager: 🎤 Iniciando Deepgram STT...
+2025-07-24T01:26:24.024867528Z 01:26:24 |  INFO | deepgram_stt_streamer: Intentando CONECTAR con Deepgram...
+2025-07-24T01:26:24.305281305Z 01:26:24 |  INFO | deepgram_stt_streamer: 🔛 Conexión Deepgram ABIERTA (evento Open recibido).
+2025-07-24T01:26:24.305348327Z 01:26:24 |  INFO | audio_manager: ✅ Deepgram STT iniciado correctamente
+2025-07-24T01:26:24.305406088Z 01:26:24 |  INFO | call_orchestrator: 🔊 Inicializando TTS...
+2025-07-24T01:26:24.305410299Z 01:26:24 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
+2025-07-24T01:26:24.30548333Z 01:26:24 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
+2025-07-24T01:26:24.374648981Z 01:26:24 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
+2025-07-24T01:26:24.374681202Z 01:26:24 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 69.0 ms
+2025-07-24T01:26:24.37507508Z 01:26:24 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
+2025-07-24T01:26:24.375088221Z 01:26:24 |  INFO | call_orchestrator: ✅ AudioManager inicializado
+2025-07-24T01:26:24.375097261Z 01:26:24 |  INFO | call_orchestrator: 🔗 Configurando IntegrationManager...
+2025-07-24T01:26:24.375140162Z 01:26:24 |  INFO | integration_manager: [FUNCIONALIDAD] Configurando Deepgram STT...
+2025-07-24T01:26:24.375162382Z 01:26:24 |  INFO | deepgram_stt_streamer: Deepgram ya estaba iniciado y conectado.
+2025-07-24T01:26:24.375237184Z 01:26:24 |  INFO | integration_manager: ✅ Deepgram conectado y monitoreado
+2025-07-24T01:26:24.375243734Z 01:26:24 |  INFO | integration_manager: [LATENCIA] Deepgram configurado en 0.1 ms
+2025-07-24T01:26:24.375256395Z 01:26:24 |  INFO | call_orchestrator: ✅ IntegrationManager configurado
+2025-07-24T01:26:24.375270465Z 01:26:24 |  INFO | call_orchestrator: ✅ Todos los componentes inicializados correctamente
+2025-07-24T01:26:24.375357287Z 01:26:24 |  INFO | call_orchestrator: 🏥 Iniciando monitoreo de salud de llamada
+2025-07-24T01:26:24.375396188Z 01:26:24 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 0.7s, STT: True, TTS: True, Hablando: False
+2025-07-24T01:26:24.875890104Z 01:26:24 |  INFO | call_orchestrator: 👋 Enviando saludo: '¡Buenas noches! Soy Dany, Asistente de Inteligencia Artificial del doctor Alejandro Jiménez. ¿Cómo puedo ayudarle hoy?'
+2025-07-24T01:26:24.875968976Z 01:26:24 |  INFO | audio_manager: 🔊 Iniciando TTS: '¡Buenas noches! Soy Dany, Asistente de Inteligenci...' (118 chars)
+2025-07-24T01:26:24.876239002Z 01:26:24 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
+2025-07-24T01:26:24.87656377Z 01:26:24 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 118 chars (modo legacy)
+2025-07-24T01:26:25.614614655Z 01:26:25 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 738.0 ms
+2025-07-24T01:26:25.614685157Z 01:26:25 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
+2025-07-24T01:26:25.615392303Z 01:26:25 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 739.1 ms
+2025-07-24T01:26:25.615408673Z 01:26:25 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
+2025-07-24T01:26:25.615474645Z 01:26:25 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 739.5 ms
+2025-07-24T01:26:25.615513425Z 01:26:25 |  INFO | call_orchestrator: [LATENCIA] Saludo enviado y TTS completado en 739.6 ms
+2025-07-24T01:26:25.615551826Z 01:26:25 |  INFO | twilio_handler: [LATENCIA] Evento 'start' procesado en 1593.6 ms
+2025-07-24T01:26:27.421496446Z 01:26:27 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1780.1ms sin chunks)
+2025-07-24T01:26:27.470836353Z 01:26:27 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
+2025-07-24T01:26:27.470868664Z 01:26:27 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3165.3 ms
+2025-07-24T01:26:27.470878674Z 01:26:27 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 4
+2025-07-24T01:26:27.470933185Z 01:26:27 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
+2025-07-24T01:26:27.470983567Z 01:26:27 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
+2025-07-24T01:26:27.723250501Z 01:26:27 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (2081.8ms sin chunks)
+2025-07-24T01:26:28.023902732Z 01:26:28 | WARNING | audio_manager: 🚨 TTS stall #3 detectado! (2382.5ms sin chunks)
+2025-07-24T01:26:28.023928202Z 01:26:28 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
+2025-07-24T01:26:28.023955183Z 01:26:28 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
+2025-07-24T01:26:28.023963863Z 01:26:28 |  INFO | audio_manager: ✅ TTS completado
+2025-07-24T01:26:28.024011794Z 01:26:28 |  INFO | audio_manager: 🟢 Reactivando STT
+2025-07-24T01:26:28.02427362Z 01:26:28 |  INFO | call_orchestrator: ✅ Saludo completado, escuchando al usuario...
+2025-07-24T01:26:31.063796507Z 01:26:31 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
+2025-07-24T01:26:36.777279649Z 01:26:36 |  INFO | conversation_flow: 📥 Final recibido: 'Hola, quiero cancelar una cita, por favor.'
+2025-07-24T01:26:37.278871331Z 01:26:37 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Hola, quiero cancelar una cita, por favor.'
+2025-07-24T01:26:37.278909532Z 01:26:37 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
+2025-07-24T01:26:37.278970344Z 01:26:37 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
+2025-07-24T01:26:37.279019765Z 01:26:37 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:26:37.279215969Z 01:26:37 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
+2025-07-24T01:26:37.27923853Z 01:26:37 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
+2025-07-24T01:26:37.279314361Z 01:26:37 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
+2025-07-24T01:26:37.343107159Z 01:26:37 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
+2025-07-24T01:26:37.343128999Z 01:26:37 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 63.6 ms
+2025-07-24T01:26:37.343432377Z 01:26:37 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
+2025-07-24T01:26:37.343461957Z 01:26:37 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 64.5 ms
+2025-07-24T01:26:37.343498328Z 01:26:37 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 64.7 ms
+2025-07-24T01:26:37.34357886Z 01:26:37 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 64.9 ms
+2025-07-24T01:26:37.343632391Z 01:26:37 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Hola, quiero cancelar una cita, por favor.'
+2025-07-24T01:26:37.343730093Z 01:26:37 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
+2025-07-24T01:26:37.375803676Z 01:26:37 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
+2025-07-24T01:26:37.69629802Z 01:26:37 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 320.3 ms
+2025-07-24T01:26:38.228198935Z 01:26:38 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.2 ms
+2025-07-24T01:26:38.228212585Z 01:26:38 |  INFO | conversation_flow: 📞 Modo captura teléfono: ACTIVADO
+2025-07-24T01:26:38.228287547Z 01:26:38 |  INFO | aiagent: 📞 Detectada solicitud de número telefónico - activando pausa extendida
+2025-07-24T01:26:38.228385649Z 01:26:38 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: 'Para cancelar una cita, necesito saber el número de teléfono con el que se registró la cita. ¿Podría proporcionarme ese número, por favor?'
+2025-07-24T01:26:38.228397929Z 01:26:38 |  INFO | conversation_flow: [HISTORIAL] Respuesta de IA recibida: 'Para cancelar una cita, necesito saber el número de teléfono con el que se registró la cita. ¿Podría proporcionarme ese número, por favor?'
+2025-07-24T01:26:38.230064207Z 01:26:38 |  INFO | call_orchestrator: 🤖 IA responde: 'Para cancelar una cita, necesito saber el número d...'
+2025-07-24T01:26:38.230075867Z 01:26:38 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:26:38.230079208Z 01:26:38 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
+2025-07-24T01:26:38.230082078Z 01:26:38 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
+2025-07-24T01:26:38.230085558Z 01:26:38 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Para cancelar una cita, necesito saber el número d...' (138 chars)
+2025-07-24T01:26:38.230088248Z 01:26:38 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
+2025-07-24T01:26:38.230091228Z 01:26:38 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 138 chars (modo legacy)
+2025-07-24T01:26:39.066643274Z 01:26:39 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 837.3 ms
+2025-07-24T01:26:39.066664274Z 01:26:39 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
+2025-07-24T01:26:39.067081294Z 01:26:39 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 838.0 ms
+2025-07-24T01:26:39.067105565Z 01:26:39 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
+2025-07-24T01:26:39.067177926Z 01:26:39 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 838.3 ms
+2025-07-24T01:26:39.067189646Z 01:26:39 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1723.6 ms
+2025-07-24T01:26:39.067250538Z 01:26:39 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1788.6ms
+2025-07-24T01:26:41.174630735Z 01:26:41 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1583.2ms sin chunks)
+2025-07-24T01:26:41.419422219Z 01:26:41 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
+2025-07-24T01:26:41.41946296Z 01:26:41 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 4140.0 ms
+2025-07-24T01:26:41.41948903Z 01:26:41 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 5
+2025-07-24T01:26:41.419515331Z 01:26:41 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
+2025-07-24T01:26:41.419594783Z 01:26:41 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
+2025-07-24T01:26:41.475225964Z 01:26:41 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (1884.0ms sin chunks)
+2025-07-24T01:26:41.776176221Z 01:26:41 | WARNING | audio_manager: 🚨 TTS stall #3 detectado! (2184.8ms sin chunks)
+2025-07-24T01:26:41.776195062Z 01:26:41 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
+2025-07-24T01:26:41.776198142Z 01:26:41 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
+2025-07-24T01:26:41.776210122Z 01:26:41 |  INFO | audio_manager: ✅ TTS completado
+2025-07-24T01:26:41.776221553Z 01:26:41 |  INFO | audio_manager: 🟢 Reactivando STT
+2025-07-24T01:26:41.776404887Z 01:26:41 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
+2025-07-24T01:26:41.776460188Z 01:26:41 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 716235.372184781}, STT listo: True, TTS listo: True
+2025-07-24T01:26:45.687105491Z 01:26:45 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
+2025-07-24T01:26:54.380783044Z 01:26:54 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 30.7s, STT: True, TTS: True, Hablando: False
+2025-07-24T01:26:58.994131522Z 01:26:58 |  INFO | conversation_flow: 📥 Final recibido: 'Es 99, 85, 25 32, 19.'
+2025-07-24T01:27:00.995411134Z 01:27:00 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Es 99, 85, 25 32, 19.'
+2025-07-24T01:27:00.995449445Z 01:27:00 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
+2025-07-24T01:27:00.995581448Z 01:27:00 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
+2025-07-24T01:27:00.995627629Z 01:27:00 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:00.995712101Z 01:27:00 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
+2025-07-24T01:27:00.995820284Z 01:27:00 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
+2025-07-24T01:27:00.995963177Z 01:27:00 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
+2025-07-24T01:27:01.066751484Z 01:27:01 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
+2025-07-24T01:27:01.066773435Z 01:27:01 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 70.7 ms
+2025-07-24T01:27:01.06701375Z 01:27:01 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
+2025-07-24T01:27:01.067050141Z 01:27:01 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 71.5 ms
+2025-07-24T01:27:01.067095862Z 01:27:01 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 71.7 ms
+2025-07-24T01:27:01.067175774Z 01:27:01 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 72.1 ms
+2025-07-24T01:27:01.067209225Z 01:27:01 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Es 99, 85, 25 32, 19.'
+2025-07-24T01:27:01.067293027Z 01:27:01 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
+2025-07-24T01:27:01.087645652Z 01:27:01 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
+2025-07-24T01:27:01.254013413Z 01:27:01 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 166.2 ms
+2025-07-24T01:27:01.828488421Z 01:27:01 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.0 ms
+2025-07-24T01:27:01.828575343Z 01:27:01 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: 'Lo confirmo: noventa y nueve, ochenta y cinco, veinticinco, treinta y dos, diecinueve. ¿Es correcto?'
+2025-07-24T01:27:01.828582003Z 01:27:01 |  INFO | conversation_flow: [HISTORIAL] Respuesta de IA recibida: 'Lo confirmo: noventa y nueve, ochenta y cinco, veinticinco, treinta y dos, diecinueve. ¿Es correcto?'
+2025-07-24T01:27:01.828613074Z 01:27:01 |  INFO | call_orchestrator: 🤖 IA responde: 'Lo confirmo: noventa y nueve, ochenta y cinco, vei...'
+2025-07-24T01:27:01.829505644Z 01:27:01 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:01.829513804Z 01:27:01 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
+2025-07-24T01:27:01.829516864Z 01:27:01 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
+2025-07-24T01:27:01.829520384Z 01:27:01 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Lo confirmo: noventa y nueve, ochenta y cinco, vei...' (100 chars)
+2025-07-24T01:27:01.829523144Z 01:27:01 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
+2025-07-24T01:27:01.829526024Z 01:27:01 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 100 chars (modo legacy)
+2025-07-24T01:27:02.623820415Z 01:27:02 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 794.4 ms
+2025-07-24T01:27:02.623842826Z 01:27:02 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
+2025-07-24T01:27:02.624296186Z 01:27:02 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 795.1 ms
+2025-07-24T01:27:02.624321446Z 01:27:02 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
+2025-07-24T01:27:02.624391578Z 01:27:02 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 795.4 ms
+2025-07-24T01:27:02.624428199Z 01:27:02 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1557.2 ms
+2025-07-24T01:27:02.62446969Z 01:27:02 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1629.4ms
+2025-07-24T01:27:04.429698852Z 01:27:04 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1777.7ms sin chunks)
+2025-07-24T01:27:04.483807418Z 01:27:04 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
+2025-07-24T01:27:04.483824618Z 01:27:04 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3487.9 ms
+2025-07-24T01:27:04.483840709Z 01:27:04 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 5
+2025-07-24T01:27:04.48392048Z 01:27:04 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
+2025-07-24T01:27:04.483952961Z 01:27:04 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
+2025-07-24T01:27:04.730998366Z 01:27:04 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (2079.0ms sin chunks)
+2025-07-24T01:27:05.031549294Z 01:27:05 | WARNING | audio_manager: 🚨 TTS stall #3 detectado! (2379.6ms sin chunks)
+2025-07-24T01:27:05.031567274Z 01:27:05 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
+2025-07-24T01:27:05.031579385Z 01:27:05 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
+2025-07-24T01:27:05.031626366Z 01:27:05 |  INFO | audio_manager: ✅ TTS completado
+2025-07-24T01:27:05.031656086Z 01:27:05 |  INFO | audio_manager: 🟢 Reactivando STT
+2025-07-24T01:27:05.03183219Z 01:27:05 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
+2025-07-24T01:27:05.031876351Z 01:27:05 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 716259.092594632}, STT listo: True, TTS listo: True
+2025-07-24T01:27:09.063704143Z 01:27:09 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
+2025-07-24T01:27:13.427289176Z 01:27:13 |  INFO | conversation_flow: 📥 Final recibido: 'Sí, es correcto.'
+2025-07-24T01:27:15.428260589Z 01:27:15 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Sí, es correcto.'
+2025-07-24T01:27:15.42831272Z 01:27:15 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
+2025-07-24T01:27:15.428327371Z 01:27:15 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
+2025-07-24T01:27:15.428332211Z 01:27:15 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:15.428336091Z 01:27:15 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
+2025-07-24T01:27:15.428401683Z 01:27:15 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
+2025-07-24T01:27:15.428413183Z 01:27:15 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
+2025-07-24T01:27:15.497846199Z 01:27:15 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
+2025-07-24T01:27:15.49786692Z 01:27:15 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 69.3 ms
+2025-07-24T01:27:15.498121666Z 01:27:15 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
+2025-07-24T01:27:15.498136866Z 01:27:15 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 69.8 ms
+2025-07-24T01:27:15.498156717Z 01:27:15 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 69.9 ms
+2025-07-24T01:27:15.498250209Z 01:27:15 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 70.1 ms
+2025-07-24T01:27:15.498276429Z 01:27:15 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Sí, es correcto.'
+2025-07-24T01:27:15.498343991Z 01:27:15 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
+2025-07-24T01:27:15.521890089Z 01:27:15 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
+2025-07-24T01:27:15.620438591Z 01:27:15 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 98.4 ms
+2025-07-24T01:27:16.14117396Z 01:27:16 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.1 ms
+2025-07-24T01:27:16.141269292Z 01:27:16 |  INFO | aiagent: Ejecutando: search_calendar_event_by_phone con {'phone': 9985253219}
+2025-07-24T01:27:16.141324523Z 01:27:16 |  INFO | utils: Iniciando búsqueda de citas para el teléfono: 9985253219
+2025-07-24T01:27:16.141343274Z 01:27:16 |  INFO | utils: 🔍 Inicializando Google Calendar...
+2025-07-24T01:27:16.142984981Z 01:27:16 |  INFO | googleapiclient.discovery_cache: file_cache is only supported with oauth2client<4.0.0
+2025-07-24T01:27:16.515618987Z 01:27:16 |  INFO | utils: Google Calendar API encontró 1 eventos crudos para el teléfono 9985253219.
+2025-07-24T01:27:16.515932163Z 01:27:16 |  INFO | utils: Se parsearon 1 citas para el teléfono 9985253219.
+2025-07-24T01:27:16.515964064Z 01:27:16 |  INFO | aiagent: [PERF] Herramienta 'search_calendar_event_by_phone' ejecutada en 374.7 ms
+2025-07-24T01:27:16.51620125Z 01:27:16 |  INFO | aiagent: [HISTORIAL] Agregado 'tool' (search_calendar_event_by_phone): [{"event_id": "53a000l0hr9u25enpb7h47ld70", "patient_name": "Juan Rodríguez", "start_time_iso_utc": "2025-07-24T11:00:00-05:00", "start_time_cancun_iso": "2025-07-24T11:00:00-05:00", "start_time_cancu...
+2025-07-24T01:27:16.51795249Z 01:27:16 |  INFO | synthetic_responses: [FUNCIONALIDAD] Generando respuesta sintética para tool 'search_calendar_event_by_phone'...
+2025-07-24T01:27:16.51883272Z 01:27:16 | ERROR | conversation_flow: ❌ Error llamando a IA: 'list' object has no attribute 'get'
+2025-07-24T01:27:16.5188418Z Traceback (most recent call last):
+2025-07-24T01:27:16.5188454Z   File "/opt/render/project/src/conversation_flow.py", line 251, in _handle_ai_response
+2025-07-24T01:27:16.51884754Z     ai_response = await generate_ai_response(
+2025-07-24T01:27:16.51884967Z                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-07-24T01:27:16.51885222Z   File "/opt/render/project/src/aiagent.py", line 521, in generate_ai_response
+2025-07-24T01:27:16.51885476Z     return await ai_agent.process_stream(session_id, history)
+2025-07-24T01:27:16.518856781Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-07-24T01:27:16.518859021Z   File "/opt/render/project/src/aiagent.py", line 375, in process_stream
+2025-07-24T01:27:16.518861541Z     user_facing_text = generate_synthetic_response(
+2025-07-24T01:27:16.518863831Z                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2025-07-24T01:27:16.518865911Z   File "/opt/render/project/src/synthetic_responses.py", line 173, in generate_synthetic_response
+2025-07-24T01:27:16.518868381Z     status = result.get("status", "default")
+2025-07-24T01:27:16.518871051Z              ^^^^^^^^^^
+2025-07-24T01:27:16.518873141Z AttributeError: 'list' object has no attribute 'get'
+2025-07-24T01:27:16.518895421Z 01:27:16 |  INFO | conversation_flow: [HISTORIAL] Respuesta de IA recibida: 'Disculpe, tuve un problema técnico. ¿Podría repetir?'
+2025-07-24T01:27:16.518949583Z 01:27:16 |  INFO | call_orchestrator: 🤖 IA responde: 'Disculpe, tuve un problema técnico. ¿Podría repeti...'
+2025-07-24T01:27:16.518986193Z 01:27:16 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:16.519202168Z 01:27:16 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
+2025-07-24T01:27:16.519228969Z 01:27:16 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
+2025-07-24T01:27:16.51928241Z 01:27:16 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Disculpe, tuve un problema técnico. ¿Podría repeti...' (52 chars)
+2025-07-24T01:27:16.519440274Z 01:27:16 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
+2025-07-24T01:27:16.520053428Z 01:27:16 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 52 chars (modo legacy)
+2025-07-24T01:27:17.007312411Z 01:27:17 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 487.3 ms
+2025-07-24T01:27:17.007326222Z 01:27:17 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
+2025-07-24T01:27:17.007745131Z 01:27:17 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 488.2 ms
+2025-07-24T01:27:17.007759032Z 01:27:17 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
+2025-07-24T01:27:17.007827493Z 01:27:17 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 488.5 ms
+2025-07-24T01:27:17.007865844Z 01:27:17 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1509.6 ms
+2025-07-24T01:27:17.007898955Z 01:27:17 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1579.8ms
+2025-07-24T01:27:18.813164907Z 01:27:18 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1794.1ms sin chunks)
+2025-07-24T01:27:18.850852518Z 01:27:18 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
+2025-07-24T01:27:18.850870598Z 01:27:18 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3422.4 ms
+2025-07-24T01:27:18.85092588Z 01:27:18 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 3
+2025-07-24T01:27:18.85094019Z 01:27:18 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
+2025-07-24T01:27:18.851045433Z 01:27:18 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
+2025-07-24T01:27:19.114958683Z 01:27:19 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (2096.1ms sin chunks)
+2025-07-24T01:27:19.415649994Z 01:27:19 | WARNING | audio_manager: 🚨 TTS stall #3 detectado! (2396.8ms sin chunks)
+2025-07-24T01:27:19.415675595Z 01:27:19 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
+2025-07-24T01:27:19.415688185Z 01:27:19 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
+2025-07-24T01:27:19.415740846Z 01:27:19 |  INFO | audio_manager: ✅ TTS completado
+2025-07-24T01:27:19.415761637Z 01:27:19 |  INFO | audio_manager: 🟢 Reactivando STT
+2025-07-24T01:27:19.416008742Z 01:27:19 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
+2025-07-24T01:27:19.416122065Z 01:27:19 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 716273.532412867}, STT listo: True, TTS listo: True
+2025-07-24T01:27:19.683811682Z 01:27:19 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
+2025-07-24T01:27:24.385383877Z 01:27:24 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 60.7s, STT: True, TTS: True, Hablando: False
+2025-07-24T01:27:27.449579769Z 01:27:27 |  INFO | conversation_flow: 📥 Final recibido: 'Quieres que te repita?'
+2025-07-24T01:27:29.450167245Z 01:27:29 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Quieres que te repita?'
+2025-07-24T01:27:29.450202205Z 01:27:29 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
+2025-07-24T01:27:29.450209596Z 01:27:29 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
+2025-07-24T01:27:29.450269317Z 01:27:29 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:29.450281887Z 01:27:29 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
+2025-07-24T01:27:29.450365299Z 01:27:29 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
+2025-07-24T01:27:29.450478372Z 01:27:29 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
+2025-07-24T01:27:29.532941986Z 01:27:29 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
+2025-07-24T01:27:29.533063329Z 01:27:29 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 79.6 ms
+2025-07-24T01:27:29.533074189Z 01:27:29 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
+2025-07-24T01:27:29.533078839Z 01:27:29 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 80.5 ms
+2025-07-24T01:27:29.533083699Z 01:27:29 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 80.7 ms
+2025-07-24T01:27:29.53308855Z 01:27:29 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 80.9 ms
+2025-07-24T01:27:29.53309273Z 01:27:29 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Quieres que te repita?'
+2025-07-24T01:27:29.533145721Z 01:27:29 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
+2025-07-24T01:27:29.555734147Z 01:27:29 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
+2025-07-24T01:27:29.677412008Z 01:27:29 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 121.4 ms
+2025-07-24T01:27:30.331259669Z 01:27:30 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.0 ms
+2025-07-24T01:27:30.331294969Z 01:27:30 |  INFO | conversation_flow: 📞 Modo captura teléfono: ACTIVADO
+2025-07-24T01:27:30.33130413Z 01:27:30 |  INFO | aiagent: 📞 Detectada solicitud de número telefónico - activando pausa extendida
+2025-07-24T01:27:30.331396041Z 01:27:30 |  INFO | conversation_flow: 📞 Modo captura teléfono: DESACTIVADO
+2025-07-24T01:27:30.331407312Z 01:27:30 |  INFO | aiagent: ✅ Número telefónico capturado - restaurando pausa normal
+2025-07-24T01:27:30.331463623Z 01:27:30 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta de texto: 'Lo siento, parece que hubo un malentendido. Te voy a preguntar de nuevo: ¿Quieres cancelar la cita del jueves 24 de julio a las once en punto de la mañana, cuyo motivo es "dolor en el pecho" y el teléfono asociado es el que me proporcionaste?'
+2025-07-24T01:27:30.331503794Z 01:27:30 |  INFO | conversation_flow: [HISTORIAL] Respuesta de IA recibida: 'Lo siento, parece que hubo un malentendido. Te voy a preguntar de nuevo: ¿Quieres cancelar la cita del jueves 24 de julio a las once en punto de la mañana, cuyo motivo es "dolor en el pecho" y el teléfono asociado es el que me proporcionaste?'
+2025-07-24T01:27:30.331557475Z 01:27:30 |  INFO | call_orchestrator: 🤖 IA responde: 'Lo siento, parece que hubo un malentendido. Te voy...'
+2025-07-24T01:27:30.331587826Z 01:27:30 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:30.331788121Z 01:27:30 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
+2025-07-24T01:27:30.331821311Z 01:27:30 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
+2025-07-24T01:27:30.331874763Z 01:27:30 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Lo siento, parece que hubo un malentendido. Te voy...' (242 chars)
+2025-07-24T01:27:30.332077277Z 01:27:30 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
+2025-07-24T01:27:30.332286672Z 01:27:30 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 242 chars (modo legacy)
+2025-07-24T01:27:31.122380297Z 01:27:31 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 790.1 ms
+2025-07-24T01:27:31.122396877Z 01:27:31 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
+2025-07-24T01:27:31.122817597Z 01:27:31 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 790.7 ms
+2025-07-24T01:27:31.122853238Z 01:27:31 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
+2025-07-24T01:27:31.122906239Z 01:27:31 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 791.0 ms
+2025-07-24T01:27:31.12294788Z 01:27:31 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1592.0 ms
+2025-07-24T01:27:31.12298677Z 01:27:31 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 1673.0ms
+2025-07-24T01:27:33.827595553Z 01:27:33 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1763.1ms sin chunks)
+2025-07-24T01:27:33.896852406Z 01:27:33 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
+2025-07-24T01:27:33.896874406Z 01:27:33 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 4446.3 ms
+2025-07-24T01:27:33.896892877Z 01:27:33 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 9
+2025-07-24T01:27:33.896906007Z 01:27:33 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
+2025-07-24T01:27:33.896954808Z 01:27:33 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
+2025-07-24T01:27:34.128782556Z 01:27:34 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (2064.3ms sin chunks)
+2025-07-24T01:27:34.429335503Z 01:27:34 | WARNING | audio_manager: 🚨 TTS stall #3 detectado! (2364.9ms sin chunks)
+2025-07-24T01:27:34.429352464Z 01:27:34 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
+2025-07-24T01:27:34.429368344Z 01:27:34 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
+2025-07-24T01:27:34.429374864Z 01:27:34 |  INFO | audio_manager: ✅ TTS completado
+2025-07-24T01:27:34.429449976Z 01:27:34 |  INFO | audio_manager: 🟢 Reactivando STT
+2025-07-24T01:27:34.429684832Z 01:27:34 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
+2025-07-24T01:27:34.429757143Z 01:27:34 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 716287.552637354}, STT listo: True, TTS listo: True
+2025-07-24T01:27:43.463688178Z 01:27:43 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
+2025-07-24T01:27:47.495600499Z 01:27:47 |  INFO | conversation_flow: 📥 Final recibido: 'Sí, quiero borrarlo,'
+2025-07-24T01:27:47.997671732Z 01:27:47 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'Sí, quiero borrarlo,'
+2025-07-24T01:27:47.997711523Z 01:27:47 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
+2025-07-24T01:27:47.997719253Z 01:27:47 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
+2025-07-24T01:27:47.997769764Z 01:27:47 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:47.997790065Z 01:27:47 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
+2025-07-24T01:27:47.997839866Z 01:27:47 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
+2025-07-24T01:27:47.997932388Z 01:27:47 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
+2025-07-24T01:27:48.140749591Z 01:27:48 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
+2025-07-24T01:27:48.140777652Z 01:27:48 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 142.7 ms
+2025-07-24T01:27:48.141160571Z 01:27:48 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
+2025-07-24T01:27:48.141188551Z 01:27:48 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 143.4 ms
+2025-07-24T01:27:48.141250593Z 01:27:48 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 143.6 ms
+2025-07-24T01:27:48.141303364Z 01:27:48 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 143.7 ms
+2025-07-24T01:27:48.141350375Z 01:27:48 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'Sí, quiero borrarlo,'
+2025-07-24T01:27:48.141435977Z 01:27:48 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
+2025-07-24T01:27:48.163637644Z 01:27:48 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
+2025-07-24T01:27:48.265378219Z 01:27:48 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 101.6 ms
+2025-07-24T01:27:48.854361088Z 01:27:48 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.1 ms
+2025-07-24T01:27:48.854404579Z 01:27:48 |  INFO | aiagent: Ejecutando: delete_calendar_event con {'event_id': '53a000l0hr9u25enpb7h47ld70', 'original_start_time_iso': '2025-07-24T11:00:00-05:00'}
+2025-07-24T01:27:48.854498111Z 01:27:48 |  INFO | eliminarcita: Intentando eliminar evento ID: 53a000l0hr9u25enpb7h47ld70 (hora original confirmada: 2025-07-24T11:00:00-05:00)
+2025-07-24T01:27:48.854511721Z 01:27:48 |  INFO | utils: 🔍 Inicializando Google Calendar...
+2025-07-24T01:27:48.856112058Z 01:27:48 |  INFO | googleapiclient.discovery_cache: file_cache is only supported with oauth2client<4.0.0
+2025-07-24T01:27:49.193946758Z 01:27:49 |  INFO | eliminarcita: Se procederá a eliminar la cita: 'Juan Rodríguez' (ID: 53a000l0hr9u25enpb7h47ld70)
+2025-07-24T01:27:49.4474323Z 01:27:49 |  INFO | eliminarcita: ✅ Cita eliminada exitosamente. Evento ID: 53a000l0hr9u25enpb7h47ld70, Resumen: Juan Rodríguez
+2025-07-24T01:27:49.450798227Z 01:27:49 |  INFO | aiagent: [PERF] Herramienta 'delete_calendar_event' ejecutada en 593.0 ms
+2025-07-24T01:27:49.450813667Z 01:27:49 |  INFO | aiagent: [HISTORIAL] Agregado 'tool' (delete_calendar_event): {"message": "La cita para 'Juan Rodríguez' ha sido eliminada con éxito.", "deleted_event_id": "53a000l0hr9u25enpb7h47ld70"}...
+2025-07-24T01:27:49.450816637Z 01:27:49 |  INFO | synthetic_responses: [FUNCIONALIDAD] Generando respuesta sintética para tool 'delete_calendar_event'...
+2025-07-24T01:27:49.450819297Z 01:27:49 |  INFO | synthetic_responses: [DEBUG] Generando respuesta sintética - tool: delete_calendar_event, status: default
+2025-07-24T01:27:49.450821957Z 01:27:49 |  INFO | synthetic_responses: [DEBUG] Templates disponibles: ['success', 'error']
+2025-07-24T01:27:49.450824637Z 01:27:49 |  INFO | synthetic_responses: [DEBUG] Resultado completo: {'message': "La cita para 'Juan Rodríguez' ha sido eliminada con éxito.", 'deleted_event_id': '53a000l0hr9u25enpb7h47ld70'}
+2025-07-24T01:27:49.450827418Z 01:27:49 |  INFO | aiagent: [HISTORIAL] Respuesta sintética generada: 'Listo!!, está hecho. ¿Hay algo más en lo que pueda ayudarle?'
+2025-07-24T01:27:49.450830008Z 01:27:49 |  INFO | aiagent: [HISTORIAL] Agregado 'assistant' con respuesta final: 'Listo!!, está hecho. ¿Hay algo más en lo que pueda ayudarle?'
+2025-07-24T01:27:49.450832368Z 01:27:49 |  INFO | conversation_flow: [HISTORIAL] Respuesta de IA recibida: 'Listo!!, está hecho. ¿Hay algo más en lo que pueda ayudarle?'
+2025-07-24T01:27:49.450834898Z 01:27:49 |  INFO | call_orchestrator: 🤖 IA responde: 'Listo!!, está hecho. ¿Hay algo más en lo que pueda...'
+2025-07-24T01:27:49.450837558Z 01:27:49 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:49.450839838Z 01:27:49 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.2 ms
+2025-07-24T01:27:49.450842128Z 01:27:49 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
+2025-07-24T01:27:49.450844788Z 01:27:49 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Listo!!, está hecho. ¿Hay algo más en lo que pueda...' (60 chars)
+2025-07-24T01:27:49.450846988Z 01:27:49 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
+2025-07-24T01:27:49.450849278Z 01:27:49 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 60 chars (modo legacy)
+2025-07-24T01:27:50.024600749Z 01:27:50 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 574.8 ms
+2025-07-24T01:27:50.02467016Z 01:27:50 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
+2025-07-24T01:27:50.025191072Z 01:27:50 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 576.4 ms
+2025-07-24T01:27:50.025227753Z 01:27:50 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
+2025-07-24T01:27:50.025270764Z 01:27:50 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 576.7 ms
+2025-07-24T01:27:50.025312845Z 01:27:50 |  INFO | conversation_flow: [LATENCIA] Turno completo (LLM + respuesta TTS) en 1883.9 ms
+2025-07-24T01:27:50.025385917Z 01:27:50 |  INFO | conversation_flow: ⏱️ [PERF] FIN DE TURNO - Latencia total: 2027.8ms
+2025-07-24T01:27:51.830590048Z 01:27:51 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1787.0ms sin chunks)
+2025-07-24T01:27:51.873752194Z 01:27:51 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
+2025-07-24T01:27:51.873771104Z 01:27:51 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3875.8 ms
+2025-07-24T01:27:51.873784804Z 01:27:51 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 3
+2025-07-24T01:27:51.873792905Z 01:27:51 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
+2025-07-24T01:27:51.873848786Z 01:27:51 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
+2025-07-24T01:27:52.131795951Z 01:27:52 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (2088.2ms sin chunks)
+2025-07-24T01:27:52.432578454Z 01:27:52 | WARNING | audio_manager: 🚨 TTS stall #3 detectado! (2389.0ms sin chunks)
+2025-07-24T01:27:52.432594924Z 01:27:52 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
+2025-07-24T01:27:52.432607614Z 01:27:52 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
+2025-07-24T01:27:52.432634225Z 01:27:52 |  INFO | audio_manager: ✅ TTS completado
+2025-07-24T01:27:52.432679116Z 01:27:52 |  INFO | audio_manager: 🟢 Reactivando STT
+2025-07-24T01:27:52.432889771Z 01:27:52 |  INFO | call_orchestrator: ✅ TTS completado, continuando conversación
+2025-07-24T01:27:52.432934462Z 01:27:52 |  INFO | call_orchestrator: [DIAGNÓSTICO] Post-TTS - Estado: {'is_speaking': False, 'ignore_stt': False, 'tts_in_progress': False, 'last_audio_activity': 716306.093134561}, STT listo: True, TTS listo: True
+2025-07-24T01:27:53.763553377Z 01:27:53 |  INFO | twilio_handler: [LATENCIA] Evento 'mark' procesado en 0.0 ms
+2025-07-24T01:27:54.450152506Z 01:27:54 |  INFO | call_orchestrator: [DIAGNÓSTICO] Salud llamada - Duración: 90.7s, STT: True, TTS: True, Hablando: False
+2025-07-24T01:27:55.015389822Z 01:27:55 |  INFO | conversation_flow: 📥 Final recibido: 'por favor.'
+2025-07-24T01:27:55.51596161Z 01:27:55 |  INFO | conversation_flow: 🎯 [PERF] INICIO DE TURNO - Usuario dijo: 'por favor.'
+2025-07-24T01:27:55.51598046Z 01:27:55 |  INFO | conversation_flow: [FUNCIONALIDAD] Preparando TTS (WS ElevenLabs) desde ConversationFlow...
+2025-07-24T01:27:55.515990061Z 01:27:55 |  INFO | audio_manager: [FUNCIONALIDAD] Apagando STT y preparando TTS antes de LLM...
+2025-07-24T01:27:55.516009691Z 01:27:55 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:55.516016541Z 01:27:55 |  INFO | audio_manager: 🔄 WebSocket de ElevenLabs no disponible, intentando abrir...
+2025-07-24T01:27:55.516067882Z 01:27:55 |  INFO | audio_manager: 🔊 Iniciando ElevenLabs TTS...
+2025-07-24T01:27:55.516137064Z 01:27:55 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Iniciando conexión WebSocket ElevenLabs...
+2025-07-24T01:27:55.589545031Z 01:27:55 |  INFO | eleven_ws_tts_client: 🟢 ElevenLabs WebSocket conectado (reutilizable)
+2025-07-24T01:27:55.589561502Z 01:27:55 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs abierto en 73.3 ms
+2025-07-24T01:27:55.589798637Z 01:27:55 |  INFO | audio_manager: ✅ ElevenLabs TTS conectado
+2025-07-24T01:27:55.589820777Z 01:27:55 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs abierto en 73.9 ms
+2025-07-24T01:27:55.589866969Z 01:27:55 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS (WS ElevenLabs) desde ConversationFlow completada en 73.9 ms
+2025-07-24T01:27:55.58992426Z 01:27:55 |  INFO | conversation_flow: [LATENCIA] Preparación de TTS + lanzamiento de LLM en 74.1 ms
+2025-07-24T01:27:55.589990541Z 01:27:55 |  INFO | conversation_flow: [HISTORIAL] Usuario: 'por favor.'
+2025-07-24T01:27:55.590084154Z 01:27:55 |  INFO | weather_utils: Solicitando clima actual a OpenWeatherMap para Cancún (ID: 3530103)...
+2025-07-24T01:27:55.61574155Z 01:27:55 |  INFO | aiagent: [PERF] Iniciando llamada a Groq (modelo: llama-3.3-70b-versatile)
+2025-07-24T01:27:55.764938559Z 01:27:55 |  INFO | aiagent: [PERF] IA (Groq) - Time To First Token: 149.1 ms
+2025-07-24T01:27:56.271466884Z 01:27:56 |  INFO | aiagent: [PERF] Parsing de respuesta del LLM en 0.1 ms
+2025-07-24T01:27:56.271547906Z 01:27:56 |  INFO | aiagent: Ejecutando: end_call con {'reason': 'user_request'}
+2025-07-24T01:27:56.271604037Z 01:27:56 |  INFO | aiagent: [PERF] Herramienta 'end_call' ejecutada en 0.1 ms
+2025-07-24T01:27:56.27169894Z 01:27:56 |  INFO | aiagent: [HISTORIAL] Agregado 'tool' (end_call): {"action": "end_call", "reason": "user_request", "__terminate__": true}...
+2025-07-24T01:27:56.27173716Z 01:27:56 |  INFO | aiagent: [HISTORIAL] IA solicitó terminar llamada
+2025-07-24T01:27:56.271806702Z 01:27:56 |  INFO | conversation_flow: 🔚 IA solicitó terminar la llamada
+2025-07-24T01:27:56.271844133Z 01:27:56 |  INFO | conversation_flow: 🔚 Ejecutando terminación de llamada solicitada por IA
+2025-07-24T01:27:56.271874104Z 01:27:56 |  INFO | call_orchestrator: 🔚 Iniciando terminación de llamada solicitada por IA (en _handle_ai_end_call)
+2025-07-24T01:27:56.271940195Z 01:27:56 |  INFO | call_orchestrator: [DEBUG] Llamando a cierre_con_despedida desde _handle_ai_end_call...
+2025-07-24T01:27:56.271956145Z 01:27:56 |  INFO | utils: 🔚 Iniciando cierre elegante de llamada - Razón: assistant_request
+2025-07-24T01:27:56.272010037Z 01:27:56 |  INFO | utils: 🎤 Enviando despedida TTS...
+2025-07-24T01:27:56.272048158Z 01:27:56 |  INFO | utils: 🤫 Activando ignorar_stt para la secuencia de cierre
+2025-07-24T01:27:56.272109749Z 01:27:56 |  INFO | call_orchestrator: 🤖 IA responde: 'Fue un placer atenderle. Que tenga un excelente dí...'
+2025-07-24T01:27:56.27214478Z 01:27:56 |  INFO | audio_manager: [LATENCIA] Iniciando preparación de WebSocket ElevenLabs para TTS...
+2025-07-24T01:27:56.272180341Z 01:27:56 |  INFO | audio_manager: [LATENCIA] WebSocket ElevenLabs ya estaba abierto, preparación en 0.0 ms
+2025-07-24T01:27:56.272229822Z 01:27:56 |  INFO | call_orchestrator: [DIAGNÓSTICO] Pre-TTS - Conectado: False, Errores: 0, Intentos: 0
+2025-07-24T01:27:56.272258572Z 01:27:56 |  INFO | audio_manager: 🔊 Iniciando TTS: 'Fue un placer atenderle. Que tenga un excelente dí...' (66 chars)
+2025-07-24T01:27:56.272442276Z 01:27:56 |  INFO | audio_manager: [DIAGNÓSTICO] TTS WebSocket - Intentos: 0, Errores: 0, Conectado: False
+2025-07-24T01:27:56.272656952Z 01:27:56 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-START] EL WS texto enviado: 66 chars (modo legacy)
+2025-07-24T01:27:56.809510819Z 01:27:56 |  INFO | eleven_ws_tts_client: ⏱️ [LATENCIA-4-FIRST] EL primer audio chunk: 536.9 ms
+2025-07-24T01:27:56.809529559Z 01:27:56 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Primer chunk recibido tras 1 intentos
+2025-07-24T01:27:56.810130663Z 01:27:56 |  INFO | eleven_ws_tts_client: [LATENCIA] Primer chunk de audio recibido en 537.6 ms
+2025-07-24T01:27:56.810149754Z 01:27:56 |  INFO | audio_manager: ✅ WebSocket TTS iniciado correctamente
+2025-07-24T01:27:56.810197104Z 01:27:56 |  INFO | audio_manager: [LATENCIA] WebSocket TTS iniciado en 537.9 ms
+2025-07-24T01:27:56.810264426Z 01:27:56 |  INFO | utils: ✅ Despedida TTS enviada, esperando a que termine el audio...
+2025-07-24T01:27:58.615774162Z 01:27:58 | WARNING | audio_manager: 🚨 TTS stall #1 detectado! (1793.7ms sin chunks)
+2025-07-24T01:27:58.652219835Z 01:27:58 |  INFO | eleven_ws_tts_client: [FUNCIONALIDAD] Cerrando WebSocket ElevenLabs...
+2025-07-24T01:27:58.652243296Z 01:27:58 |  INFO | eleven_ws_tts_client: [LATENCIA] WebSocket ElevenLabs estuvo abierto durante 3136.1 ms
+2025-07-24T01:27:58.652295057Z 01:27:58 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Chunks de audio procesados: 3
+2025-07-24T01:27:58.652346998Z 01:27:58 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Errores totales: 0
+2025-07-24T01:27:58.65243112Z 01:27:58 |  INFO | eleven_ws_tts_client: 🔒 ElevenLabs WebSocket cerrado
+2025-07-24T01:27:58.916599827Z 01:27:58 | WARNING | audio_manager: 🚨 TTS stall #2 detectado! (2094.5ms sin chunks)
+2025-07-24T01:27:59.217762438Z 01:27:59 | WARNING | audio_manager: 🚨 TTS stall #3 detectado! (2395.7ms sin chunks)
+2025-07-24T01:27:59.217789739Z 01:27:59 | ERROR | audio_manager: 🚨 TTS stall persistente! Reactivando STT
+2025-07-24T01:27:59.217821Z 01:27:59 |  INFO | audio_manager: [FUNCIONALIDAD] TTS completado, reactivando STT...
+2025-07-24T01:27:59.21783075Z 01:27:59 |  INFO | audio_manager: ✅ TTS completado
+2025-07-24T01:27:59.221092044Z 01:27:59 |  INFO | audio_manager: 🟢 Reactivando STT
+2025-07-24T01:27:59.221103955Z 01:27:59 |  INFO | utils: ✅ Callback de despedida ejecutado
+2025-07-24T01:27:59.221108705Z 01:27:59 |  INFO | utils: ✅ Audio de despedida reproducido completamente
+2025-07-24T01:27:59.221125625Z 01:27:59 |  INFO | utils: ☎️ Terminando llamada en Twilio...
+2025-07-24T01:27:59.221131265Z 01:27:59 |  INFO | utils: ☎️ Terminando llamada CAbd607a7bdbc8f2be4345038927389275 en Twilio (motivo=assistant_request)...
+2025-07-24T01:27:59.404235239Z 01:27:59 |  INFO | utils: ✅ Twilio confirmó cierre de llamada CAbd607a7bdbc8f2be4345038927389275
+2025-07-24T01:27:59.404317781Z 01:27:59 |  INFO | utils: [LATENCIA] Terminación Twilio completada en 185.9 ms
+2025-07-24T01:27:59.404327701Z 01:27:59 |  INFO | utils: ✅ Llamada terminada en Twilio
+2025-07-24T01:27:59.404375442Z 01:27:59 |  INFO | utils: ⏳ Esperando 5.0s adicionales por robustez...
+2025-07-24T01:27:59.450728662Z 01:27:59 |  INFO | call_orchestrator: 🏥 Monitoreo de salud terminado
+2025-07-24T01:27:59.457751742Z 01:27:59 |  INFO | twilio_handler: 🛑 Evento STOP recibido
+2025-07-24T01:27:59.457827644Z 01:27:59 |  INFO | call_orchestrator: 🛑 Stream detenido por Twilio
+2025-07-24T01:27:59.457878845Z 01:27:59 |  INFO | call_orchestrator: 🔌 Shutdown ya en progreso, ignorando
+2025-07-24T01:27:59.457915816Z 01:27:59 |  INFO | twilio_handler: [LATENCIA] Evento 'stop' procesado en 0.2 ms
+2025-07-24T01:27:59.457960307Z 01:27:59 |  INFO | twilio_handler: 🧹 Limpiando TwilioHandler...
+2025-07-24T01:28:00.454729324Z 01:28:00 |  INFO | twilio_handler: ✅ WebSocket cerrado correctamente
+2025-07-24T01:28:00.454755235Z 01:28:00 |  INFO | twilio_handler: 📊 Duración de la conexión: 96.4 segundos
+2025-07-24T01:28:00.454850017Z 01:28:00 |  INFO | twilio_handler: ✅ TwilioHandler limpiado
+2025-07-24T01:28:00.454868637Z 01:28:00 |  INFO | twilio_handler: [LATENCIA] Cleanup de TwilioHandler completado en 996.9 ms
+2025-07-24T01:28:00.454928408Z 01:28:00 |  INFO | twilio_handler: [LATENCIA] Conexión WebSocket Twilio finalizada en 96438.9 ms
+2025-07-24T01:28:00.454943689Z 01:28:00 |  INFO | call_orchestrator: 🔌 Shutdown ya en progreso, ignorando
+2025-07-24T01:28:00.45498881Z 01:28:00 |  INFO | call_orchestrator: [LATENCIA] Llamada completa finalizada en 96739.2 ms
+2025-07-24T01:28:00.455072732Z 01:28:00 |  INFO | main: [LATENCIA] WebSocket /twilio-websocket completado en 96739.6 ms
+2025-07-24T01:28:00.455226005Z INFO:     connection closed
+2025-07-24T01:28:04.405299057Z 01:28:04 |  INFO | utils: 🔌 Cerrando WebSockets...
+2025-07-24T01:28:04.405330958Z 01:28:04 |  INFO | audio_manager: 🔌 Cerrando AudioManager...
+2025-07-24T01:28:04.40543489Z 01:28:04 |  INFO | deepgram_stt_streamer: Iniciando cierre de conexión Deepgram...
+2025-07-24T01:28:04.405818399Z 01:28:04 |  INFO | deepgram_stt_streamer: 📨 'CloseStream' enviado a Deepgram.
+2025-07-24T01:28:04.451114384Z 01:28:04 | WARNING | integration_manager: ⚠️ Deepgram desconectado detectado
+2025-07-24T01:28:04.451175105Z 01:28:04 |  INFO | integration_manager: 🔄 Intento de reconexión Deepgram 1/3
+2025-07-24T01:28:04.506461399Z 01:28:04 | WARNING | deepgram_stt_streamer: 🔒 Conexión Deepgram CERRADA (evento Close [()] [{'close': CloseResponse(type=<WebSocketEvents.Close: 'Close'>)}] recibido desde Deepgram).
+2025-07-24T01:28:04.50649506Z 01:28:04 |  INFO | deepgram_stt_streamer: Evento _on_close: Notificando al manager para posible reconexión.
+2025-07-24T01:28:04.50650993Z 01:28:04 | WARNING | call_orchestrator: 🔌 Deepgram desconectado
+2025-07-24T01:28:05.452059826Z 01:28:05 |  INFO | deepgram_stt_streamer: Intentando CONECTAR con Deepgram...
+2025-07-24T01:28:05.722455665Z 01:28:05 |  INFO | deepgram_stt_streamer: 🔛 Conexión Deepgram ABIERTA (evento Open recibido).
+2025-07-24T01:28:05.722552547Z 01:28:05 |  INFO | integration_manager: ✅ Deepgram reconectado exitosamente
+2025-07-24T01:28:05.722582248Z 01:28:05 |  INFO | integration_manager: [LATENCIA] Deepgram reconectado en 1271.4 ms
+2025-07-24T01:28:05.722635049Z 01:28:05 |  INFO | call_orchestrator: 🔄 Deepgram reconectado
+2025-07-24T01:28:06.507524544Z tasks cancelled error: 
+2025-07-24T01:28:06.507562794Z 01:28:06 | ERROR | deepgram.clients.common.v1.abstract_async_websocket: tasks cancelled error: 
+2025-07-24T01:28:06.507729048Z 01:28:06 |  INFO | deepgram_stt_streamer: ✅ Conexión Deepgram finalizada (método finish() del SDK).
+2025-07-24T01:28:06.507743689Z 01:28:06 |  INFO | deepgram_stt_streamer: 🧹 Estado de DeepgramSTTStreamer limpiado después del cierre.
+2025-07-24T01:28:06.507882452Z 01:28:06 |  INFO | audio_manager: ✅ Deepgram STT cerrado
+2025-07-24T01:28:06.508090366Z 01:28:06 |  INFO | eleven_ws_tts_client: 🔒 Cerrando ElevenLabs WebSocket...
+2025-07-24T01:28:06.508301762Z 01:28:06 |  INFO | eleven_ws_tts_client: [DIAGNÓSTICO] Sesión total: 11.0s, chunks: 3, errores: 0
+2025-07-24T01:28:06.508317942Z 01:28:06 |  INFO | eleven_ws_tts_client: ✅ ElevenLabs WebSocket cerrado
+2025-07-24T01:28:06.508366933Z 01:28:06 |  INFO | audio_manager: ✅ ElevenLabs TTS cerrado
+2025-07-24T01:28:06.508390544Z 01:28:06 |  INFO | audio_manager: ✅ AudioManager cerrado completamente
+2025-07-24T01:28:06.508442935Z 01:28:06 |  INFO | utils: ✅ AudioManager cerrado
+2025-07-24T01:28:06.508497666Z 01:28:06 |  INFO | conversation_flow: 🔌 Cerrando ConversationFlow...
+2025-07-24T01:28:06.508509706Z 01:28:06 | WARNING | conversation_flow: ⚠️ Cancelando tarea de IA activa...
+2025-07-24T01:28:06.508634659Z 01:28:06 |  INFO | conversation_flow: 📊 Conversación finalizada - Total: 14 mensajes (Usuario: 6, Asistente: 5)
+2025-07-24T01:28:06.50866866Z 01:28:06 |  INFO | conversation_flow: 📜 HISTORIAL COMPLETO:
+2025-07-24T01:28:06.508697211Z 01:28:06 |  INFO | conversation_flow:   [0] user: Hola, quiero cancelar una cita, por favor.
+2025-07-24T01:28:06.508723051Z 01:28:06 |  INFO | conversation_flow:   [1] assistant: Para cancelar una cita, necesito saber el número de teléfono con el que se registró la cita. ¿Podría proporcionarme ese número, por favor?
+2025-07-24T01:28:06.508776922Z 01:28:06 |  INFO | conversation_flow:   [2] user: Es 99, 85, 25 32, 19.
+2025-07-24T01:28:06.508792923Z 01:28:06 |  INFO | conversation_flow:   [3] assistant: Lo confirmo: noventa y nueve, ochenta y cinco, veinticinco, treinta y dos, diecinueve. ¿Es correcto?
+2025-07-24T01:28:06.508825243Z 01:28:06 |  INFO | conversation_flow:   [4] user: Sí, es correcto.
+2025-07-24T01:28:06.508854484Z 01:28:06 |  INFO | conversation_flow:   [5] tool: [{"event_id": "53a000l0hr9u25enpb7h47ld70", "patient_name": "Juan Rodríguez", "start_time_iso_utc": "2025-07-24T11:00:00-05:00", "start_time_cancun_iso": "2025-07-24T11:00:00-05:00", "start_time_cancun_pretty": "Jueves 24 de Julio a las once en punto de la mañana", "appointment_reason": "dolor en el pecho", "phone_in_description": "9985253219"}]
+2025-07-24T01:28:06.508878475Z 01:28:06 |  INFO | conversation_flow:   [6] user: Quieres que te repita?
+2025-07-24T01:28:06.508905915Z 01:28:06 |  INFO | conversation_flow:   [7] assistant: Lo siento, parece que hubo un malentendido. Te voy a preguntar de nuevo: ¿Quieres cancelar la cita del jueves 24 de julio a las once en punto de la mañana, cuyo motivo es "dolor en el pecho" y el teléfono asociado es el que me proporcionaste?
+2025-07-24T01:28:06.508950106Z 01:28:06 |  INFO | conversation_flow:   [8] user: Sí, quiero borrarlo,
+2025-07-24T01:28:06.508961577Z 01:28:06 |  INFO | conversation_flow:   [9] tool: {"message": "La cita para 'Juan Rodríguez' ha sido eliminada con éxito.", "deleted_event_id": "53a000l0hr9u25enpb7h47ld70"}
+2025-07-24T01:28:06.508998037Z 01:28:06 |  INFO | conversation_flow:   [10] assistant: Listo!!, está hecho. ¿Hay algo más en lo que pueda ayudarle?
+2025-07-24T01:28:06.509066879Z 01:28:06 |  INFO | conversation_flow:   [11] user: por favor.
+2025-07-24T01:28:06.509081009Z 01:28:06 |  INFO | conversation_flow:   [12] tool: {"action": "end_call", "reason": "user_request", "__terminate__": true}
+2025-07-24T01:28:06.50912195Z 01:28:06 |  INFO | conversation_flow:   [13] assistant: [end_call(reason="user_request")]
+2025-07-24T01:28:06.509134341Z 01:28:06 |  INFO | conversation_flow: ✅ ConversationFlow cerrado
+2025-07-24T01:28:06.509178291Z 01:28:06 |  INFO | utils: ✅ ConversationFlow cerrado
+2025-07-24T01:28:06.509214632Z 01:28:06 |  INFO | integration_manager: 🔌 Cerrando IntegrationManager...
+2025-07-24T01:28:06.509313145Z 01:28:06 |  INFO | integration_manager: ✅ IntegrationManager cerrado
+2025-07-24T01:28:06.509348625Z 01:28:06 |  INFO | integration_manager: [LATENCIA] IntegrationManager cerrado en 0.1 ms
+2025-07-24T01:28:06.509372396Z 01:28:06 |  INFO | utils: ✅ IntegrationManager cerrado
+2025-07-24T01:28:06.509423007Z 01:28:06 |  INFO | utils: 🧹 Limpieza final de memoria y tareas...
+2025-07-24T01:28:06.509462918Z 01:28:06 |  INFO | utils: ✅ Tarea de monitoreo cancelada
+2025-07-24T01:28:06.509503589Z 01:28:06 |  INFO | utils: ✅ Session state limpiado
+2025-07-24T01:28:06.5095486Z 01:28:06 |  INFO | utils: ✅ Cierre elegante completado en 10237.6 ms
+2025-07-24T01:28:06.509585701Z 01:28:06 |  INFO | utils: 🔚 Cierre de llamada finalizado - Razón: assistant_request
+2025-07-24T01:28:06.509616432Z 01:28:06 |  INFO | call_orchestrator: ✅ Terminación de llamada completada exitosamente (cierre_con_despedida terminó)
+2025-07-24T01:28:06.509629312Z 01:28:06 |  INFO | conversation_flow: ✅ Terminación de llamada ejecutada correctamente
+2025-07-24T01:28:07.711136677Z 01:28:07 | WARNING | deepgram_stt_streamer: 🔒 Conexión Deepgram CERRADA (evento Close [()] [{'close': CloseResponse(type=<WebSocketEvents.Close: 'Close'>)}] recibido desde Deepgram).
+2025-07-24T01:28:07.711164518Z 01:28:07 |  INFO | deepgram_stt_streamer: Evento _on_close: Notificando al manager para posible reconexión.
+2025-07-24T01:28:07.711203399Z 01:28:07 | WARNING | call_orchestrator: 🔌 Deepgram desconectado

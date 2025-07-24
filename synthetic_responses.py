@@ -164,6 +164,9 @@ def generate_synthetic_response(tool_name: str, result: Dict[str, Any]) -> str:
     """
     Genera una respuesta sintética basada en el resultado de una herramienta.
     """
+    # FIX: Si el resultado es una lista, envolverlo en un dict
+    if isinstance(result, list):
+        result = {"events": result}
     t0 = time.perf_counter()
     logger.info(f"[FUNCIONALIDAD] Generando respuesta sintética para tool '{tool_name}'...")
     if tool_name not in TEMPLATES:

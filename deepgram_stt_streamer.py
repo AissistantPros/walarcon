@@ -83,8 +83,8 @@ class DeepgramSTTStreamer:
             self.dg_connection.on(LiveTranscriptionEvents.Metadata, self._on_metadata)
 
             options = LiveOptions(
-                model="nova-2",
-                language="es-US",
+                model="nova-3",
+                language="multi",
                 encoding="mulaw",
                 sample_rate=8000,
                 channels=1,

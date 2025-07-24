@@ -53,6 +53,7 @@ class ToolEngine:
     """Encapsula el parseo, validación y ejecución de herramientas."""
     # Patrones para detectar diferentes formatos
     TOOL_CALL_PATTERN = re.compile(r'\[(\w+)\((.*?)\)\]', re.DOTALL)
+    TOOL_CALL_NO_ARGS_PATTERN = re.compile(r'\[(\w+)\]', re.DOTALL)  # NUEVO: acepta [toolname]
     JSON_PATTERN = re.compile(r'\{[^{}]*"type"\s*:\s*"function"[^{}]*\}', re.DOTALL)
     XML_PATTERN = re.compile(r'<function\s*=\s*(\w+)>(.*?)</function>', re.DOTALL)
     PYTHON_TAG_PATTERN = re.compile(r'<\|python_tag\|>\s*(\w+)\.call\((.*?)\)', re.DOTALL)
@@ -110,6 +111,12 @@ class ToolEngine:
                     tool_calls.append({"name": tool_name, "arguments": args})
                 except Exception as e:
                     logger.warning(f"Error parseando argumentos para '{tool_name}': {e}")
+        # 1b. NUEVO: Formato [toolname] sin paréntesis ni argumentos
+        for match in self.TOOL_CALL_NO_ARGS_PATTERN.finditer(text):
+            tool_name = match.group(1)
+            # Solo agregar si no fue ya detectado con paréntesis
+            if tool_name in self.tool_schemas and not any(tc["name"] == tool_name for tc in tool_calls):
+                tool_calls.append({"name": tool_name, "arguments": {}})
         
         # 2. Formato JSON (el problemático)
         for match in self.JSON_PATTERN.finditer(text):
