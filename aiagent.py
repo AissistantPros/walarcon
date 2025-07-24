@@ -307,6 +307,28 @@ Velocidad del viento: {current.get('wind_speed', 'N/A')}"""
         t_parse_end = perf_counter()
         logger.info(f"[PERF] Parsing de respuesta del LLM en {(t_parse_end - t_parse_start) * 1000:.1f} ms")
         
+        # --- INICIO: DETECCIÓN DE SOLICITUD DE TELÉFONO ---
+        phone_request_patterns = [
+            "número",
+            "teléfono",
+            "celular",
+            "whatsapp",
+            "contacto"
+        ]
+        if any(pattern in user_facing_text.lower() for pattern in phone_request_patterns):
+            # Activar modo captura de teléfono
+            if hasattr(self, 'conversation_flow') and self.conversation_flow:
+                self.conversation_flow.set_phone_capture_mode(True)
+                logger.info("📞 Detectada solicitud de número telefónico - activando pausa extendida")
+        # Detectar si ya se recibió un número (10 dígitos consecutivos)
+        import re
+        if re.search(r'\b\d{10}\b', " ".join([msg.get("content", "") for msg in history[-3:]])):
+            # Desactivar modo captura
+            if hasattr(self, 'conversation_flow') and self.conversation_flow:
+                self.conversation_flow.set_phone_capture_mode(False)
+                logger.info("✅ Número telefónico capturado - restaurando pausa normal")
+        # --- FIN: DETECCIÓN DE SOLICITUD DE TELÉFONO ---
+
         if tool_calls:
             emit_latency_event(session_id, "tool_detected", {"count": len(tool_calls)})
             

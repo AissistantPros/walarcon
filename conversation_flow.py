@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 TIMING_CONFIG = {
     # ⏱️ CRÍTICO: No cambiar sin pruebas exhaustivas
     "PAUSE_DETECTION": 0.5,        # Segundos de silencio = usuario terminó (aumentado para tolerar pausas naturales)
+    "PAUSE_DETECTION_FOR_PHONE": 2.0,  # NUEVO: Pausa extendida para números telefónicos
     "MAX_WAIT_TIME": 15.0,          # Máximo espera antes de forzar envío
     "MIN_TEXT_LENGTH": 2,          # Mínimo de caracteres para procesar
     "LATENCY_THRESHOLD": 0.05,     # 50ms para mensaje de espera
@@ -60,6 +61,7 @@ class ConversationState:
     
     # Métricas
     turn_start_time: Optional[float] = None
+    expecting_phone_number: bool = False  # NUEVO: Flag para modo captura de teléfono
 
 
 class ConversationFlow:
@@ -152,10 +154,17 @@ class ConversationFlow:
         Si se cancela → el usuario sigue hablando
         """
         try:
-            # Esperar el tiempo de pausa configurado
-            await asyncio.sleep(TIMING_CONFIG["PAUSE_DETECTION"])
+            # Seleccionar tiempo de pausa según contexto
+            pause_duration = (
+                TIMING_CONFIG["PAUSE_DETECTION_FOR_PHONE"] 
+                if self.state.expecting_phone_number 
+                else TIMING_CONFIG["PAUSE_DETECTION"]
+            )
             
-            # Si llegamos aquí, hubo pausa
+            logger.debug(f"⏲️ Timer de pausa iniciado ({pause_duration}s) - Modo teléfono: {self.state.expecting_phone_number}")
+            
+            await asyncio.sleep(pause_duration)
+            
             logger.debug("⏸️ Pausa detectada - procesando mensaje")
             t0 = time.perf_counter()
             logger.debug("[FUNCIONALIDAD] Pausa detectada, preparando TTS y procesando con LLM...")
@@ -163,7 +172,6 @@ class ConversationFlow:
             logger.debug(f"[LATENCIA] Proceso de pausa (preparar TTS + LLM) completado en {1000*(time.perf_counter()-t0):.1f} ms")
             
         except asyncio.CancelledError:
-            # Normal - usuario siguió hablando
             logger.debug("⏲️ Timer cancelado (usuario sigue hablando)")
     
     async def prepare_tts_ws(self):
@@ -466,3 +474,15 @@ class ConversationFlow:
             "is_processing": self.is_processing(),
             "session_id": self.session_id
         }
+
+    def set_phone_capture_mode(self, enabled: bool) -> None:
+        """
+        🔄 Activa/desactiva el modo de captura de número telefónico
+        Args:
+            enabled: True para activar pausas extendidas, False para modo normal
+        """
+        self.state.expecting_phone_number = enabled
+        logger.info(f"📞 Modo captura teléfono: {'ACTIVADO' if enabled else 'DESACTIVADO'}")
+        # Si hay un timer activo, reiniciarlo con el nuevo tiempo
+        if self.state.pause_timer and not self.state.pause_timer.done():
+            self._restart_pause_timer()

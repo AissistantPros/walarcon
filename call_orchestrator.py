@@ -255,6 +255,10 @@ class CallOrchestrator:
                 response_handler=self._handle_ai_response,
                 audio_manager=self.audio_manager
             )
+            # Pasar la referencia a AIAgent
+            if hasattr(self, 'conversation_flow'):
+                from aiagent import ai_agent
+                ai_agent.conversation_flow = self.conversation_flow
             
             # NUEVO: Establecer referencia al manager en ConversationFlow
             setattr(self.conversation_flow, '_manager_reference', self)
