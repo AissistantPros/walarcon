@@ -29,7 +29,7 @@ TIMING_CONFIG = {
     # ⏱️ CRÍTICO: No cambiar sin pruebas exhaustivas
     "PAUSE_DETECTION": 0.5,        # Segundos de silencio = usuario terminó (aumentado para tolerar pausas naturales)
     "PAUSE_DETECTION_FOR_PHONE": 1.0,  # Pausa extendida para números telefónicos
-    "MAX_WAIT_TIME": 3.0,          # Máximo espera antes de forzar envío
+    "MAX_WAIT_TIME": 15.0,          # Máximo espera antes de forzar envío
     "MIN_TEXT_LENGTH": 2,          # Mínimo de caracteres para procesar
     "LATENCY_THRESHOLD": 0.05,     # 50ms para mensaje de espera
 }
